@@ -90,7 +90,7 @@ protocol AudioServiceProtocol: AnyObject, Sendable {
 // MARK: - Audio Playback Delegate
 
 /// Delegate for receiving audio playback events
-protocol AudioPlaybackDelegate: AnyObject {
+protocol AudioPlaybackDelegate: AnyObject, Sendable {
     /// Called when playback completes
     func audioPlaybackDidComplete()
     
@@ -102,6 +102,15 @@ protocol AudioPlaybackDelegate: AnyObject {
     
     /// Called when an error occurs during playback
     func audioPlaybackDidFail(with error: AppError)
+}
+
+// MARK: - Default Delegate Implementation
+
+extension AudioPlaybackDelegate {
+    func audioPlaybackDidComplete() {}
+    func audioPlaybackWasInterrupted() {}
+    func audioPlaybackCanResume() {}
+    func audioPlaybackDidFail(with error: AppError) {}
 }
 
 // MARK: - Mock Implementation
@@ -155,53 +164,14 @@ final class MockAudioService: AudioServiceProtocol, @unchecked Sendable {
     }
 }
 
-// MARK: - Placeholder Implementation
+// MARK: - Production Implementation
 
-/// Placeholder implementation until real service is built
-final class AudioService: AudioServiceProtocol, @unchecked Sendable {
-    var isRunning: Bool = false
-    var currentBinauralPreset: BinauralPreset?
-    var playbackVolume: Float = 1.0
-    var binauralVolume: Float = Constants.Audio.binauralVolume
-    
-    func start() async throws {
-        // TODO: Implement AVAudioEngine setup in Phase 1
-        isRunning = true
-    }
-    
-    func stop() async {
-        isRunning = false
-    }
-    
-    func startBinauralBeats(preset: BinauralPreset) async throws {
-        currentBinauralPreset = preset
-    }
-    
-    func stopBinauralBeats() async {
-        currentBinauralPreset = nil
-    }
-    
-    func changeBinauralPreset(_ preset: BinauralPreset) async {
-        currentBinauralPreset = preset
-    }
-    
-    func playAudioFile(named fileName: String) async throws {
-        // TODO: Implement in Phase 1
-    }
-    
-    func playAudioData(_ data: Data) async throws {
-        // TODO: Implement in Phase 1
-    }
-    
-    func stopPlayback() async {}
-    func pausePlayback() async {}
-    func resumePlayback() async {}
-    
-    func setPlaybackVolume(_ volume: Float) async {
-        playbackVolume = volume
-    }
-    
-    func setBinauralVolume(_ volume: Float) async {
-        binauralVolume = volume
-    }
-}
+// The production AudioService is implemented in:
+// Sources/Core/Services/Audio/AudioService.swift
+//
+// Supporting components:
+// - AudioSessionManager.swift (session lifecycle)
+// - BinauralBeatGenerator.swift (tone generation)
+// - AudioPlayerService.swift (file playback)
+// - AudioCacheManager.swift (file storage)
+// - SystemTTSService.swift (system TTS)

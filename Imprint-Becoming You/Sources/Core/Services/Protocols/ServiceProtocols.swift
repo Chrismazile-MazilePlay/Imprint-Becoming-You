@@ -449,17 +449,46 @@ final class MockAudioCacheService: AudioCacheServiceProtocol, @unchecked Sendabl
 // MARK: - Placeholder Implementations
 
 final class TTSService: TTSServiceProtocol, @unchecked Sendable {
-    var isSpeaking: Bool = false
+    
+    /// System TTS service for offline speech
+    private let systemTTS = SystemTTSService()
+    
+    /// Audio cache manager
+    private let cacheManager = AudioCacheManager.shared
+    
+    var isSpeaking: Bool {
+        systemTTS.isSpeaking
+    }
     
     func synthesize(text: String, voiceId: String?) async throws -> Data {
-        throw AppError.notImplemented(feature: "TTS Synthesis")
+        // If voiceId is provided, use ElevenLabs (Phase 5)
+        if let voiceId = voiceId {
+            // Check cache first
+            if let cachedData = await cacheManager.getCachedAudio(forText: text, voiceId: voiceId) {
+                return cachedData
+            }
+            
+            // TODO: Phase 5 - ElevenLabs API call
+            throw AppError.notImplemented(feature: "ElevenLabs TTS")
+        }
+        
+        // Use system TTS
+        return try await systemTTS.synthesizeToData(text)
     }
     
     func speakText(_ text: String, voiceId: String?) async throws {
-        throw AppError.notImplemented(feature: "TTS Playback")
+        // If voiceId is provided, use ElevenLabs (Phase 5)
+        if voiceId != nil {
+            throw AppError.notImplemented(feature: "ElevenLabs TTS Playback")
+        }
+        
+        // Use system TTS
+        try await systemTTS.speak(text)
     }
     
-    func stopSpeaking() async {}
+    func stopSpeaking() async {
+        systemTTS.stopSpeaking()
+    }
 }
 
 final class AffirmationService: AffirmationServiceProtocol, @unchecked Sendable {
@@ -567,22 +596,33 @@ final class SubscriptionService: SubscriptionServiceProtocol, @unchecked Sendabl
 }
 
 final class AudioCacheService: AudioCacheServiceProtocol, @unchecked Sendable {
-    var maxCacheSize: Int64 = Constants.Cache.maxAudioCacheSize
+    
+    /// The underlying cache manager
+    private let cacheManager = AudioCacheManager.shared
+    
+    var maxCacheSize: Int64 {
+        cacheManager.maxCacheSize
+    }
     
     var cacheSize: Int64 {
-        get async { 0 }
+        get async {
+            await cacheManager.cacheSize
+        }
     }
     
     func getCachedAudio(forText text: String, voiceId: String) async -> Data? {
-        // TODO: Implement in Phase 6
-        nil
+        await cacheManager.getCachedAudio(forText: text, voiceId: voiceId)
     }
     
     func cacheAudio(_ data: Data, forText text: String, voiceId: String) async throws -> String {
-        // TODO: Implement in Phase 6
-        throw AppError.notImplemented(feature: "Audio Caching")
+        try await cacheManager.cacheAudio(data, forText: text, voiceId: voiceId)
     }
     
-    func removeCachedAudio(fileName: String) async {}
-    func clearCache() async {}
+    func removeCachedAudio(fileName: String) async {
+        await cacheManager.removeCachedAudio(fileName: fileName)
+    }
+    
+    func clearCache() async {
+        await cacheManager.clearCache()
+    }
 }

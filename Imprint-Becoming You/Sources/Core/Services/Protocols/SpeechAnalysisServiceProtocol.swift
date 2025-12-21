@@ -194,58 +194,13 @@ final class MockSpeechAnalysisService: SpeechAnalysisServiceProtocol, @unchecked
     }
 }
 
-// MARK: - Placeholder Implementation
+// MARK: - Production Implementation
 
-/// Placeholder implementation until real service is built in Phase 2
-final class SpeechAnalysisService: SpeechAnalysisServiceProtocol, @unchecked Sendable {
-    var isAnalyzing: Bool = false
-    
-    var hasMicrophonePermission: Bool {
-        get async { false }
-    }
-    
-    var hasSpeechRecognitionPermission: Bool {
-        get async { false }
-    }
-    
-    lazy var realtimeScoreStream: AsyncStream<Float> = {
-        AsyncStream { _ in }
-    }()
-    
-    lazy var recognizedTextStream: AsyncStream<String> = {
-        AsyncStream { _ in }
-    }()
-    
-    lazy var silenceDetectedStream: AsyncStream<Bool> = {
-        AsyncStream { _ in }
-    }()
-    
-    func requestMicrophonePermission() async -> Bool {
-        // TODO: Implement in Phase 2
-        false
-    }
-    
-    func requestSpeechRecognitionPermission() async -> Bool {
-        // TODO: Implement in Phase 2
-        false
-    }
-    
-    func startAnalysis(
-        forAffirmation affirmationText: String,
-        calibrationData: CalibrationData?
-    ) async throws {
-        // TODO: Implement in Phase 2
-        throw AppError.notImplemented(feature: "Speech Analysis")
-    }
-    
-    func stopAnalysis() async -> ResonanceRecord? {
-        nil
-    }
-    
-    func cancelAnalysis() async {}
-    
-    func performCalibration(with sampleAffirmations: [String]) async throws -> CalibrationData {
-        // TODO: Implement in Phase 2
-        throw AppError.notImplemented(feature: "Voice Calibration")
-    }
-}
+// The production SpeechAnalysisService is implemented in:
+// Sources/Core/Services/Speech/SpeechAnalysisService.swift
+//
+// Supporting components:
+// - AudioInputManager.swift (microphone capture)
+// - SpeechRecognitionService.swift (Apple Speech framework)
+// - ResonanceScoreCalculator.swift (scoring calculations)
+// - VoiceCalibrationService.swift (baseline measurement)

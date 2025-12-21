@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Imprint needs microphone access to analyze your voice during affirmation practice.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Imprint uses speech recognition to transcribe your affirmations for accuracy scoring.</string>
+</dict>
+</plist>

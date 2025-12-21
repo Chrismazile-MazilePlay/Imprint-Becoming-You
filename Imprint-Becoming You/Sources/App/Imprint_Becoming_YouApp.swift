@@ -226,7 +226,7 @@ struct LaunchView: View {
 
 // MARK: - Placeholder Views
 
-/// Placeholder for onboarding flow (to be implemented in Phase 3)
+/*/// Placeholder for onboarding flow (to be implemented in Phase 3)
 struct OnboardingContainerView: View {
     
     @Environment(\.appState) private var appState
@@ -286,7 +286,7 @@ struct OnboardingContainerView: View {
             appState.presentError(.saveFailed(reason: error.localizedDescription))
         }
     }
-}
+} */
 
 /// Placeholder for main tab view (to be implemented in Phase 4)
 struct MainTabView: View {

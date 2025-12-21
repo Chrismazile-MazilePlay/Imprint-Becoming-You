@@ -105,6 +105,10 @@ enum AppColors {
     
     // MARK: - UI Element Colors
     
+    /// Surface color for tertiary UI elements
+    /// Hex: #48484A
+    static let surfaceTertiary = Color("surfaceTertiary")
+    
     /// Separator/divider lines
     /// Hex: #38383A
     static let separator = Color("separator")

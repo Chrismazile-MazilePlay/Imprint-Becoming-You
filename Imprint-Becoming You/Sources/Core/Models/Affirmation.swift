@@ -62,6 +62,29 @@ final class Affirmation {
     /// Whether this is from the offline bundle
     var isOfflineContent: Bool
     
+    // MARK: - Engagement Properties (Phase 4A)
+    
+    /// Whether user has favorited this affirmation
+    var isFavorited: Bool
+    
+    /// Date when the affirmation was favorited
+    var favoritedAt: Date?
+    
+    /// Number of times this affirmation has been viewed
+    var viewCount: Int
+    
+    /// Number of times user has spoken this affirmation
+    var speakCount: Int
+    
+    /// Number of times this affirmation has been shared
+    var shareCount: Int
+    
+    /// Number of times user skipped past this affirmation quickly
+    var skipCount: Int
+    
+    /// Date of last interaction with this affirmation
+    var lastInteractedAt: Date?
+    
     // MARK: - Initialization
     
     /// Creates a new affirmation
@@ -79,7 +102,14 @@ final class Affirmation {
         resonanceScores: [ResonanceRecord] = [],
         batchId: UUID? = nil,
         batchIndex: Int = 0,
-        isOfflineContent: Bool = false
+        isOfflineContent: Bool = false,
+        isFavorited: Bool = false,
+        favoritedAt: Date? = nil,
+        viewCount: Int = 0,
+        speakCount: Int = 0,
+        shareCount: Int = 0,
+        skipCount: Int = 0,
+        lastInteractedAt: Date? = nil
     ) {
         self.id = id
         self.text = text
@@ -97,6 +127,13 @@ final class Affirmation {
         self.batchId = batchId
         self.batchIndex = batchIndex
         self.isOfflineContent = isOfflineContent
+        self.isFavorited = isFavorited
+        self.favoritedAt = favoritedAt
+        self.viewCount = viewCount
+        self.speakCount = speakCount
+        self.shareCount = shareCount
+        self.skipCount = skipCount
+        self.lastInteractedAt = lastInteractedAt
     }
 }
 
@@ -147,6 +184,17 @@ extension Affirmation {
     var goalCategory: GoalCategory? {
         GoalCategory(rawValue: category)
     }
+    
+    /// Engagement score for recommendation algorithm
+    var engagementScore: Double {
+        var score = Double(viewCount) * 0.1
+        score += Double(speakCount) * 0.3
+        score += Double(averageResonanceScore ?? 0) * 0.3
+        score += Double(shareCount) * 0.5
+        score -= Double(skipCount) * 0.2
+        if isFavorited { score += 1.0 }
+        return max(0, score)
+    }
 }
 
 // MARK: - ResonanceRecord
@@ -186,8 +234,8 @@ struct ResonanceRecord: Codable, Equatable, Sendable, Identifiable {
         textAccuracy: Float,
         vocalEnergy: Float,
         pitchStability: Float,
-        duration: TimeInterval,
-        sessionMode: SessionMode
+        duration: TimeInterval = 0,
+        sessionMode: SessionMode = .speakOnly
     ) {
         self.id = id
         self.timestamp = timestamp

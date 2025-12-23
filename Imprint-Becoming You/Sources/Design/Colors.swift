@@ -105,6 +105,10 @@ enum AppColors {
     
     // MARK: - UI Element Colors
     
+    /// Surface color for secondary UI elements (cards, sheets)
+    /// Hex: #2C2C2E (same as backgroundTertiary)
+    static let surfaceSecondary = Color("backgroundTertiary")
+    
     /// Surface color for tertiary UI elements
     /// Hex: #48484A
     static let surfaceTertiary = Color("surfaceTertiary")
@@ -249,6 +253,12 @@ extension RadialGradient {
                 colorSwatch("Secondary", color: AppColors.backgroundSecondary)
                 colorSwatch("Tertiary", color: AppColors.backgroundTertiary)
                 colorSwatch("Elevated", color: AppColors.backgroundElevated)
+            }
+            
+            // Surfaces
+            colorSection(title: "Surfaces") {
+                colorSwatch("Surface Secondary", color: AppColors.surfaceSecondary)
+                colorSwatch("Surface Tertiary", color: AppColors.surfaceTertiary)
             }
             
             // Text

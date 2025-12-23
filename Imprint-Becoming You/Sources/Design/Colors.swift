@@ -25,7 +25,8 @@ enum AppColors {
     
     /// Primary accent color - Warm Amber/Gold
     /// Hex: #D4A574
-    static let accent = Color("accent")
+    /// Note: Named 'brandAccent' in Assets to avoid conflict with system 'accent' symbol
+    static let accent = Color("AccentColor")
     
     /// Secondary accent color - Soft Sage
     /// Hex: #8BA888
@@ -115,7 +116,8 @@ enum AppColors {
     
     /// Separator/divider lines
     /// Hex: #38383A
-    static let separator = Color("separator")
+    /// Note: Named 'divider' in Assets to avoid conflict with UIColor.separator
+    static let separator = Color("divider")
     
     /// Card borders
     /// Hex: #48484A

@@ -152,7 +152,6 @@ actor AudioInputManager {
         guard let channelData = buffer.floatChannelData else { return }
         
         let frameLength = Int(buffer.frameLength)
-        let channelCount = Int(buffer.format.channelCount)
         
         // Get samples from first channel
         let samples = Array(UnsafeBufferPointer(

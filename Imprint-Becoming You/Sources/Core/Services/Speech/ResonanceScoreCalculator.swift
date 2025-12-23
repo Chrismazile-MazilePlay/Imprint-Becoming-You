@@ -204,15 +204,6 @@ final class ResonanceScoreCalculator: @unchecked Sendable {
         var stdDev: Float = 0
         vDSP_normalize(pitchSamples, 1, nil, 1, &mean, &stdDev, vDSP_Length(pitchSamples.count))
         
-        // Get expected pitch range from calibration
-        let expectedRange: Float
-        if let calibration = calibrationData {
-            expectedRange = calibration.pitchRange
-        } else {
-            // Default expected range (typical speech variation)
-            expectedRange = 50.0 // Hz
-        }
-        
         // Coefficient of variation (relative to mean)
         let cv = mean > 0 ? (stdDev / mean) : 0
         

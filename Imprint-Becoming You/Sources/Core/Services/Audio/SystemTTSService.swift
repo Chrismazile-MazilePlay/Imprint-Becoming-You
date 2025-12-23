@@ -15,12 +15,6 @@ import AVFoundation
 /// - User hasn't cloned their voice
 /// - Network is unavailable
 /// - ElevenLabs API fails
-///
-/// ## Usage
-/// ```swift
-/// let tts = SystemTTSService()
-/// try await tts.speak("I am confident and capable")
-/// ```
 final class SystemTTSService: NSObject, @unchecked Sendable {
     
     // MARK: - Properties
@@ -28,11 +22,17 @@ final class SystemTTSService: NSObject, @unchecked Sendable {
     /// The underlying speech synthesizer
     private let synthesizer: AVSpeechSynthesizer
     
+    /// Serial queue for thread-safe state access
+    private let stateQueue = DispatchQueue(label: "com.imprint.tts.state")
+    
     /// Current speech utterance
     private var currentUtterance: AVSpeechUtterance?
     
     /// Whether speech is currently in progress
-    private(set) var isSpeaking: Bool = false
+    private var _isSpeaking: Bool = false
+    var isSpeaking: Bool {
+        stateQueue.sync { _isSpeaking }
+    }
     
     /// Continuation for async speech completion
     private var speechContinuation: CheckedContinuation<Void, Error>?
@@ -56,17 +56,12 @@ final class SystemTTSService: NSObject, @unchecked Sendable {
     /// Selected voice (nil uses default)
     private var selectedVoice: AVSpeechSynthesisVoice?
     
-    /// Lock for thread safety
-    private let lock = NSLock()
-    
     // MARK: - Initialization
     
     override init() {
         synthesizer = AVSpeechSynthesizer()
         super.init()
         synthesizer.delegate = self
-        
-        // Select a good default voice
         selectDefaultVoice()
     }
     
@@ -74,38 +69,27 @@ final class SystemTTSService: NSObject, @unchecked Sendable {
     
     /// Selects the best available voice
     private func selectDefaultVoice() {
-        // Prefer enhanced/premium voices
         let voices = AVSpeechSynthesisVoice.speechVoices()
         
         // Try to find a high-quality English voice
         let preferredVoices = voices.filter { voice in
-            voice.language.starts(with: "en") &&
-            voice.quality == .enhanced
+            voice.language.starts(with: "en") && voice.quality == .enhanced
         }
         
-        if let premiumVoice = preferredVoices.first {
-            selectedVoice = premiumVoice
-        } else {
-            // Fallback to default English voice
-            selectedVoice = AVSpeechSynthesisVoice(language: "en-US")
-        }
+        selectedVoice = preferredVoices.first ?? AVSpeechSynthesisVoice(language: "en-US")
     }
     
     /// Sets a specific voice by identifier
-    /// - Parameter identifier: Voice identifier
     func setVoice(identifier: String) {
         selectedVoice = AVSpeechSynthesisVoice(identifier: identifier)
     }
     
     /// Sets voice by language
-    /// - Parameter language: Language code (e.g., "en-US")
     func setVoice(language: String) {
         selectedVoice = AVSpeechSynthesisVoice(language: language)
     }
     
     /// Returns available voices for a language
-    /// - Parameter language: Language code prefix (e.g., "en")
-    /// - Returns: Array of available voices
     func availableVoices(forLanguage language: String = "en") -> [VoiceInfo] {
         AVSpeechSynthesisVoice.speechVoices()
             .filter { $0.language.starts(with: language) }
@@ -115,106 +99,133 @@ final class SystemTTSService: NSObject, @unchecked Sendable {
     // MARK: - Speech Control
     
     /// Speaks the given text
-    /// - Parameter text: Text to speak
-    /// - Throws: `AppError.audioPlaybackFailed` if speech fails
     func speak(_ text: String) async throws {
         // Stop any current speech
         stopSpeaking()
         
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = selectedVoice
-        utterance.rate = speechRate
-        utterance.pitchMultiplier = pitchMultiplier
-        utterance.volume = volume
-        utterance.preUtteranceDelay = preUtteranceDelay
-        utterance.postUtteranceDelay = postUtteranceDelay
-        
-        lock.lock()
-        currentUtterance = utterance
-        isSpeaking = true
-        lock.unlock()
+        // Capture Sendable configuration values BEFORE the closure
+        let voice = selectedVoice
+        let rate = speechRate
+        let pitch = pitchMultiplier
+        let vol = volume
+        let preDelay = preUtteranceDelay
+        let postDelay = postUtteranceDelay
         
         // Start speaking and wait for completion
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            lock.lock()
-            speechContinuation = continuation
-            lock.unlock()
+            stateQueue.sync {
+                speechContinuation = continuation
+            }
             
-            synthesizer.speak(utterance)
+            // Create utterance ON main thread to avoid Sendable capture warning
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else {
+                    continuation.resume(throwing: AppError.audioPlaybackFailed(reason: "Service deallocated"))
+                    return
+                }
+                
+                // Create utterance here - AVSpeechUtterance is not Sendable
+                let utterance = AVSpeechUtterance(string: text)
+                utterance.voice = voice
+                utterance.rate = rate
+                utterance.pitchMultiplier = pitch
+                utterance.volume = vol
+                utterance.preUtteranceDelay = preDelay
+                utterance.postUtteranceDelay = postDelay
+                
+                self.stateQueue.sync {
+                    self.currentUtterance = utterance
+                    self._isSpeaking = true
+                }
+                
+                self.synthesizer.speak(utterance)
+            }
         }
     }
     
     /// Stops any current speech
     func stopSpeaking() {
-        lock.lock()
-        defer { lock.unlock() }
-        
-        if synthesizer.isSpeaking {
-            synthesizer.stopSpeaking(at: .immediate)
+        stateQueue.sync {
+            _isSpeaking = false
+            currentUtterance = nil
+            
+            // Cancel continuation if waiting
+            speechContinuation?.resume(returning: ())
+            speechContinuation = nil
         }
         
-        isSpeaking = false
-        currentUtterance = nil
-        
-        // Cancel continuation if waiting
-        speechContinuation?.resume(returning: ())
-        speechContinuation = nil
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            if self.synthesizer.isSpeaking {
+                self.synthesizer.stopSpeaking(at: .immediate)
+            }
+        }
     }
     
     /// Pauses speech
     func pauseSpeaking() {
-        synthesizer.pauseSpeaking(at: .word)
+        DispatchQueue.main.async { [weak self] in
+            self?.synthesizer.pauseSpeaking(at: .word)
+        }
     }
     
     /// Continues paused speech
     func continueSpeaking() {
-        synthesizer.continueSpeaking()
+        DispatchQueue.main.async { [weak self] in
+            self?.synthesizer.continueSpeaking()
+        }
     }
     
     // MARK: - Synthesis to Audio
     
     /// Synthesizes text to audio data (for caching)
-    /// - Parameter text: Text to synthesize
-    /// - Returns: Audio data
-    /// - Throws: `AppError.audioPlaybackFailed` if synthesis fails
     func synthesizeToData(_ text: String) async throws -> Data {
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = selectedVoice
-        utterance.rate = speechRate
-        utterance.pitchMultiplier = pitchMultiplier
-        utterance.volume = volume
+        // Capture Sendable configuration values BEFORE the closure
+        let voice = selectedVoice
+        let rate = speechRate
+        let pitch = pitchMultiplier
+        let vol = volume
         
         return try await withCheckedThrowingContinuation { continuation in
-            var audioBuffers: [AVAudioBuffer] = []
-            
-            synthesizer.write(utterance) { buffer in
-                guard let pcmBuffer = buffer as? AVAudioPCMBuffer else {
-                    if audioBuffers.isEmpty {
-                        continuation.resume(throwing: AppError.audioPlaybackFailed(
-                            reason: "No audio data generated"
-                        ))
-                    } else {
-                        // Synthesis complete - combine buffers
-                        do {
-                            let data = try self.combineBuffers(audioBuffers)
-                            continuation.resume(returning: data)
-                        } catch {
-                            continuation.resume(throwing: AppError.audioPlaybackFailed(
-                                reason: "Failed to combine audio: \(error.localizedDescription)"
-                            ))
-                        }
-                    }
+            // Create utterance ON main thread to avoid Sendable capture warning
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else {
+                    continuation.resume(throwing: AppError.audioPlaybackFailed(reason: "Service deallocated"))
                     return
                 }
                 
-                audioBuffers.append(pcmBuffer)
+                // Create utterance here - AVSpeechUtterance is not Sendable
+                let utterance = AVSpeechUtterance(string: text)
+                utterance.voice = voice
+                utterance.rate = rate
+                utterance.pitchMultiplier = pitch
+                utterance.volume = vol
+                
+                var audioBuffers: [AVAudioPCMBuffer] = []
+                
+                self.synthesizer.write(utterance) { buffer in
+                    guard let pcmBuffer = buffer as? AVAudioPCMBuffer else {
+                        if audioBuffers.isEmpty {
+                            continuation.resume(throwing: AppError.audioPlaybackFailed(reason: "No audio data generated"))
+                        } else {
+                            do {
+                                let data = try self.combineBuffers(audioBuffers)
+                                continuation.resume(returning: data)
+                            } catch {
+                                continuation.resume(throwing: AppError.audioPlaybackFailed(reason: "Failed to combine audio: \(error.localizedDescription)"))
+                            }
+                        }
+                        return
+                    }
+                    audioBuffers.append(pcmBuffer)
+                }
             }
         }
     }
     
     /// Combines audio buffers into a single Data object
-    private func combineBuffers(_ buffers: [AVAudioBuffer]) throws -> Data {
-        guard let firstBuffer = buffers.first as? AVAudioPCMBuffer else {
+    private func combineBuffers(_ buffers: [AVAudioPCMBuffer]) throws -> Data {
+        guard let firstBuffer = buffers.first else {
             throw AppError.audioPlaybackFailed(reason: "No audio buffers to combine")
         }
         
@@ -222,41 +233,28 @@ final class SystemTTSService: NSObject, @unchecked Sendable {
         var totalFrames: AVAudioFrameCount = 0
         
         for buffer in buffers {
-            guard let pcm = buffer as? AVAudioPCMBuffer else { continue }
-            totalFrames += pcm.frameLength
+            totalFrames += buffer.frameLength
         }
         
-        guard let combinedBuffer = AVAudioPCMBuffer(
-            pcmFormat: format,
-            frameCapacity: totalFrames
-        ) else {
+        guard let combinedBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: totalFrames) else {
             throw AppError.audioPlaybackFailed(reason: "Failed to create combined buffer")
         }
         
         var offset: AVAudioFrameCount = 0
         
         for buffer in buffers {
-            guard let pcm = buffer as? AVAudioPCMBuffer else { continue }
+            let frameLength = buffer.frameLength
             
-            let frameLength = pcm.frameLength
-            
-            if let srcData = pcm.floatChannelData,
+            if let srcData = buffer.floatChannelData,
                let dstData = combinedBuffer.floatChannelData {
                 for channel in 0..<Int(format.channelCount) {
-                    memcpy(
-                        dstData[channel] + Int(offset),
-                        srcData[channel],
-                        Int(frameLength) * MemoryLayout<Float>.size
-                    )
+                    memcpy(dstData[channel] + Int(offset), srcData[channel], Int(frameLength) * MemoryLayout<Float>.size)
                 }
             }
-            
             offset += frameLength
         }
         
         combinedBuffer.frameLength = totalFrames
-        
-        // Convert to WAV data
         return try bufferToWAVData(combinedBuffer)
     }
     
@@ -265,7 +263,7 @@ final class SystemTTSService: NSObject, @unchecked Sendable {
         let format = buffer.format
         let sampleRate = UInt32(format.sampleRate)
         let channels = UInt16(format.channelCount)
-        let bitsPerSample: UInt16 = 32 // Float32
+        let bitsPerSample: UInt16 = 32
         let byteRate = sampleRate * UInt32(channels) * UInt32(bitsPerSample / 8)
         let blockAlign = channels * (bitsPerSample / 8)
         let dataSize = UInt32(buffer.frameLength) * UInt32(channels) * UInt32(bitsPerSample / 8)
@@ -279,8 +277,8 @@ final class SystemTTSService: NSObject, @unchecked Sendable {
         
         // fmt chunk
         data.append(contentsOf: "fmt ".utf8)
-        data.append(contentsOf: withUnsafeBytes(of: UInt32(16).littleEndian) { Array($0) }) // Chunk size
-        data.append(contentsOf: withUnsafeBytes(of: UInt16(3).littleEndian) { Array($0) }) // Audio format (IEEE float)
+        data.append(contentsOf: withUnsafeBytes(of: UInt32(16).littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: UInt16(3).littleEndian) { Array($0) })
         data.append(contentsOf: withUnsafeBytes(of: channels.littleEndian) { Array($0) })
         data.append(contentsOf: withUnsafeBytes(of: sampleRate.littleEndian) { Array($0) })
         data.append(contentsOf: withUnsafeBytes(of: byteRate.littleEndian) { Array($0) })
@@ -314,34 +312,34 @@ extension SystemTTSService: AVSpeechSynthesizerDelegate {
     }
     
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        lock.lock()
-        isSpeaking = false
-        currentUtterance = nil
-        let continuation = speechContinuation
-        speechContinuation = nil
-        lock.unlock()
+        var continuation: CheckedContinuation<Void, Error>?
+        
+        stateQueue.sync {
+            _isSpeaking = false
+            currentUtterance = nil
+            continuation = speechContinuation
+            speechContinuation = nil
+        }
         
         continuation?.resume(returning: ())
         delegate?.ttsDidFinish()
     }
     
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        lock.lock()
-        isSpeaking = false
-        currentUtterance = nil
-        let continuation = speechContinuation
-        speechContinuation = nil
-        lock.unlock()
+        var continuation: CheckedContinuation<Void, Error>?
+        
+        stateQueue.sync {
+            _isSpeaking = false
+            currentUtterance = nil
+            continuation = speechContinuation
+            speechContinuation = nil
+        }
         
         continuation?.resume(returning: ())
         delegate?.ttsDidCancel()
     }
     
-    func speechSynthesizer(
-        _ synthesizer: AVSpeechSynthesizer,
-        willSpeakRangeOfSpeechString characterRange: NSRange,
-        utterance: AVSpeechUtterance
-    ) {
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, willSpeakRangeOfSpeechString characterRange: NSRange, utterance: AVSpeechUtterance) {
         let text = utterance.speechString as NSString
         let word = text.substring(with: characterRange)
         delegate?.ttsWillSpeak(word: word, range: characterRange)
@@ -350,7 +348,6 @@ extension SystemTTSService: AVSpeechSynthesizerDelegate {
 
 // MARK: - VoiceInfo
 
-/// Information about an available voice
 struct VoiceInfo: Identifiable, Sendable {
     let id: String
     let name: String
@@ -367,22 +364,12 @@ struct VoiceInfo: Identifiable, Sendable {
 
 // MARK: - SystemTTSDelegate
 
-/// Delegate for TTS events
-protocol SystemTTSDelegate: AnyObject, Sendable {
-    /// Called when speech starts
+protocol SystemTTSDelegate: AnyObject {
     func ttsDidStart()
-    
-    /// Called when speech finishes
     func ttsDidFinish()
-    
-    /// Called when speech is cancelled
     func ttsDidCancel()
-    
-    /// Called for each word being spoken
     func ttsWillSpeak(word: String, range: NSRange)
 }
-
-// MARK: - Default Implementation
 
 extension SystemTTSDelegate {
     func ttsDidStart() {}

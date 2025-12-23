@@ -249,7 +249,7 @@ actor AudioCacheManager: AudioCacheServiceProtocol {
     
     /// Evicts entries if needed to make room for new data
     private func evictIfNeeded(forNewDataSize newSize: Int64) async {
-        var targetSize = maxCacheSize - newSize
+        let targetSize = maxCacheSize - newSize
         
         guard metadata.totalSize > targetSize else { return }
         

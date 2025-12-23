@@ -260,8 +260,10 @@ final class PracticeViewModel {
         
         recordInteraction()
         
-        // If switching to an active mode, begin the flow
+        // If switching to an active mode, reset to beginning and begin the flow
         if mode != .readOnly {
+            // Always start from the first affirmation when entering a new mode
+            currentIndex = 0
             await beginAffirmationFlow()
         }
     }

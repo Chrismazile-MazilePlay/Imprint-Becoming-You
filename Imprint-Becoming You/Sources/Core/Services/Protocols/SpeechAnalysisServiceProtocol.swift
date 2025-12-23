@@ -156,7 +156,7 @@ final class MockSpeechAnalysisService: SpeechAnalysisServiceProtocol, @unchecked
         
         // Simulate real-time score updates
         Task {
-            for i in 1...5 {
+            for _ in 1...5 {
                 try await Task.sleep(for: .milliseconds(500))
                 let score = Float.random(in: 0.5...0.9)
                 scoreContinuation?.yield(score)

@@ -61,7 +61,10 @@ actor AudioSessionManager {
     // MARK: - Initialization
     
     private init() {
-        setupNotificationObservers()
+        // Setup notification observers asynchronously to avoid actor isolation issues
+        Task { [weak self] in
+            await self?.setupNotificationObservers()
+        }
     }
     
     deinit {
@@ -160,17 +163,15 @@ actor AudioSessionManager {
     
     /// Checks if microphone permission has been granted
     var hasMicrophonePermission: Bool {
-        audioSession.recordPermission == .granted
+        AVAudioApplication.shared.recordPermission == .granted
     }
     
     /// Requests microphone permission
     /// - Returns: Whether permission was granted
     func requestMicrophonePermission() async -> Bool {
-        await withCheckedContinuation { continuation in
-            audioSession.requestRecordPermission { granted in
-                continuation.resume(returning: granted)
-            }
-        }
+        // Use modern AVAudioApplication API (iOS 17+)
+        // This is an async function that returns Bool directly
+        return await AVAudioApplication.requestRecordPermission()
     }
     
     // MARK: - Audio Route

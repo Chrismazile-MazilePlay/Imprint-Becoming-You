@@ -18,25 +18,6 @@ import AVFoundation
 /// - `SpeechRecognitionService` for transcription
 /// - `ResonanceScoreCalculator` for scoring
 /// - `VoiceCalibrationService` for calibration
-///
-/// ## Architecture
-/// ```
-/// SpeechAnalysisService (Coordinator)
-/// ├── AudioInputManager (microphone)
-/// ├── SpeechRecognitionService (transcription)
-/// ├── ResonanceScoreCalculator (scoring)
-/// └── VoiceCalibrationService (calibration)
-/// ```
-///
-/// ## Usage
-/// ```swift
-/// let service = SpeechAnalysisService()
-/// try await service.startAnalysis(forAffirmation: "I am confident")
-/// for await score in service.realtimeScoreStream {
-///     updateUI(score)
-/// }
-/// let result = await service.stopAnalysis()
-/// ```
 final class SpeechAnalysisService: SpeechAnalysisServiceProtocol, @unchecked Sendable {
     
     // MARK: - Properties
@@ -50,14 +31,11 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol, @unchecked Sen
     /// Voice calibration service
     private let calibrationService: VoiceCalibrationService
     
-    /// Current resonance score calculator
-    private var scoreCalculator: ResonanceScoreCalculator?
-    
     /// Audio session manager
     private let sessionManager: AudioSessionManager
     
-    /// Whether analysis is currently active
-    private(set) var isAnalyzing: Bool = false
+    /// Current resonance score calculator
+    private var scoreCalculator: ResonanceScoreCalculator?
     
     /// Current affirmation being analyzed
     private var currentAffirmation: String = ""
@@ -65,14 +43,20 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol, @unchecked Sen
     /// Current session mode
     private var currentSessionMode: SessionMode = .readThenSpeak
     
+    /// Silence detection start time
+    private var silenceStartTime: Date?
+    
     /// Analysis task
     private var analysisTask: Task<Void, Never>?
     
-    /// Silence detection timer
-    private var silenceStartTime: Date?
+    /// Serial queue for thread-safe state access
+    private let stateQueue = DispatchQueue(label: "com.imprint.speechanalysis.state")
     
-    /// Lock for thread safety
-    private let lock = NSLock()
+    /// Whether analysis is currently active (thread-safe)
+    private var _isAnalyzing: Bool = false
+    var isAnalyzing: Bool {
+        stateQueue.sync { _isAnalyzing }
+    }
     
     // MARK: - Stream Continuations
     
@@ -85,27 +69,27 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol, @unchecked Sen
     /// Stream of real-time resonance scores
     lazy var realtimeScoreStream: AsyncStream<Float> = {
         AsyncStream { [weak self] continuation in
-            self?.lock.lock()
-            self?.scoreContinuation = continuation
-            self?.lock.unlock()
+            self?.stateQueue.sync {
+                self?.scoreContinuation = continuation
+            }
         }
     }()
     
     /// Stream of recognized text
     lazy var recognizedTextStream: AsyncStream<String> = {
         AsyncStream { [weak self] continuation in
-            self?.lock.lock()
-            self?.textContinuation = continuation
-            self?.lock.unlock()
+            self?.stateQueue.sync {
+                self?.textContinuation = continuation
+            }
         }
     }()
     
     /// Stream of silence detection events
     lazy var silenceDetectedStream: AsyncStream<Bool> = {
         AsyncStream { [weak self] continuation in
-            self?.lock.lock()
-            self?.silenceContinuation = continuation
-            self?.lock.unlock()
+            self?.stateQueue.sync {
+                self?.silenceContinuation = continuation
+            }
         }
     }()
     
@@ -167,25 +151,29 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol, @unchecked Sen
         forAffirmation affirmationText: String,
         calibrationData: CalibrationData?
     ) async throws {
-        guard !isAnalyzing else { return }
+        // Check if already analyzing (thread-safe read)
+        let alreadyAnalyzing = stateQueue.sync { _isAnalyzing }
+        guard !alreadyAnalyzing else { return }
         
         // Check permissions
-        guard await hasMicrophonePermission else {
+        let hasMic = await hasMicrophonePermission
+        guard hasMic else {
             throw AppError.microphoneAccessDenied
         }
         
-        guard await hasSpeechRecognitionPermission else {
+        let hasSpeech = await hasSpeechRecognitionPermission
+        guard hasSpeech else {
             throw AppError.speechRecognitionDenied
         }
         
-        // Setup
-        lock.lock()
-        currentAffirmation = affirmationText
-        scoreCalculator = ResonanceScoreCalculator(calibrationData: calibrationData)
-        scoreCalculator?.startSession()
-        silenceStartTime = nil
-        isAnalyzing = true
-        lock.unlock()
+        // Setup state (thread-safe write)
+        stateQueue.sync {
+            currentAffirmation = affirmationText
+            scoreCalculator = ResonanceScoreCalculator(calibrationData: calibrationData)
+            scoreCalculator?.startSession()
+            silenceStartTime = nil
+            _isAnalyzing = true
+        }
         
         // Start components
         try await audioInputManager.startCapture()
@@ -199,7 +187,8 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol, @unchecked Sen
     
     /// Stops analysis and returns final score
     func stopAnalysis() async -> ResonanceRecord? {
-        guard isAnalyzing else { return nil }
+        let wasAnalyzing = stateQueue.sync { _isAnalyzing }
+        guard wasAnalyzing else { return nil }
         
         // Stop analysis task
         analysisTask?.cancel()
@@ -211,35 +200,37 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol, @unchecked Sen
         // Stop audio capture
         await audioInputManager.stopCapture()
         
-        // Calculate text accuracy
-        lock.lock()
-        if let text = finalText, !text.isEmpty {
-            let accuracy = TextAccuracyCalculator.calculate(
-                expected: currentAffirmation,
-                recognized: text
-            )
-            scoreCalculator?.setTextAccuracy(accuracy)
+        // Calculate text accuracy and compute final score
+        var result: ResonanceRecord?
+        stateQueue.sync {
+            if let text = finalText, !text.isEmpty {
+                let accuracy = TextAccuracyCalculator.calculate(
+                    expected: currentAffirmation,
+                    recognized: text
+                )
+                scoreCalculator?.setTextAccuracy(accuracy)
+            }
+            
+            // Compute final score
+            result = scoreCalculator?.computeFinalScore(sessionMode: currentSessionMode)
+            
+            // Clean up
+            _isAnalyzing = false
+            scoreCalculator = nil
+            
+            // Finish streams
+            scoreContinuation?.finish()
+            textContinuation?.finish()
+            silenceContinuation?.finish()
         }
-        
-        // Compute final score
-        let result = scoreCalculator?.computeFinalScore(sessionMode: currentSessionMode)
-        
-        // Clean up
-        isAnalyzing = false
-        scoreCalculator = nil
-        
-        // Finish streams
-        scoreContinuation?.finish()
-        textContinuation?.finish()
-        silenceContinuation?.finish()
-        lock.unlock()
         
         return result
     }
     
     /// Cancels analysis without computing a score
     func cancelAnalysis() async {
-        guard isAnalyzing else { return }
+        let wasAnalyzing = stateQueue.sync { _isAnalyzing }
+        guard wasAnalyzing else { return }
         
         // Stop analysis task
         analysisTask?.cancel()
@@ -249,15 +240,15 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol, @unchecked Sen
         await speechRecognitionService.cancelRecognition()
         await audioInputManager.stopCapture()
         
-        // Clean up
-        lock.lock()
-        isAnalyzing = false
-        scoreCalculator = nil
-        
-        scoreContinuation?.finish()
-        textContinuation?.finish()
-        silenceContinuation?.finish()
-        lock.unlock()
+        // Clean up state
+        stateQueue.sync {
+            _isAnalyzing = false
+            scoreCalculator = nil
+            
+            scoreContinuation?.finish()
+            textContinuation?.finish()
+            silenceContinuation?.finish()
+        }
     }
     
     // MARK: - Calibration
@@ -265,7 +256,8 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol, @unchecked Sen
     /// Performs voice calibration
     func performCalibration(with sampleAffirmations: [String]) async throws -> CalibrationData {
         // Check permissions first
-        guard await hasMicrophonePermission else {
+        let hasMic = await hasMicrophonePermission
+        guard hasMic else {
             throw AppError.microphoneAccessDenied
         }
         
@@ -303,20 +295,26 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol, @unchecked Sen
     
     /// Processes an audio buffer
     private func processAudioBuffer(_ buffer: AudioAnalysisBuffer) async {
-        lock.lock()
-        defer { lock.unlock() }
+        // Thread-safe state access
+        var shouldProcess = false
+        var calculator: ResonanceScoreCalculator?
         
-        guard let calculator = scoreCalculator else { return }
+        stateQueue.sync {
+            shouldProcess = _isAnalyzing
+            calculator = scoreCalculator
+        }
+        
+        guard shouldProcess, let calc = calculator else { return }
         
         // Add RMS sample
-        calculator.addRMSSample(buffer.rmsLevel)
+        calc.addRMSSample(buffer.rmsLevel)
         
         // Detect and add pitch
         let pitch = PitchDetector.detectPitch(
             samples: buffer.samples,
             sampleRate: buffer.sampleRate
         )
-        calculator.addPitchSample(pitch)
+        calc.addPitchSample(pitch)
         
         // Append to speech recognition
         await speechRecognitionService.appendAudioSamples(
@@ -324,54 +322,78 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol, @unchecked Sen
             sampleRate: buffer.sampleRate
         )
         
-        // Check for silence
-        checkSilence(buffer: buffer)
+        // Check for silence and emit events
+        checkAndEmitSilence(containsSpeech: buffer.containsSpeech)
         
         // Compute and emit real-time score
-        let realtimeScore = calculator.computeRealtimeScore()
-        scoreContinuation?.yield(realtimeScore)
+        let realtimeScore = calc.computeRealtimeScore()
+        emitScore(realtimeScore)
+    }
+    
+    /// Checks for silence and emits events if needed
+    private func checkAndEmitSilence(containsSpeech: Bool) {
+        let silenceThreshold = Constants.Session.silenceThreshold
+        
+        stateQueue.sync {
+            if !containsSpeech {
+                // No speech detected
+                if silenceStartTime == nil {
+                    silenceStartTime = Date()
+                } else if let startTime = silenceStartTime {
+                    let silenceDuration = Date().timeIntervalSince(startTime)
+                    if silenceDuration >= silenceThreshold {
+                        silenceContinuation?.yield(true)
+                        silenceStartTime = nil
+                    }
+                }
+            } else {
+                // Speech detected - reset silence timer
+                if silenceStartTime != nil {
+                    silenceContinuation?.yield(false)
+                    silenceStartTime = nil
+                }
+            }
+        }
+    }
+    
+    /// Emits a score to the stream
+    private func emitScore(_ score: Float) {
+        _ = stateQueue.sync {
+            scoreContinuation?.yield(score)
+        }
+    }
+    
+    /// Emits text to the stream
+    private func emitText(_ text: String) {
+        _ = stateQueue.sync {
+            textContinuation?.yield(text)
+        }
     }
     
     /// Processes a transcription result
     private func processTranscription(_ result: TranscriptionResult) async {
-        lock.lock()
-        defer { lock.unlock() }
+        var shouldProcess = false
+        var affirmation = ""
+        var calculator: ResonanceScoreCalculator?
+        
+        stateQueue.sync {
+            shouldProcess = _isAnalyzing
+            affirmation = currentAffirmation
+            calculator = scoreCalculator
+        }
+        
+        guard shouldProcess else { return }
         
         // Emit recognized text
-        textContinuation?.yield(result.text)
+        emitText(result.text)
         
         // Update text accuracy in real-time (partial)
-        if !result.text.isEmpty {
+        if !result.text.isEmpty, let calc = calculator {
             let accuracy = TextAccuracyCalculator.calculate(
-                expected: currentAffirmation,
+                expected: affirmation,
                 recognized: result.text
             )
-            scoreCalculator?.setTextAccuracy(accuracy)
-        }
-    }
-    
-    /// Checks for silence and emits events
-    private func checkSilence(buffer: AudioAnalysisBuffer) {
-        let silenceThreshold = Constants.Session.silenceThreshold
-        
-        if !buffer.containsSpeech {
-            // No speech detected
-            if silenceStartTime == nil {
-                silenceStartTime = Date()
-            } else if let startTime = silenceStartTime {
-                let silenceDuration = Date().timeIntervalSince(startTime)
-                if silenceDuration >= silenceThreshold {
-                    // Emit silence event
-                    silenceContinuation?.yield(true)
-                    silenceStartTime = nil // Reset to avoid repeated events
-                }
-            }
-        } else {
-            // Speech detected - reset silence timer
-            if silenceStartTime != nil {
-                silenceContinuation?.yield(false)
-                silenceStartTime = nil
-            }
+            calc.setTextAccuracy(accuracy)
         }
     }
 }

@@ -15,6 +15,8 @@ import SwiftData
 /// Provides both production and preview implementations of all services.
 /// Uses environment-based injection for SwiftUI views.
 ///
+/// **Important:** This class does NOT use @Observable to maintain Sendable conformance.
+///
 /// ## Usage in Views
 /// ```swift
 /// struct MyView: View {
@@ -28,21 +30,12 @@ import SwiftData
 ///     }
 /// }
 /// ```
-///
-/// ## Usage in Previews
-/// ```swift
-/// #Preview {
-///     MyView()
-///         .withPreviewDependencies()
-/// }
-/// ```
-@Observable
-final class DependencyContainer: Sendable {
+final class DependencyContainer: @unchecked Sendable {
     
     // MARK: - Singleton
     
     /// Shared container for production use
-    static let shared = DependencyContainer()
+    static let shared = DependencyContainer(isPreview: false)
     
     /// Preview container with mock services
     static let preview = DependencyContainer(isPreview: true)
@@ -52,92 +45,113 @@ final class DependencyContainer: Sendable {
     /// Whether this container is for previews
     let isPreview: Bool
     
-    // MARK: - Services (Lazy Initialization)
+    // MARK: - Services (Thread-Safe Lazy Initialization)
+    
+    /// Serial queue for thread-safe lazy initialization
+    private let initQueue = DispatchQueue(label: "com.imprint.dependencies")
     
     /// Audio playback and binaural beat service
     private var _audioService: (any AudioServiceProtocol)?
     var audioService: any AudioServiceProtocol {
-        if _audioService == nil {
-            _audioService = isPreview ? MockAudioService() : AudioService()
+        initQueue.sync {
+            if _audioService == nil {
+                _audioService = isPreview ? MockAudioService() : AudioService()
+            }
+            return _audioService!
         }
-        return _audioService!
     }
     
     /// Speech recognition and analysis service
     private var _speechAnalysisService: (any SpeechAnalysisServiceProtocol)?
     var speechAnalysisService: any SpeechAnalysisServiceProtocol {
-        if _speechAnalysisService == nil {
-            _speechAnalysisService = isPreview ? MockSpeechAnalysisService() : SpeechAnalysisService()
+        initQueue.sync {
+            if _speechAnalysisService == nil {
+                _speechAnalysisService = isPreview ? MockSpeechAnalysisService() : SpeechAnalysisService()
+            }
+            return _speechAnalysisService!
         }
-        return _speechAnalysisService!
     }
     
     /// Text-to-speech service
     private var _ttsService: (any TTSServiceProtocol)?
     var ttsService: any TTSServiceProtocol {
-        if _ttsService == nil {
-            _ttsService = isPreview ? MockTTSService() : TTSService()
+        initQueue.sync {
+            if _ttsService == nil {
+                _ttsService = isPreview ? MockTTSService() : TTSService()
+            }
+            return _ttsService!
         }
-        return _ttsService!
     }
     
     /// Affirmation generation and management service
     private var _affirmationService: (any AffirmationServiceProtocol)?
     var affirmationService: any AffirmationServiceProtocol {
-        if _affirmationService == nil {
-            _affirmationService = isPreview ? MockAffirmationService() : AffirmationService()
+        initQueue.sync {
+            if _affirmationService == nil {
+                _affirmationService = isPreview ? MockAffirmationService() : AffirmationService()
+            }
+            return _affirmationService!
         }
-        return _affirmationService!
     }
     
     /// Voice cloning service
     private var _voiceCloneService: (any VoiceCloneServiceProtocol)?
     var voiceCloneService: any VoiceCloneServiceProtocol {
-        if _voiceCloneService == nil {
-            _voiceCloneService = isPreview ? MockVoiceCloneService() : VoiceCloneService()
+        initQueue.sync {
+            if _voiceCloneService == nil {
+                _voiceCloneService = isPreview ? MockVoiceCloneService() : VoiceCloneService()
+            }
+            return _voiceCloneService!
         }
-        return _voiceCloneService!
     }
     
     /// Authentication service
     private var _authService: (any AuthServiceProtocol)?
     var authService: any AuthServiceProtocol {
-        if _authService == nil {
-            _authService = isPreview ? MockAuthService() : AuthService()
+        initQueue.sync {
+            if _authService == nil {
+                _authService = isPreview ? MockAuthService() : AuthService()
+            }
+            return _authService!
         }
-        return _authService!
     }
     
     /// Data synchronization service
     private var _syncService: (any SyncServiceProtocol)?
     var syncService: any SyncServiceProtocol {
-        if _syncService == nil {
-            _syncService = isPreview ? MockSyncService() : SyncService()
+        initQueue.sync {
+            if _syncService == nil {
+                _syncService = isPreview ? MockSyncService() : SyncService()
+            }
+            return _syncService!
         }
-        return _syncService!
     }
     
     /// Subscription/StoreKit service
     private var _subscriptionService: (any SubscriptionServiceProtocol)?
     var subscriptionService: any SubscriptionServiceProtocol {
-        if _subscriptionService == nil {
-            _subscriptionService = isPreview ? MockSubscriptionService() : SubscriptionService()
+        initQueue.sync {
+            if _subscriptionService == nil {
+                _subscriptionService = isPreview ? MockSubscriptionService() : SubscriptionService()
+            }
+            return _subscriptionService!
         }
-        return _subscriptionService!
     }
     
     /// Audio caching service
     private var _audioCacheService: (any AudioCacheServiceProtocol)?
     var audioCacheService: any AudioCacheServiceProtocol {
-        if _audioCacheService == nil {
-            _audioCacheService = isPreview ? MockAudioCacheService() : AudioCacheService()
+        initQueue.sync {
+            if _audioCacheService == nil {
+                _audioCacheService = isPreview ? MockAudioCacheService() : AudioCacheService()
+            }
+            return _audioCacheService!
         }
-        return _audioCacheService!
     }
     
     // MARK: - Initialization
     
-    private init(isPreview: Bool = false) {
+    private init(isPreview: Bool) {
         self.isPreview = isPreview
     }
     
@@ -145,27 +159,37 @@ final class DependencyContainer: Sendable {
     
     /// Registers a custom audio service (useful for testing)
     func register(audioService: any AudioServiceProtocol) {
-        _audioService = audioService
+        initQueue.sync {
+            _audioService = audioService
+        }
     }
     
     /// Registers a custom speech analysis service
     func register(speechAnalysisService: any SpeechAnalysisServiceProtocol) {
-        _speechAnalysisService = speechAnalysisService
+        initQueue.sync {
+            _speechAnalysisService = speechAnalysisService
+        }
     }
     
     /// Registers a custom TTS service
     func register(ttsService: any TTSServiceProtocol) {
-        _ttsService = ttsService
+        initQueue.sync {
+            _ttsService = ttsService
+        }
     }
     
     /// Registers a custom affirmation service
     func register(affirmationService: any AffirmationServiceProtocol) {
-        _affirmationService = affirmationService
+        initQueue.sync {
+            _affirmationService = affirmationService
+        }
     }
     
     /// Registers a custom auth service
     func register(authService: any AuthServiceProtocol) {
-        _authService = authService
+        initQueue.sync {
+            _authService = authService
+        }
     }
 }
 

@@ -118,8 +118,9 @@ actor AudioPlayerService {
             engine.connect(playerNode, to: engine.mainMixerNode, format: audioFile.processingFormat)
         }
         
-        // Schedule the file for playback
-        playerNode.scheduleFile(audioFile, at: nil) { [weak self] in
+        // Schedule the file for playback with explicit callback type
+        // Using .dataPlayedBack ensures callback fires when audio reaches output hardware
+        playerNode.scheduleFile(audioFile, at: nil, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             Task {
                 await self?.handlePlaybackComplete()
             }
@@ -143,22 +144,28 @@ actor AudioPlayerService {
     /// - Parameter data: Audio data to play
     /// - Throws: `AppError.audioPlaybackFailed` if playback fails
     func playData(_ data: Data) async throws {
-        // Write to temporary file
+        // Write to temporary file (synchronous but small operation)
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("mp3")
         
+        // Perform file write
         do {
-            try data.write(to: tempURL)
+            try data.write(to: tempURL, options: .atomic)
         } catch {
             throw AppError.audioPlaybackFailed(reason: "Failed to write temp file: \(error.localizedDescription)")
         }
         
-        defer {
+        // Play the file and clean up after
+        do {
+            try await playFile(at: tempURL)
+            // Clean up temp file after playback completes
             try? FileManager.default.removeItem(at: tempURL)
+        } catch {
+            // Clean up on error too
+            try? FileManager.default.removeItem(at: tempURL)
+            throw error
         }
-        
-        try await playFile(at: tempURL)
     }
     
     /// Stops playback

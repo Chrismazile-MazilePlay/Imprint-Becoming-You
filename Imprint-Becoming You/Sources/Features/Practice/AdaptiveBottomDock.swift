@@ -441,7 +441,7 @@ struct ModeSelectorExpanded: View {
         .background(AppColors.backgroundSecondary)
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large))
         .shadow(color: .black.opacity(0.3), radius: 20, y: -5)
-        .padding(.horizontal, AppTheme.Spacing.lg)
+        // No horizontal padding - inherits from parent to match dock width
     }
 }
 
@@ -513,7 +513,7 @@ struct BinauralSelectorExpanded: View {
         .background(AppColors.backgroundSecondary)
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large))
         .shadow(color: .black.opacity(0.3), radius: 20, y: -5)
-        .padding(.horizontal, AppTheme.Spacing.lg)
+        // No horizontal padding - inherits from parent to match dock width
     }
 }
 

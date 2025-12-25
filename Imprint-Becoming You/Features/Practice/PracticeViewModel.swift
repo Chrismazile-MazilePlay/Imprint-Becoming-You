@@ -12,65 +12,52 @@ import SwiftData
 
 /// ViewModel for the main practice experience.
 ///
-/// Coordinates:
-/// - Affirmation display and navigation
-/// - Mode switching and dock state
-/// - Audio playback (TTS, binaural)
-/// - Speech analysis and scoring
-/// - Engagement tracking (favorites, views)
+/// ## Auto-Advance System
+/// Coordinates animated transitions with flow continuation:
+/// 1. Flow completes (TTS done, or score shown)
+/// 2. `pendingAutoAdvance` is set to trigger animation
+/// 3. VerticalPager animates and updates `currentIndex`
+/// 4. `currentIndex.didSet` updates DockProgressBars
+/// 5. VerticalPager calls `continueFlow()`
+/// 6. Next affirmation flow starts
+/// 7. Repeat until end of list
 ///
-/// ## Architecture
-/// This ViewModel owns a `DockStateManager` and delegates dock-specific
-/// state management to it, while handling the broader practice logic.
+/// ## Navigation State Machine
+/// User gestures cleanly interrupt any in-progress activity:
+/// - Stops TTS playback immediately
+/// - Cancels speech recording (discards data)
+/// - Respects navigation lock during score display
 @Observable
 final class PracticeViewModel {
     
     // MARK: - Dependencies
     
-    /// Dock state manager (owned)
     let dockManager = DockStateManager()
     
     // MARK: - Affirmation State
     
-    /// Current batch of affirmations
     var affirmations: [Affirmation] = []
     
-    /// Current affirmation index
+    /// Current affirmation index - didSet keeps dock in sync
     var currentIndex: Int = 0 {
         didSet {
             dockManager.updateProgress(current: currentIndex, total: affirmations.count)
         }
     }
     
-    /// Currently displayed affirmation
     var currentAffirmation: Affirmation? {
         guard affirmations.indices.contains(currentIndex) else { return nil }
         return affirmations[currentIndex]
     }
     
-    /// Whether we can go to previous affirmation
-    var canGoPrevious: Bool {
-        currentIndex > 0
-    }
-    
-    /// Whether we can go to next affirmation
-    var canGoNext: Bool {
-        currentIndex < affirmations.count - 1
-    }
+    var canGoPrevious: Bool { currentIndex > 0 }
+    var canGoNext: Bool { currentIndex < affirmations.count - 1 }
     
     // MARK: - Session State
     
-    /// Whether the session is active (not just browsing)
-    var isSessionActive: Bool {
-        dockManager.isInActiveMode
-    }
+    var isSessionActive: Bool { dockManager.isInActiveMode }
+    var currentMode: SessionMode { dockManager.currentMode }
     
-    /// Current session mode
-    var currentMode: SessionMode {
-        dockManager.currentMode
-    }
-    
-    /// Current binaural preset
     var binauralPreset: BinauralPreset {
         get { dockManager.binauralPreset }
         set { dockManager.updateBinauralPreset(newValue) }
@@ -78,61 +65,49 @@ final class PracticeViewModel {
     
     // MARK: - Audio State
     
-    /// Whether TTS is currently playing
     var isTTSPlaying: Bool = false
-    
-    /// Whether we're listening to user speech
     var isListening: Bool = false
-    
-    /// Recognized text from speech
     var recognizedText: String = ""
-    
-    /// Current audio level for waveform visualization (0.0 - 1.0)
-    /// Updated from TTS output or microphone input depending on mode
     var audioLevel: CGFloat = 0.0
     
     // MARK: - Score State
     
-    /// Current real-time score (0.0 - 1.0)
     var realtimeScore: Double = 0.0 {
-        didSet {
-            dockManager.updateRealtimeScore(realtimeScore)
-        }
+        didSet { dockManager.updateRealtimeScore(realtimeScore) }
     }
     
-    /// Last completed resonance record
     var lastResonanceRecord: ResonanceRecord?
     
-    /// Auto-advance threshold (default 80%)
-    var autoAdvanceThreshold: Double = 0.80
+    // MARK: - Auto-Advance State
+    
+    /// Set to trigger animated advance in VerticalPager
+    var pendingAutoAdvance: NavigationDirection? = nil
+    
+    /// Active flow task (can be cancelled on user navigation)
+    private var activeFlowTask: Task<Void, Never>?
+    
+    // MARK: - Navigation State
+    
+    /// Locks navigation during score display animation
+    var isNavigationLocked: Bool = false
+    private let scoreLockDuration: Duration = .seconds(1)
     
     // MARK: - UI State
     
-    /// Whether to show the profile sheet
     var showProfileSheet: Bool = false
-    
-    /// Whether to show the categories sheet
     var showCategoriesSheet: Bool = false
-    
-    /// Error message to display
     var errorMessage: String?
-    
-    /// Whether to show error alert
     var showError: Bool = false
-    
-    /// Last interaction time (for timeout in speaking modes)
     private var lastInteractionTime: Date = Date()
     
     // MARK: - Initialization
     
     init() {
-        // Initial progress sync
         dockManager.updateProgress(current: 0, total: 0)
     }
     
     // MARK: - Setup
     
-    /// Loads affirmations and prepares the practice view.
     @MainActor
     func loadAffirmations(from modelContext: ModelContext) async {
         do {
@@ -144,7 +119,6 @@ final class PracticeViewModel {
             
             var fetched = try modelContext.fetch(descriptor)
             
-            // Sort: unseen first, then by batch index
             fetched.sort { a, b in
                 if a.hasBeenSeen != b.hasBeenSeen {
                     return !a.hasBeenSeen
@@ -152,11 +126,9 @@ final class PracticeViewModel {
                 return a.batchIndex < b.batchIndex
             }
             
-            // Take batch size
             affirmations = Array(fetched.prefix(Constants.Session.batchSize))
             
             if affirmations.isEmpty {
-                // Fallback to samples
                 affirmations = Affirmation.samples
             }
             
@@ -170,7 +142,6 @@ final class PracticeViewModel {
         }
     }
     
-    /// Loads favorites as the current affirmation set.
     @MainActor
     func loadFavorites(from modelContext: ModelContext) async {
         do {
@@ -190,8 +161,6 @@ final class PracticeViewModel {
             affirmations = favorites
             currentIndex = 0
             dockManager.updateProgress(current: 0, total: affirmations.count)
-            
-            // Return to home state for favorites browsing
             dockManager.returnToHome()
             
         } catch {
@@ -199,91 +168,176 @@ final class PracticeViewModel {
         }
     }
     
-    // MARK: - Navigation
+    // MARK: - User Navigation (Gesture-Initiated)
     
-    /// Moves to the next affirmation.
+    /// Called when user swipes to navigate - cancels any in-progress activity
+    /// This is called AFTER VerticalPager has already updated the index
+    @MainActor
+    func navigate(_ direction: NavigationDirection) {
+        // Cancel any in-progress activity (TTS, listening, etc.)
+        cancelCurrentActivity()
+        resetToIdleState()
+        recordInteraction()
+        
+        // Start flow for new affirmation
+        if isSessionActive {
+            activeFlowTask = Task {
+                await beginAffirmationFlow()
+            }
+        }
+    }
+    
+    /// Navigates via button tap - triggers animated transition
+    /// This is called BEFORE index changes, so it sets pendingAutoAdvance
+    @MainActor
+    func navigateViaButton(_ direction: NavigationDirection) {
+        // Check bounds BEFORE navigation
+        switch direction {
+        case .next:
+            guard canGoNext else { return }
+        case .previous:
+            guard canGoPrevious else { return }
+        }
+        
+        // Cancel any in-progress activity immediately
+        cancelCurrentActivity()
+        resetToIdleState()
+        
+        // Unlock navigation (button press overrides lock)
+        isNavigationLocked = false
+        
+        // Trigger animated transition via VerticalPager
+        pendingAutoAdvance = direction
+        
+        recordInteraction()
+    }
+    
     @MainActor
     func nextAffirmation() {
-        guard canGoNext else { return }
-        
-        withAnimation(AppTheme.Animation.standard) {
-            currentIndex += 1
-        }
-        
-        recordInteraction()
-        
-        // If in active mode, begin the affirmation flow
-        if isSessionActive {
-            Task {
-                await beginAffirmationFlow()
-            }
-        }
+        navigateViaButton(.next)
     }
     
-    /// Moves to the previous affirmation.
     @MainActor
     func previousAffirmation() {
-        guard canGoPrevious else { return }
-        
-        withAnimation(AppTheme.Animation.standard) {
-            currentIndex -= 1
-        }
-        
-        recordInteraction()
-        
-        // If in active mode, begin the affirmation flow
-        if isSessionActive {
-            Task {
-                await beginAffirmationFlow()
-            }
-        }
+        navigateViaButton(.previous)
     }
     
-    /// Goes to a specific affirmation index.
     @MainActor
     func goToAffirmation(at index: Int) {
         guard affirmations.indices.contains(index) else { return }
+        guard !isNavigationLocked else { return }
         
-        withAnimation(AppTheme.Animation.standard) {
-            currentIndex = index
-        }
-        
+        cancelCurrentActivity()
+        currentIndex = index
+        resetToIdleState()
         recordInteraction()
+        
+        if isSessionActive {
+            activeFlowTask = Task {
+                await beginAffirmationFlow()
+            }
+        }
     }
     
-    // MARK: - Mode Management
+    // MARK: - Auto-Advance (Flow-Initiated)
     
-    /// Changes to a new session mode.
+    /// Triggers animated advance to next affirmation
+    /// Called at end of flow methods to continue automatically
     @MainActor
-    func changeMode(_ mode: SessionMode, audioService: any AudioServiceProtocol) async {
-        dockManager.setMode(mode)
+    private func autoAdvanceToNext() {
+        guard canGoNext else { return }
+        pendingAutoAdvance = .next
+    }
+    
+    /// Called by VerticalPager after auto-advance animation completes
+    /// Continues the flow for the new affirmation
+    @MainActor
+    func continueFlow() {
+        guard isSessionActive else { return }
         
-        recordInteraction()
-        
-        // If switching to an active mode, reset to beginning and begin the flow
-        if mode != .readOnly {
-            // Always start from the first affirmation when entering a new mode
-            currentIndex = 0
+        activeFlowTask = Task {
             await beginAffirmationFlow()
         }
     }
     
-    /// Returns to home (Read Only) mode.
+    // MARK: - Activity Management
+    
     @MainActor
-    func returnToHome(audioService: any AudioServiceProtocol) async {
-        // Stop any active audio
-        await audioService.stop()
+    private func cancelCurrentActivity() {
+        activeFlowTask?.cancel()
+        activeFlowTask = nil
+        pendingAutoAdvance = nil
         
+        if isTTSPlaying {
+            isTTSPlaying = false
+            // TODO: Call audioService.stopTTS() when integrated
+        }
+        
+        if isListening {
+            isListening = false
+            recognizedText = ""
+            // TODO: Call speechAnalysisService.cancelAnalysis() when integrated
+        }
+    }
+    
+    @MainActor
+    private func resetToIdleState() {
         isTTSPlaying = false
         isListening = false
+        recognizedText = ""
         realtimeScore = 0
+        lastResonanceRecord = nil
+        audioLevel = 0
         
+        switch dockManager.state {
+        case .readAloud:
+            dockManager.updateReadAloudPhase(.idle)
+        case .readAndSpeak:
+            dockManager.updateReadAndSpeakPhase(.idle)
+        case .speakOnly:
+            dockManager.updateSpeakOnlyPhase(.idle)
+        case .home:
+            break
+        }
+    }
+    
+    @MainActor
+    private func lockNavigationForScore() {
+        isNavigationLocked = true
+        
+        Task {
+            try? await Task.sleep(for: scoreLockDuration)
+            await MainActor.run {
+                isNavigationLocked = false
+            }
+        }
+    }
+    
+    // MARK: - Mode Management
+    
+    @MainActor
+    func changeMode(_ mode: SessionMode, audioService: any AudioServiceProtocol) async {
+        cancelCurrentActivity()
+        dockManager.setMode(mode)
+        recordInteraction()
+        
+        if mode != .readOnly {
+            currentIndex = 0
+            activeFlowTask = Task {
+                await beginAffirmationFlow()
+            }
+        }
+    }
+    
+    @MainActor
+    func stopSession() async {
+        cancelCurrentActivity()
+        resetToIdleState()
         dockManager.returnToHome()
     }
     
     // MARK: - Binaural Management
     
-    /// Changes the binaural preset.
     @MainActor
     func changeBinauralPreset(_ preset: BinauralPreset, audioService: any AudioServiceProtocol) async {
         binauralPreset = preset
@@ -301,10 +355,10 @@ final class PracticeViewModel {
     
     // MARK: - Affirmation Flow
     
-    /// Begins the affirmation flow based on current mode.
     @MainActor
     private func beginAffirmationFlow() async {
         guard let affirmation = currentAffirmation else { return }
+        guard !Task.isCancelled else { return }
         
         // Mark as seen
         affirmation.hasBeenSeen = true
@@ -313,74 +367,82 @@ final class PracticeViewModel {
         
         switch dockManager.state {
         case .home:
-            // Nothing to do in home/browse mode
             break
-            
         case .readAloud:
             await beginReadAloudFlow()
-            
         case .readAndSpeak:
             await beginReadAndSpeakFlow()
-            
         case .speakOnly:
             await beginSpeakOnlyFlow()
         }
     }
     
-    /// Read Aloud flow: TTS plays, then auto-advance.
+    // MARK: - Read Aloud Flow
+    
     @MainActor
     private func beginReadAloudFlow() async {
+        guard !Task.isCancelled else { return }
+        
         dockManager.updateReadAloudPhase(.speaking)
         isTTSPlaying = true
         
-        // TTS would play here (integration point)
-        // await audioService.speakAffirmation(currentAffirmation)
-        
-        // Simulate TTS completion for now
+        // TTS would play here - simulated
         try? await Task.sleep(for: .seconds(2))
+        
+        guard !Task.isCancelled else { return }
         
         isTTSPlaying = false
         dockManager.updateReadAloudPhase(.complete)
         
-        // Auto-advance after brief pause
+        // Brief pause before advance
         try? await Task.sleep(for: .milliseconds(500))
         
+        guard !Task.isCancelled else { return }
+        
+        // Auto-advance with animation - flow continues via continueFlow()
         if canGoNext {
-            nextAffirmation()
+            autoAdvanceToNext()
         }
+        // If at end, stay on last affirmation
     }
     
-    /// Read & Speak flow: TTS plays, then user speaks.
+    // MARK: - Read & Speak Flow
+    
     @MainActor
     private func beginReadAndSpeakFlow() async {
         // Phase 1: TTS
+        guard !Task.isCancelled else { return }
         dockManager.updateReadAndSpeakPhase(.ttsPlaying)
         isTTSPlaying = true
         
-        // TTS would play here
         try? await Task.sleep(for: .seconds(2))
         
+        guard !Task.isCancelled else { return }
         isTTSPlaying = false
         
         // Phase 2: Wait for user
         dockManager.updateReadAndSpeakPhase(.waitingForUser)
         try? await Task.sleep(for: .milliseconds(500))
         
+        guard !Task.isCancelled else { return }
+        
         // Phase 3: Listen
         dockManager.updateReadAndSpeakPhase(.listening)
         isListening = true
         
-        // Speech analysis would happen here
         try? await Task.sleep(for: .seconds(2))
         
+        guard !Task.isCancelled else { return }
         isListening = false
         
         // Phase 4: Analyze
         dockManager.updateReadAndSpeakPhase(.analyzing)
         try? await Task.sleep(for: .milliseconds(500))
         
+        guard !Task.isCancelled else { return }
+        
         // Phase 5: Show score
-        let score = Double.random(in: 0.6...1.0) // Simulated
+        let score = Double.random(in: 0.6...1.0)
         realtimeScore = score
         
         let record = ResonanceRecord(
@@ -395,40 +457,47 @@ final class PracticeViewModel {
         lastResonanceRecord = record
         
         dockManager.updateReadAndSpeakPhase(.showingScore(score: score))
+        lockNavigationForScore()
         
         // Update affirmation stats
         if let affirmation = currentAffirmation {
             affirmation.speakCount += 1
-            recordResonanceScore(record, for: affirmation)
+            affirmation.resonanceScores.append(record)
         }
         
-        // Auto-advance if score meets threshold
+        // Show score briefly
         try? await Task.sleep(for: .seconds(1.5))
         
-        if score >= autoAdvanceThreshold && canGoNext {
-            nextAffirmation()
+        guard !Task.isCancelled else { return }
+        
+        // Auto-advance regardless of score (changed per requirement)
+        if canGoNext {
+            autoAdvanceToNext()
         }
-        // Otherwise user must manually swipe
     }
     
-    /// Speak Only flow: User speaks immediately.
+    // MARK: - Speak Only Flow
+    
     @MainActor
     private func beginSpeakOnlyFlow() async {
         // Phase 1: Listen
+        guard !Task.isCancelled else { return }
         dockManager.updateSpeakOnlyPhase(.listening)
         isListening = true
         
-        // Speech analysis would happen here
         try? await Task.sleep(for: .seconds(2))
         
+        guard !Task.isCancelled else { return }
         isListening = false
         
         // Phase 2: Analyze
         dockManager.updateSpeakOnlyPhase(.analyzing)
         try? await Task.sleep(for: .milliseconds(500))
         
+        guard !Task.isCancelled else { return }
+        
         // Phase 3: Show score
-        let score = Double.random(in: 0.6...1.0) // Simulated
+        let score = Double.random(in: 0.6...1.0)
         realtimeScore = score
         
         let record = ResonanceRecord(
@@ -443,24 +512,27 @@ final class PracticeViewModel {
         lastResonanceRecord = record
         
         dockManager.updateSpeakOnlyPhase(.showingScore(score: score))
+        lockNavigationForScore()
         
         // Update affirmation stats
         if let affirmation = currentAffirmation {
             affirmation.speakCount += 1
-            recordResonanceScore(record, for: affirmation)
+            affirmation.resonanceScores.append(record)
         }
         
-        // Auto-advance if score meets threshold
+        // Show score briefly
         try? await Task.sleep(for: .seconds(1.5))
         
-        if score >= autoAdvanceThreshold && canGoNext {
-            nextAffirmation()
+        guard !Task.isCancelled else { return }
+        
+        // Auto-advance regardless of score (changed per requirement)
+        if canGoNext {
+            autoAdvanceToNext()
         }
     }
     
     // MARK: - Engagement
     
-    /// Toggles favorite status for the current affirmation.
     @MainActor
     func toggleFavorite() {
         guard let affirmation = currentAffirmation else { return }
@@ -472,32 +544,21 @@ final class PracticeViewModel {
         recordInteraction()
     }
     
-    /// Shares the current affirmation (placeholder for future).
     func shareAffirmation() {
-        // TODO: Implement sharing in future phase
-        // For now, this is a no-op
         recordInteraction()
     }
     
     // MARK: - Helpers
     
-    /// Records a user interaction (resets timeout).
     func recordInteraction() {
         lastInteractionTime = Date()
     }
     
-    /// Records a resonance score for an affirmation.
-    private func recordResonanceScore(_ record: ResonanceRecord, for affirmation: Affirmation) {
-        affirmation.resonanceScores.append(record)
-    }
-    
-    /// Handles an error by setting the error state.
     private func handleError(_ error: Error) {
         errorMessage = error.localizedDescription
         showError = true
     }
     
-    /// Dismisses the current error.
     func dismissError() {
         errorMessage = nil
         showError = false
@@ -506,7 +567,7 @@ final class PracticeViewModel {
 
 // MARK: - Previews
 
-#Preview("Practice ViewModel") {
+#Preview("Practice ViewModel - Auto Advance") {
     struct PreviewWrapper: View {
         @State private var viewModel = PracticeViewModel()
         
@@ -519,28 +580,26 @@ final class PracticeViewModel {
                         .padding()
                 }
                 
-                Text("Mode: \(viewModel.currentMode.displayName)")
                 Text("Index: \(viewModel.currentIndex + 1) / \(viewModel.affirmations.count)")
+                Text("Mode: \(viewModel.currentMode.displayName)")
+                Text("Nav Locked: \(viewModel.isNavigationLocked ? "Yes" : "No")")
+                
+                if viewModel.pendingAutoAdvance != nil {
+                    Text("⏳ Auto-advancing...")
+                        .foregroundStyle(.orange)
+                }
                 
                 HStack {
-                    Button("Previous") {
-                        viewModel.previousAffirmation()
-                    }
-                    .disabled(!viewModel.canGoPrevious)
+                    Button("Previous") { viewModel.previousAffirmation() }
+                        .disabled(!viewModel.canGoPrevious || viewModel.isNavigationLocked)
                     
-                    Button("Next") {
-                        viewModel.nextAffirmation()
-                    }
-                    .disabled(!viewModel.canGoNext)
+                    Button("Next") { viewModel.nextAffirmation() }
+                        .disabled(!viewModel.canGoNext || viewModel.isNavigationLocked)
                 }
             }
             .padding()
             .onAppear {
                 viewModel.affirmations = Affirmation.samples
-                viewModel.dockManager.updateProgress(
-                    current: 0,
-                    total: viewModel.affirmations.count
-                )
             }
         }
     }

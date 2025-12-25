@@ -15,12 +15,6 @@ import SwiftUI
 /// the dock's current state, handling transitions between modes
 /// and phases within modes.
 ///
-/// ## Architecture
-/// The manager uses a state machine pattern:
-/// - `DockState` represents the current mode and phase
-/// - `DockConfiguration` is derived from state for UI rendering
-/// - State transitions are animated automatically
-///
 /// ## Usage
 /// ```swift
 /// @State private var dockManager = DockStateManager()
@@ -133,7 +127,6 @@ final class DockStateManager {
     // MARK: - Phase Updates
     
     /// Updates the phase within Read Aloud mode.
-    /// - Parameter phase: The new TTS phase
     func updateReadAloudPhase(_ phase: TTSPhase) {
         guard case .readAloud = state else { return }
         withAnimation(AppTheme.Animation.quick) {
@@ -142,7 +135,6 @@ final class DockStateManager {
     }
     
     /// Updates the phase within Read & Speak mode.
-    /// - Parameter phase: The new interaction phase
     func updateReadAndSpeakPhase(_ phase: ReadAndSpeakPhase) {
         guard case .readAndSpeak = state else { return }
         withAnimation(AppTheme.Animation.quick) {
@@ -151,7 +143,6 @@ final class DockStateManager {
     }
     
     /// Updates the phase within Speak Only mode.
-    /// - Parameter phase: The new interaction phase
     func updateSpeakOnlyPhase(_ phase: SpeakPhase) {
         guard case .speakOnly = state else { return }
         withAnimation(AppTheme.Animation.quick) {
@@ -191,17 +182,42 @@ final class DockStateManager {
     
     // MARK: - Progress Management
     
-    /// Updates progress tracking.
-    /// - Parameters:
-    ///   - current: Current 0-based index
-    ///   - total: Total number of items
+    /// Updates progress tracking and resets phase to idle.
+    ///
+    /// When navigating to a new affirmation, the phase must reset to `.idle`
+    /// immediately so the progress bar shows 0 for the new segment, not the
+    /// previous segment's completion state.
     func updateProgress(current: Int, total: Int) {
+        let indexChanged = currentIndex != current
+        
         currentIndex = current
         totalCount = total
+        
+        // Reset phase to idle when index changes
+        // This prevents the new segment from briefly showing as complete
+        if indexChanged {
+            resetPhaseToIdle()
+        }
+    }
+    
+    /// Resets the current mode's phase to idle without changing modes.
+    ///
+    /// Called automatically when `updateProgress` detects an index change,
+    /// ensuring the progress bar doesn't briefly flash complete on the new segment.
+    private func resetPhaseToIdle() {
+        switch state {
+        case .home:
+            break // Already idle
+        case .readAloud:
+            state = .readAloud(phase: .idle)
+        case .readAndSpeak:
+            state = .readAndSpeak(phase: .idle)
+        case .speakOnly:
+            state = .speakOnly(phase: .idle)
+        }
     }
     
     /// Updates real-time score.
-    /// - Parameter score: Score value (0.0 - 1.0)
     func updateRealtimeScore(_ score: Double) {
         realtimeScore = score
     }
@@ -209,10 +225,10 @@ final class DockStateManager {
     // MARK: - Binaural Management
     
     /// Updates the binaural preset and closes selectors.
-    /// - Parameter preset: The new binaural preset
     func updateBinauralPreset(_ preset: BinauralPreset) {
         withAnimation(AppTheme.Animation.standard) {
             binauralPreset = preset
+            // Close any open selectors
             isModeSelectorExpanded = false
             isBinauralSelectorExpanded = false
         }
@@ -221,31 +237,50 @@ final class DockStateManager {
 
 // MARK: - Previews
 
-#Preview("Dock State Manager") {
+#Preview("Dock State Manager - Home") {
     struct PreviewWrapper: View {
         @State private var manager = DockStateManager()
         
         var body: some View {
             VStack(spacing: 20) {
-                Text("State: \(manager.state.description)")
-                    .font(.headline)
+                Text("State: \(String(describing: manager.state))")
+                Text("Config height: \(manager.configuration.heightMultiplier)")
                 
-                Text("Mode: \(manager.currentMode.displayName)")
-                Text("Height: \(manager.configuration.heightMultiplier, specifier: "%.1f")x")
+                Button("Switch to Read Aloud") {
+                    manager.setMode(.readAloud)
+                }
                 
-                Divider()
+                Button("Switch to Speak Only") {
+                    manager.setMode(.speakOnly)
+                }
                 
-                Button("Read Only") { manager.setMode(.readOnly) }
-                Button("Read Aloud") { manager.setMode(.readAloud) }
-                Button("Read & Speak") { manager.setMode(.readThenSpeak) }
-                Button("Speak Only") { manager.setMode(.speakOnly) }
+                Button("Return Home") {
+                    manager.returnToHome()
+                }
+            }
+            .padding()
+        }
+    }
+    return PreviewWrapper()
+}
+
+#Preview("Dock State Manager - Progress Update") {
+    struct PreviewWrapper: View {
+        @State private var manager = DockStateManager()
+        
+        var body: some View {
+            VStack(spacing: 20) {
+                Text("Index: \(manager.currentIndex) / \(manager.totalCount)")
+                Text("State: \(String(describing: manager.state))")
                 
-                Divider()
+                Button("Set Speak Only + Showing Score") {
+                    manager.setMode(.speakOnly)
+                    manager.updateSpeakOnlyPhase(.showingScore(score: 0.85))
+                }
                 
-                if case .speakOnly = manager.state {
-                    Button("→ Listening") { manager.updateSpeakOnlyPhase(.listening) }
-                    Button("→ Analyzing") { manager.updateSpeakOnlyPhase(.analyzing) }
-                    Button("→ Score 85%") { manager.updateSpeakOnlyPhase(.showingScore(score: 0.85)) }
+                Button("Update Progress (simulates navigation)") {
+                    // This should reset phase to idle
+                    manager.updateProgress(current: manager.currentIndex + 1, total: 5)
                 }
             }
             .padding()

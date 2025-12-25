@@ -16,19 +16,10 @@ import SwiftData
 /// - Prompts (left) - AI features, no further navigation
 /// - Practice (center) - Main experience
 /// - Profile (right) - Settings, account, nested navigation flows right
-enum AppPage: Int, CaseIterable, Sendable {
+enum AppPage: Int, CaseIterable {
     case prompts = 0   // Left
     case practice = 1  // Center (default)
     case profile = 2   // Right
-    
-    /// Display name for debugging
-    var name: String {
-        switch self {
-        case .prompts: return "Prompts"
-        case .practice: return "Practice"
-        case .profile: return "Profile"
-        }
-    }
 }
 
 // MARK: - MainPracticeView
@@ -40,19 +31,16 @@ enum AppPage: Int, CaseIterable, Sendable {
 /// - **Center (Page 1)**: Practice - Affirmations with adaptive dock
 /// - **Right (Page 2)**: Profile - Stats, progress, favorites, settings
 ///
-/// ## Navigation
-/// - AI button (top-left) → slides to Prompts page (left)
-/// - Profile button (top-right) → slides to Profile page (right)
-/// - Categories button → full-screen cover (no slide)
-/// - Swipe left → Prompts
-/// - Swipe right → Profile
+/// ## Active Mode Behavior
+/// When in an active session mode (Read Aloud, Read & Speak, Speak Only),
+/// horizontal swiping is completely disabled. User must exit the mode
+/// to navigate between pages.
 ///
-/// ## Architecture
-/// This view acts as the navigation coordinator, managing:
-/// - Page state and transitions
-/// - ViewModel lifecycle
-/// - Initialization sequence
-/// - Error presentation
+/// Navigation:
+/// - AI button (top-left) → slides to Prompts page (left) [home mode only]
+/// - Profile button (top-right) → slides to Profile page (right) [home mode only]
+/// - Categories button → full-screen cover (no slide)
+/// - Swipe left/right → Only works in home mode
 struct MainPracticeView: View {
     
     // MARK: - Environment
@@ -76,30 +64,7 @@ struct MainPracticeView: View {
             
             if isInitialized {
                 // Horizontal page navigation
-                TabView(selection: $currentPage) {
-                    // Page 0: Prompts (Left)
-                    PromptsPageView(
-                        onNavigateToCenter: { navigateToPage(.practice) }
-                    )
-                    .tag(AppPage.prompts)
-                    
-                    // Page 1: Practice (Center - Main)
-                    PracticePageView(
-                        viewModel: viewModel,
-                        onNavigateToProfile: { navigateToPage(.profile) },
-                        onNavigateToPrompts: { navigateToPage(.prompts) }
-                    )
-                    .tag(AppPage.practice)
-                    
-                    // Page 2: Profile (Right)
-                    ProfilePageView(
-                        viewModel: viewModel,
-                        onNavigateToCenter: { navigateToPage(.practice) }
-                    )
-                    .tag(AppPage.profile)
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .ignoresSafeArea()
+                pageContent
             } else {
                 // Loading state
                 loadingView
@@ -107,6 +72,12 @@ struct MainPracticeView: View {
         }
         .task {
             await initializePractice()
+        }
+        .onChange(of: viewModel.isSessionActive) { wasActive, isActive in
+            // When exiting active mode, ensure we're on practice page
+            if wasActive && !isActive {
+                currentPage = .practice
+            }
         }
         .alert(
             "Error",
@@ -116,6 +87,48 @@ struct MainPracticeView: View {
             Button("OK") { viewModel.dismissError() }
         } message: { message in
             Text(message)
+        }
+    }
+    
+    // MARK: - Page Content
+    
+    @ViewBuilder
+    private var pageContent: some View {
+        if viewModel.isSessionActive {
+            // ACTIVE MODE: No TabView, no horizontal swiping possible
+            // Just show PracticePageView directly
+            PracticePageView(
+                viewModel: viewModel,
+                onNavigateToProfile: { }, // Disabled in active mode
+                onNavigateToPrompts: { }  // Disabled in active mode
+            )
+            .ignoresSafeArea()
+        } else {
+            // HOME MODE: Full TabView with horizontal navigation
+            TabView(selection: $currentPage) {
+                // Page 0: Prompts (Left)
+                PromptsPageView(
+                    onNavigateToCenter: { navigateToPage(.practice) }
+                )
+                .tag(AppPage.prompts)
+                
+                // Page 1: Practice (Center - Main)
+                PracticePageView(
+                    viewModel: viewModel,
+                    onNavigateToProfile: { navigateToPage(.profile) },
+                    onNavigateToPrompts: { navigateToPage(.prompts) }
+                )
+                .tag(AppPage.practice)
+                
+                // Page 2: Profile (Right)
+                ProfilePageView(
+                    viewModel: viewModel,
+                    onNavigateToCenter: { navigateToPage(.practice) }
+                )
+                .tag(AppPage.profile)
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .ignoresSafeArea()
         }
     }
     
@@ -136,6 +149,9 @@ struct MainPracticeView: View {
     // MARK: - Navigation
     
     private func navigateToPage(_ page: AppPage) {
+        // Block navigation when in active session mode
+        guard !viewModel.isSessionActive else { return }
+        
         withAnimation(AppTheme.Animation.standard) {
             currentPage = page
         }
@@ -145,6 +161,9 @@ struct MainPracticeView: View {
     
     private func initializePractice() async {
         await viewModel.loadAffirmations(from: modelContext)
+        
+        // Ensure we're on practice page when starting
+        currentPage = .practice
         isInitialized = true
     }
 }
@@ -153,5 +172,29 @@ struct MainPracticeView: View {
 
 #Preview("Main Practice View") {
     MainPracticeView()
+        .previewEnvironment()
+}
+
+#Preview("Main - Active Mode (No Swipe)") {
+    // This preview shows that horizontal swiping is blocked
+    struct ActiveModePreview: View {
+        @State private var viewModel = PracticeViewModel()
+        
+        var body: some View {
+            ZStack {
+                PracticePageView(
+                    viewModel: viewModel,
+                    onNavigateToProfile: {},
+                    onNavigateToPrompts: {}
+                )
+            }
+            .onAppear {
+                viewModel.affirmations = Affirmation.samples
+                viewModel.dockManager.setMode(.readAloud)
+            }
+        }
+    }
+    
+    return ActiveModePreview()
         .previewEnvironment()
 }

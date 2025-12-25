@@ -9,26 +9,19 @@ import SwiftUI
 
 // MARK: - FloatingHUDLayer
 
-/// Layer containing all floating buttons that overlay the practice view.
+/// Layer containing the top navigation buttons that overlay the practice view.
 ///
 /// ## Layout
 /// ```
 /// ┌─────────────────────────────────────┐
-/// │  [✨ AI] [⊞]   [🎤 Listening]   [👤]│  ← Top row (ANCHORED AT TOP)
+/// │  [✨ AI] [⊞]   [🎤 Listening]   [👤]│  ← Top row only
 /// │                                     │
-/// │        (Affirmation Text)           │
+/// │        (Content scrolls here)       │
 /// │                                     │
-/// │            [↗️]  [❤️]               │  ← Action buttons (above dock)
-/// │                                     │
-/// │  ┌─────────────────────────────┐    │
-/// │  │         Dock                │    │
-/// │  └─────────────────────────────┘    │
 /// └─────────────────────────────────────┘
 /// ```
 ///
-/// Center chip shows:
-/// - "Listening" during listening phase (with pulsing green dot)
-/// - "Resonance • Good" during score phase (with quality label)
+/// Note: Save/Share buttons are in the scrolling content layer.
 struct FloatingHUDLayer: View {
     
     // MARK: - Environment
@@ -39,14 +32,21 @@ struct FloatingHUDLayer: View {
     
     @Bindable var viewModel: PracticeViewModel
     
-    /// Callback for profile button tap (navigate to profile page - RIGHT)
     let onProfileTap: () -> Void
-    
-    /// Callback for prompts button tap (navigate to prompts page - LEFT)
     let onPromptsTap: () -> Void
-    
-    /// Callback for categories button tap (open full screen cover)
     let onCategoriesTap: () -> Void
+    
+    // MARK: - Safe Area Helper
+    
+    /// Gets the actual top safe area inset from the window.
+    /// This works regardless of SwiftUI's .ignoresSafeArea() modifiers.
+    private var topSafeAreaInset: CGFloat {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first else {
+            return 59 // Default for Dynamic Island devices
+        }
+        return window.safeAreaInsets.top
+    }
     
     // MARK: - Private
     
@@ -54,11 +54,6 @@ struct FloatingHUDLayer: View {
         viewModel.dockManager.isInActiveMode
     }
     
-    private var isFavorited: Bool {
-        viewModel.currentAffirmation?.isFavorited ?? false
-    }
-    
-    /// Whether currently in listening state
     private var isListening: Bool {
         let state = viewModel.dockManager.state
         switch state {
@@ -71,7 +66,6 @@ struct FloatingHUDLayer: View {
         }
     }
     
-    /// Whether currently showing score
     private var isShowingScore: Bool {
         let state = viewModel.dockManager.state
         switch state {
@@ -86,7 +80,6 @@ struct FloatingHUDLayer: View {
         }
     }
     
-    /// Current score value (if showing)
     private var currentScore: Double? {
         let state = viewModel.dockManager.state
         switch state {
@@ -104,39 +97,30 @@ struct FloatingHUDLayer: View {
     // MARK: - Body
     
     var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .top) {
-                // Top row - ANCHORED AT TOP
-                VStack(spacing: 0) {
-                    topButtons
-                        .padding(.horizontal, AppTheme.Spacing.lg)
-                        .padding(.top, AppTheme.Spacing.md)
-                    
-                    Spacer()
-                }
-                
-                // Action buttons - ANCHORED AT BOTTOM (above dock)
-                VStack {
-                    Spacer()
-                    
-                    actionButtons
-                        .padding(.horizontal, AppTheme.Spacing.lg)
-                        .padding(.bottom, dockSpacing)
-                }
-            }
+        VStack(spacing: 0) {
+            topButtons
+                .padding(.horizontal, AppTheme.Spacing.lg)
+                .padding(.top, topPadding)
+            
+            Spacer()
         }
     }
     
-    /// Spacing above dock - adjusts based on dock height
-    private var dockSpacing: CGFloat {
-        isActiveMode ? 160 : 100
+    /// Top padding varies by mode:
+    /// - Home mode: TabView handles safe area, so use minimal padding
+    /// - Active mode: No TabView, so we must add safe area inset ourselves
+    private var topPadding: CGFloat {
+        if isActiveMode {
+            return topSafeAreaInset + AppTheme.Spacing.xs
+        } else {
+            return 8
+        }
     }
     
     // MARK: - Top Buttons
     
     private var topButtons: some View {
         HStack {
-            // Left side: Exit (in active mode) OR AI + Categories (in home mode)
             if isActiveMode {
                 exitButton
             } else {
@@ -148,18 +132,14 @@ struct FloatingHUDLayer: View {
             
             Spacer()
             
-            // Center: Status chip (Listening or Resonance score)
             centerChip
             
             Spacer()
             
-            // Right side: Profile button (only in home mode) or spacer for centering
             if !isActiveMode {
                 profileButton
             } else {
-                // Invisible spacer to keep chip centered
-                Color.clear
-                    .frame(width: 70, height: 44)
+                Color.clear.frame(width: 70, height: 44)
             }
         }
     }
@@ -173,13 +153,11 @@ struct FloatingHUDLayer: View {
         } else if isListening {
             ListeningChip(isVisible: true)
         } else {
-            // Empty space to maintain layout
-            Color.clear
-                .frame(width: 100, height: 32)
+            Color.clear.frame(width: 100, height: 32)
         }
     }
     
-    // MARK: - AI Prompts Button (Left side)
+    // MARK: - Buttons
     
     private var aiPromptsButton: some View {
         Button {
@@ -194,10 +172,7 @@ struct FloatingHUDLayer: View {
                 .clipShape(Circle())
         }
         .accessibilityLabel("AI Prompts")
-        .accessibilityHint("Opens custom prompts page")
     }
-    
-    // MARK: - Categories Button (Left side, next to AI)
     
     private var categoriesButton: some View {
         Button {
@@ -212,10 +187,7 @@ struct FloatingHUDLayer: View {
                 .clipShape(Circle())
         }
         .accessibilityLabel("Categories")
-        .accessibilityHint("Opens category selection")
     }
-    
-    // MARK: - Profile Button (Right side)
     
     private var profileButton: some View {
         Button {
@@ -230,22 +202,18 @@ struct FloatingHUDLayer: View {
                 .clipShape(Circle())
         }
         .accessibilityLabel("Profile")
-        .accessibilityHint("Opens your profile page")
     }
-    
-    // MARK: - Exit Button
     
     private var exitButton: some View {
         Button {
             Task {
-                await viewModel.returnToHome(audioService: dependencies.audioService)
+                await viewModel.stopSession()
             }
             HapticFeedback.impact(.light)
         } label: {
             HStack(spacing: AppTheme.Spacing.xs) {
                 Image(systemName: "xmark")
                     .font(.system(size: 14, weight: .semibold))
-                
                 Text("Exit")
                     .font(AppTypography.caption1.weight(.medium))
             }
@@ -256,86 +224,14 @@ struct FloatingHUDLayer: View {
             .clipShape(Capsule())
         }
         .accessibilityLabel("Exit session")
-        .accessibilityHint("Returns to browse mode")
-    }
-    
-    // MARK: - Action Buttons
-    
-    private var actionButtons: some View {
-        HStack(spacing: AppTheme.Spacing.xl) {
-            // Share button (disabled for now)
-            shareButton
-            
-            // Favorite button
-            favoriteButton
-        }
-        .padding(.vertical, AppTheme.Spacing.md)
-    }
-    
-    // MARK: - Share Button
-    
-    private var shareButton: some View {
-        Button {
-            viewModel.shareAffirmation()
-        } label: {
-            VStack(spacing: AppTheme.Spacing.xs) {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(AppColors.textTertiary)
-                    .frame(width: 44, height: 44)
-                
-                Text("Share")
-                    .font(AppTypography.caption2)
-                    .foregroundStyle(AppColors.textTertiary)
-            }
-        }
-        .accessibilityLabel("Share")
-        .accessibilityHint("Share this affirmation")
-        .disabled(true)
-        .opacity(0.5)
-    }
-    
-    // MARK: - Favorite Button
-    
-    private var favoriteButton: some View {
-        Button {
-            viewModel.toggleFavorite()
-        } label: {
-            VStack(spacing: AppTheme.Spacing.xs) {
-                Image(systemName: isFavorited ? "heart.fill" : "heart")
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundStyle(isFavorited ? AppColors.accent : AppColors.textSecondary)
-                    .frame(width: 44, height: 44)
-                    .scaleEffect(isFavorited ? 1.1 : 1.0)
-                    .animation(AppTheme.Animation.bouncy, value: isFavorited)
-                
-                Text(isFavorited ? "Saved" : "Save")
-                    .font(AppTypography.caption2)
-                    .foregroundStyle(isFavorited ? AppColors.accent : AppColors.textSecondary)
-            }
-        }
-        .accessibilityLabel(isFavorited ? "Remove from favorites" : "Add to favorites")
-        .accessibilityAddTraits(isFavorited ? .isSelected : [])
     }
 }
 
 // MARK: - Previews
 
-#Preview("Floating HUD - Home State") {
+#Preview("HUD - Home") {
     ZStack {
-        AppColors.backgroundPrimary
-            .ignoresSafeArea()
-        
-        VStack {
-            Spacer()
-            Text("I am confident and capable.")
-                .font(AppTypography.largeTitle)
-                .foregroundStyle(AppColors.textPrimary)
-                .multilineTextAlignment(.center)
-                .padding()
-            Spacer()
-        }
-        
+        Color.black.ignoresSafeArea()
         FloatingHUDLayer(
             viewModel: {
                 let vm = PracticeViewModel()
@@ -349,21 +245,9 @@ struct FloatingHUDLayer: View {
     }
 }
 
-#Preview("Floating HUD - Active Mode") {
+#Preview("HUD - Active") {
     ZStack {
-        AppColors.backgroundPrimary
-            .ignoresSafeArea()
-        
-        VStack {
-            Spacer()
-            Text("I embrace challenges.")
-                .font(AppTypography.largeTitle)
-                .foregroundStyle(AppColors.textPrimary)
-                .multilineTextAlignment(.center)
-                .padding()
-            Spacer()
-        }
-        
+        Color.black.ignoresSafeArea()
         FloatingHUDLayer(
             viewModel: {
                 let vm = PracticeViewModel()
@@ -378,57 +262,15 @@ struct FloatingHUDLayer: View {
     }
 }
 
-#Preview("Floating HUD - Listening") {
+#Preview("HUD - Listening") {
     ZStack {
-        AppColors.backgroundPrimary
-            .ignoresSafeArea()
-        
-        VStack {
-            Spacer()
-            Text("I am grateful for today.")
-                .font(AppTypography.largeTitle)
-                .foregroundStyle(AppColors.textPrimary)
-                .multilineTextAlignment(.center)
-                .padding()
-            Spacer()
-        }
-        
+        Color.black.ignoresSafeArea()
         FloatingHUDLayer(
             viewModel: {
                 let vm = PracticeViewModel()
                 vm.affirmations = Affirmation.samples
                 vm.dockManager.setMode(.speakOnly)
                 vm.dockManager.updateSpeakOnlyPhase(.listening)
-                return vm
-            }(),
-            onProfileTap: {},
-            onPromptsTap: {},
-            onCategoriesTap: {}
-        )
-    }
-}
-
-#Preview("Floating HUD - Score Shown") {
-    ZStack {
-        AppColors.backgroundPrimary
-            .ignoresSafeArea()
-        
-        VStack {
-            Spacer()
-            Text("I am worthy of success.")
-                .font(AppTypography.largeTitle)
-                .foregroundStyle(AppColors.textPrimary)
-                .multilineTextAlignment(.center)
-                .padding()
-            Spacer()
-        }
-        
-        FloatingHUDLayer(
-            viewModel: {
-                let vm = PracticeViewModel()
-                vm.affirmations = Affirmation.samples
-                vm.dockManager.setMode(.speakOnly)
-                vm.dockManager.updateSpeakOnlyPhase(.showingScore(score: 0.82))
                 return vm
             }(),
             onProfileTap: {},

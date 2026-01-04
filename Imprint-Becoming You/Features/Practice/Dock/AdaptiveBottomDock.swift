@@ -27,11 +27,24 @@ import SwiftUI
 /// ## States
 /// - **Home**: Mode selector + Binaural selector only (compact)
 /// - **Active**: Progress bars + Waveform/Score + Navigation + Mode controls
+///
+/// ## Performance
+/// Selector buttons are silently disabled during expand/collapse animations
+/// to prevent double-taps and handle first-render compilation delays gracefully.
 struct AdaptiveBottomDock: View {
     
     // MARK: - Properties
     
     @Bindable var store: PracticeStore
+    
+    // MARK: - Animation State
+    
+    /// Tracks whether selector animation is in progress.
+    /// Buttons are silently disabled during animation to prevent double-taps.
+    @State private var isAnimatingSelector = false
+    
+    /// Duration to match AppTheme.Animation.standard
+    private let animationDuration: TimeInterval = 0.35
     
     // MARK: - Body
     
@@ -131,8 +144,7 @@ struct AdaptiveBottomDock: View {
                 mode: currentMode,
                 isExpanded: isModeSelectorExpanded
             ) {
-                store.send(.toggleModeSelector)
-                HapticFeedback.impact(.light)
+                toggleModeSelector()
             }
             
             Spacer(minLength: 0)
@@ -141,8 +153,7 @@ struct AdaptiveBottomDock: View {
                 preset: currentBinaural,
                 isExpanded: isBinauralSelectorExpanded
             ) {
-                store.send(.toggleBinauralSelector)
-                HapticFeedback.impact(.light)
+                toggleBinauralSelector()
             }
         }
     }
@@ -175,8 +186,7 @@ struct AdaptiveBottomDock: View {
                     isExpanded: isModeSelectorExpanded,
                     showLabel: true
                 ) {
-                    store.send(.toggleModeSelector)
-                    HapticFeedback.impact(.light)
+                    toggleModeSelector()
                 }
                 
                 Spacer(minLength: 0)
@@ -185,9 +195,44 @@ struct AdaptiveBottomDock: View {
                     preset: currentBinaural,
                     isExpanded: isBinauralSelectorExpanded
                 ) {
-                    store.send(.toggleBinauralSelector)
-                    HapticFeedback.impact(.light)
+                    toggleBinauralSelector()
                 }
+            }
+        }
+    }
+    
+    // MARK: - Button Actions with Animation Lock
+    
+    /// Toggles mode selector with silent animation lock to prevent double-taps.
+    private func toggleModeSelector() {
+        guard !isAnimatingSelector else { return }
+        
+        isAnimatingSelector = true
+        HapticFeedback.impact(.light)
+        store.send(.toggleModeSelector)
+        
+        // Re-enable after animation completes
+        Task {
+            try? await Task.sleep(for: .seconds(animationDuration))
+            await MainActor.run {
+                isAnimatingSelector = false
+            }
+        }
+    }
+    
+    /// Toggles binaural selector with silent animation lock to prevent double-taps.
+    private func toggleBinauralSelector() {
+        guard !isAnimatingSelector else { return }
+        
+        isAnimatingSelector = true
+        HapticFeedback.impact(.light)
+        store.send(.toggleBinauralSelector)
+        
+        // Re-enable after animation completes
+        Task {
+            try? await Task.sleep(for: .seconds(animationDuration))
+            await MainActor.run {
+                isAnimatingSelector = false
             }
         }
     }

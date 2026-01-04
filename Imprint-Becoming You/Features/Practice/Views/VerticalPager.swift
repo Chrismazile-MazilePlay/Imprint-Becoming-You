@@ -286,14 +286,6 @@ struct VerticalPager<Content: View, Background: View>: View {
     }
 }
 
-// MARK: - Navigation Direction
-
-/// Direction of pager navigation
-enum NavigationDirection: Sendable, Equatable {
-    case next
-    case previous
-}
-
 // MARK: - Convenience Initializers
 
 extension VerticalPager {

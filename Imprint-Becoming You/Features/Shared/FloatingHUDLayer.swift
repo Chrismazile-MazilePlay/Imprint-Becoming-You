@@ -30,7 +30,7 @@ struct FloatingHUDLayer: View {
     
     // MARK: - Properties
     
-    @Bindable var viewModel: PracticeViewModel
+    @Bindable var store: PracticeStore
     
     let onProfileTap: () -> Void
     let onPromptsTap: () -> Void
@@ -48,50 +48,22 @@ struct FloatingHUDLayer: View {
         return window.safeAreaInsets.top
     }
     
-    // MARK: - Private
+    // MARK: - Computed State
     
     private var isActiveMode: Bool {
-        viewModel.dockManager.isInActiveMode
+        store.isSessionActive
     }
     
     private var isListening: Bool {
-        let state = viewModel.dockManager.state
-        switch state {
-        case .readAndSpeak(let phase):
-            return phase == .listening
-        case .speakOnly(let phase):
-            return phase == .listening
-        default:
-            return false
-        }
+        store.flow.isListening
     }
     
     private var isShowingScore: Bool {
-        let state = viewModel.dockManager.state
-        switch state {
-        case .readAndSpeak(let phase):
-            if case .showingScore = phase { return true }
-            return false
-        case .speakOnly(let phase):
-            if case .showingScore = phase { return true }
-            return false
-        default:
-            return false
-        }
+        store.flow.isShowingScore
     }
     
     private var currentScore: Double? {
-        let state = viewModel.dockManager.state
-        switch state {
-        case .readAndSpeak(let phase):
-            if case .showingScore(let score) = phase { return score }
-            return nil
-        case .speakOnly(let phase):
-            if case .showingScore(let score) = phase { return score }
-            return nil
-        default:
-            return nil
-        }
+        store.flow.scoreResult?.score
     }
     
     // MARK: - Body
@@ -206,9 +178,7 @@ struct FloatingHUDLayer: View {
     
     private var exitButton: some View {
         Button {
-            Task {
-                await viewModel.stopSession()
-            }
+            store.send(.exitSession)
             HapticFeedback.impact(.light)
         } label: {
             HStack(spacing: AppTheme.Spacing.xs) {
@@ -233,11 +203,7 @@ struct FloatingHUDLayer: View {
     ZStack {
         Color.black.ignoresSafeArea()
         FloatingHUDLayer(
-            viewModel: {
-                let vm = PracticeViewModel()
-                vm.affirmations = Affirmation.samples
-                return vm
-            }(),
+            store: .preview,
             onProfileTap: {},
             onPromptsTap: {},
             onCategoriesTap: {}
@@ -249,12 +215,7 @@ struct FloatingHUDLayer: View {
     ZStack {
         Color.black.ignoresSafeArea()
         FloatingHUDLayer(
-            viewModel: {
-                let vm = PracticeViewModel()
-                vm.affirmations = Affirmation.samples
-                vm.dockManager.setMode(.speakOnly)
-                return vm
-            }(),
+            store: .previewReadAloud,
             onProfileTap: {},
             onPromptsTap: {},
             onCategoriesTap: {}
@@ -266,13 +227,19 @@ struct FloatingHUDLayer: View {
     ZStack {
         Color.black.ignoresSafeArea()
         FloatingHUDLayer(
-            viewModel: {
-                let vm = PracticeViewModel()
-                vm.affirmations = Affirmation.samples
-                vm.dockManager.setMode(.speakOnly)
-                vm.dockManager.updateSpeakOnlyPhase(.listening)
-                return vm
-            }(),
+            store: .previewListening,
+            onProfileTap: {},
+            onPromptsTap: {},
+            onCategoriesTap: {}
+        )
+    }
+}
+
+#Preview("HUD - Showing Score") {
+    ZStack {
+        Color.black.ignoresSafeArea()
+        FloatingHUDLayer(
+            store: .previewShowingScore,
             onProfileTap: {},
             onPromptsTap: {},
             onCategoriesTap: {}

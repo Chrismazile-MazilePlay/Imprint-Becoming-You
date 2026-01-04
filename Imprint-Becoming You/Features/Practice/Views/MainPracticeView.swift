@@ -50,7 +50,8 @@ struct MainPracticeView: View {
     
     // MARK: - State
     
-    @State private var viewModel = PracticeViewModel()
+    /// The single source of truth for practice state
+    @State private var store = PracticeStore()
     @State private var currentPage: AppPage = .practice
     @State private var isInitialized = false
     
@@ -73,7 +74,7 @@ struct MainPracticeView: View {
         .task {
             await initializePractice()
         }
-        .onChange(of: viewModel.isSessionActive) { wasActive, isActive in
+        .onChange(of: store.isSessionActive) { wasActive, isActive in
             // When exiting active mode, ensure we're on practice page
             if wasActive && !isActive {
                 currentPage = .practice
@@ -81,24 +82,32 @@ struct MainPracticeView: View {
         }
         .alert(
             "Error",
-            isPresented: $viewModel.showError,
-            presenting: viewModel.errorMessage
+            isPresented: errorBinding,
+            presenting: store.error
         ) { _ in
-            Button("OK") { viewModel.dismissError() }
-        } message: { message in
-            Text(message)
+            Button("OK") { store.send(.dismissError) }
+        } message: { error in
+            Text(error.userMessage)
         }
+    }
+    
+    /// Binding for error alert presentation
+    private var errorBinding: Binding<Bool> {
+        Binding(
+            get: { store.error != nil },
+            set: { if !$0 { store.send(.dismissError) } }
+        )
     }
     
     // MARK: - Page Content
     
     @ViewBuilder
     private var pageContent: some View {
-        if viewModel.isSessionActive {
+        if store.isSessionActive {
             // ACTIVE MODE: No TabView, no horizontal swiping possible
             // Just show PracticePageView directly
             PracticePageView(
-                viewModel: viewModel,
+                store: store,
                 onNavigateToProfile: { }, // Disabled in active mode
                 onNavigateToPrompts: { }  // Disabled in active mode
             )
@@ -114,7 +123,7 @@ struct MainPracticeView: View {
                 
                 // Page 1: Practice (Center - Main)
                 PracticePageView(
-                    viewModel: viewModel,
+                    store: store,
                     onNavigateToProfile: { navigateToPage(.profile) },
                     onNavigateToPrompts: { navigateToPage(.prompts) }
                 )
@@ -122,7 +131,7 @@ struct MainPracticeView: View {
                 
                 // Page 2: Profile (Right)
                 ProfilePageView(
-                    viewModel: viewModel,
+                    store: store,
                     onNavigateToCenter: { navigateToPage(.practice) }
                 )
                 .tag(AppPage.profile)
@@ -150,7 +159,7 @@ struct MainPracticeView: View {
     
     private func navigateToPage(_ page: AppPage) {
         // Block navigation when in active session mode
-        guard !viewModel.isSessionActive else { return }
+        guard !store.isSessionActive else { return }
         
         withAnimation(AppTheme.Animation.standard) {
             currentPage = page
@@ -160,7 +169,7 @@ struct MainPracticeView: View {
     // MARK: - Initialization
     
     private func initializePractice() async {
-        await viewModel.loadAffirmations(from: modelContext)
+        await store.loadAffirmations(from: modelContext)
         
         // Ensure we're on practice page when starting
         currentPage = .practice
@@ -178,19 +187,19 @@ struct MainPracticeView: View {
 #Preview("Main - Active Mode (No Swipe)") {
     // This preview shows that horizontal swiping is blocked
     struct ActiveModePreview: View {
-        @State private var viewModel = PracticeViewModel()
+        @State private var store = PracticeStore()
         
         var body: some View {
             ZStack {
                 PracticePageView(
-                    viewModel: viewModel,
+                    store: store,
                     onNavigateToProfile: {},
                     onNavigateToPrompts: {}
                 )
             }
             .onAppear {
-                viewModel.affirmations = Affirmation.samples
-                viewModel.dockManager.setMode(.readAloud)
+                store.send(.affirmationsLoaded(Affirmation.samples))
+                store.send(.selectMode(.readAloud))
             }
         }
     }

@@ -27,36 +27,20 @@ import SwiftUI
 /// ## States
 /// - **Home**: Mode selector + Binaural selector only (compact)
 /// - **Active**: Progress bars + Waveform/Score + Navigation + Mode controls
-///
-/// ## Components (extracted to separate files)
-/// - `DockModeButton` - Mode selector button
-/// - `DockBinauralButton` - Binaural preset button
-/// - `ModeSelectorExpanded` - Expanded mode picker
-/// - `BinauralSelectorExpanded` - Expanded binaural picker
-/// - `DockProgressBars` - Stories-style progress
-/// - `DockWaveformView` - Audio visualization
-/// - `DockScoreDisplay` - Resonance score
 struct AdaptiveBottomDock: View {
     
     // MARK: - Properties
     
-    @Bindable var viewModel: PracticeViewModel
-    
-    /// Callback when binaural preset changes
-    let onBinauralChange: (BinauralPreset) async -> Void
-    
-    /// Callback when mode changes
-    let onModeChange: (SessionMode) async -> Void
+    @Bindable var store: PracticeStore
     
     // MARK: - Body
     
     var body: some View {
-        let dockManager = viewModel.dockManager
-        let currentMode = dockManager.currentMode
-        let currentBinaural = dockManager.binauralPreset
-        let isModeSelectorExpanded = dockManager.isModeSelectorExpanded
-        let isBinauralSelectorExpanded = dockManager.isBinauralSelectorExpanded
-        let isActiveMode = dockManager.isInActiveMode
+        let currentMode = store.currentMode
+        let currentBinaural = store.binauralPreset
+        let isModeSelectorExpanded = store.isModeSelectorExpanded
+        let isBinauralSelectorExpanded = store.isBinauralSelectorExpanded
+        let isActiveMode = store.isSessionActive
         
         return VStack(spacing: 0) {
             // Expanded selectors (when open)
@@ -115,9 +99,7 @@ struct AdaptiveBottomDock: View {
             ModeSelectorExpanded(
                 selectedMode: currentMode,
                 onSelect: { mode in
-                    Task {
-                        await onModeChange(mode)
-                    }
+                    store.send(.selectMode(mode))
                 }
             )
             .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -128,9 +110,7 @@ struct AdaptiveBottomDock: View {
             BinauralSelectorExpanded(
                 selectedPreset: currentBinaural,
                 onSelect: { preset in
-                    Task {
-                        await onBinauralChange(preset)
-                    }
+                    store.send(.selectBinaural(preset))
                 }
             )
             .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -151,7 +131,7 @@ struct AdaptiveBottomDock: View {
                 mode: currentMode,
                 isExpanded: isModeSelectorExpanded
             ) {
-                viewModel.dockManager.toggleModeSelector()
+                store.send(.toggleModeSelector)
                 HapticFeedback.impact(.light)
             }
             
@@ -161,7 +141,7 @@ struct AdaptiveBottomDock: View {
                 preset: currentBinaural,
                 isExpanded: isBinauralSelectorExpanded
             ) {
-                viewModel.dockManager.toggleBinauralSelector()
+                store.send(.toggleBinauralSelector)
                 HapticFeedback.impact(.light)
             }
         }
@@ -178,8 +158,8 @@ struct AdaptiveBottomDock: View {
         VStack(spacing: AppTheme.Spacing.md) {
             // Progress bars (Stories style)
             DockProgressBars(
-                current: viewModel.currentIndex,
-                total: viewModel.affirmations.count,
+                current: store.currentIndex,
+                total: store.totalCount,
                 progress: currentProgress,
                 isAnimating: isPlayingOrListening
             )
@@ -195,7 +175,7 @@ struct AdaptiveBottomDock: View {
                     isExpanded: isModeSelectorExpanded,
                     showLabel: true
                 ) {
-                    viewModel.dockManager.toggleModeSelector()
+                    store.send(.toggleModeSelector)
                     HapticFeedback.impact(.light)
                 }
                 
@@ -205,7 +185,7 @@ struct AdaptiveBottomDock: View {
                     preset: currentBinaural,
                     isExpanded: isBinauralSelectorExpanded
                 ) {
-                    viewModel.dockManager.toggleBinauralSelector()
+                    store.send(.toggleBinauralSelector)
                     HapticFeedback.impact(.light)
                 }
             }
@@ -218,40 +198,41 @@ struct AdaptiveBottomDock: View {
         HStack(spacing: AppTheme.Spacing.md) {
             // Left chevron
             Button {
-                viewModel.previousAffirmation()
+                store.send(.navigateViaButton(.previous))
                 HapticFeedback.impact(.light)
             } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(viewModel.canGoPrevious ? AppColors.textSecondary : AppColors.textTertiary.opacity(0.5))
+                    .foregroundStyle(store.canGoPrevious ? AppColors.textSecondary : AppColors.textTertiary.opacity(0.5))
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
-            .disabled(!viewModel.canGoPrevious)
+            .disabled(!store.canGoPrevious)
             .accessibilityLabel("Previous affirmation")
-            .accessibilityHint(viewModel.canGoPrevious ? "Double tap to go back" : "Already at first affirmation")
+            .accessibilityHint(store.canGoPrevious ? "Double tap to go back" : "Already at first affirmation")
             
             Spacer()
             
-            // Center content (waveform or score)
+            // Center content (waveform or score) - fixed height for consistent dock size
             centerContent
+                .frame(height: 52)
             
             Spacer()
             
             // Right chevron
             Button {
-                viewModel.nextAffirmation()
+                store.send(.navigateViaButton(.next))
                 HapticFeedback.impact(.light)
             } label: {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(viewModel.canGoNext ? AppColors.textSecondary : AppColors.textTertiary.opacity(0.5))
+                    .foregroundStyle(store.canGoNext ? AppColors.textSecondary : AppColors.textTertiary.opacity(0.5))
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
-            .disabled(!viewModel.canGoNext)
+            .disabled(!store.canGoNext)
             .accessibilityLabel("Next affirmation")
-            .accessibilityHint(viewModel.canGoNext ? "Double tap to advance" : "Already at last affirmation")
+            .accessibilityHint(store.canGoNext ? "Double tap to advance" : "Already at last affirmation")
         }
     }
     
@@ -259,9 +240,7 @@ struct AdaptiveBottomDock: View {
     
     @ViewBuilder
     private var centerContent: some View {
-        let state = viewModel.dockManager.state
-        
-        switch state {
+        switch store.flow {
         case .home:
             EmptyView()
             
@@ -269,8 +248,8 @@ struct AdaptiveBottomDock: View {
             switch phase {
             case .idle:
                 DockWaveformView(state: .idle)
-            case .speaking:
-                DockWaveformView(state: .playing, audioLevel: viewModel.audioLevel)
+            case .playing:
+                DockWaveformView(state: .playing, audioLevel: audioLevel)
             case .complete:
                 DockWaveformView(state: .idle)
             }
@@ -280,77 +259,47 @@ struct AdaptiveBottomDock: View {
             case .idle:
                 DockWaveformView(state: .idle)
             case .ttsPlaying:
-                DockWaveformView(state: .playing, audioLevel: viewModel.audioLevel)
+                DockWaveformView(state: .playing, audioLevel: audioLevel)
             case .waitingForUser:
                 DockWaveformView(state: .waiting)
-            case .listening:
-                DockWaveformView(state: .listening, audioLevel: viewModel.audioLevel)
+            case .listening(let context):
+                DockWaveformView(state: .listening, audioLevel: CGFloat(context.audioLevel))
             case .analyzing:
                 DockWaveformView(state: .settling)
-            case .showingScore(let score):
-                DockScoreDisplay(score: Int(score * 100))
+            case .showingScore(let result):
+                DockScoreDisplay(score: result.percentScore)
             }
             
         case .speakOnly(let phase):
             switch phase {
             case .idle:
                 DockWaveformView(state: .idle)
-            case .listening:
-                DockWaveformView(state: .listening, audioLevel: viewModel.audioLevel)
+            case .listening(let context):
+                DockWaveformView(state: .listening, audioLevel: CGFloat(context.audioLevel))
             case .analyzing:
                 DockWaveformView(state: .settling)
-            case .showingScore(let score):
-                DockScoreDisplay(score: Int(score * 100))
+            case .showingScore(let result):
+                DockScoreDisplay(score: result.percentScore)
             }
         }
     }
     
     // MARK: - Computed Helpers
     
+    /// Audio level from flow context, or 0 if not available
+    private var audioLevel: CGFloat {
+        CGFloat(store.flow.currentAudioLevel ?? 0)
+    }
+    
     /// Progress through current affirmation (for progress bar fill)
+    /// Uses explicit segmentProgress from store, not derived from flow state.
     private var currentProgress: CGFloat {
-        let state = viewModel.dockManager.state
-        switch state {
-        case .home:
-            return 0
-        case .readAloud(let phase):
-            switch phase {
-            case .idle: return 0
-            case .speaking: return 0.5
-            case .complete: return 1.0
-            }
-        case .readAndSpeak(let phase):
-            switch phase {
-            case .idle: return 0
-            case .ttsPlaying: return 0.25
-            case .waitingForUser: return 0.5
-            case .listening: return 0.65
-            case .analyzing: return 0.85
-            case .showingScore: return 1.0
-            }
-        case .speakOnly(let phase):
-            switch phase {
-            case .idle: return 0
-            case .listening: return 0.5
-            case .analyzing: return 0.8
-            case .showingScore: return 1.0
-            }
-        }
+        store.segmentProgress
     }
     
     /// Whether currently in a playing or listening state
     private var isPlayingOrListening: Bool {
-        let state = viewModel.dockManager.state
-        switch state {
-        case .readAloud(let phase):
-            return phase == .speaking
-        case .readAndSpeak(let phase):
-            return phase == .ttsPlaying || phase == .listening
-        case .speakOnly(let phase):
-            return phase == .listening
-        default:
-            return false
-        }
+        store.flow.isTTSPlaying || store.flow.isListening
     }
 }
 
@@ -364,17 +313,9 @@ struct AdaptiveBottomDock: View {
         VStack {
             Spacer()
             
-            AdaptiveBottomDock(
-                viewModel: {
-                    let vm = PracticeViewModel()
-                    vm.affirmations = Affirmation.samples
-                    return vm
-                }(),
-                onBinauralChange: { _ in },
-                onModeChange: { _ in }
-            )
-            .padding(.horizontal, AppTheme.Spacing.lg)
-            .padding(.bottom, AppTheme.Spacing.lg)
+            AdaptiveBottomDock(store: .preview)
+                .padding(.horizontal, AppTheme.Spacing.lg)
+                .padding(.bottom, AppTheme.Spacing.lg)
         }
     }
 }
@@ -387,25 +328,14 @@ struct AdaptiveBottomDock: View {
         VStack {
             Spacer()
             
-            AdaptiveBottomDock(
-                viewModel: {
-                    let vm = PracticeViewModel()
-                    vm.affirmations = Affirmation.samples
-                    vm.dockManager.setMode(.readAloud)
-                    vm.dockManager.updateReadAloudPhase(.speaking)
-                    vm.audioLevel = 0.6
-                    return vm
-                }(),
-                onBinauralChange: { _ in },
-                onModeChange: { _ in }
-            )
-            .padding(.horizontal, AppTheme.Spacing.lg)
-            .padding(.bottom, AppTheme.Spacing.lg)
+            AdaptiveBottomDock(store: .previewReadAloud)
+                .padding(.horizontal, AppTheme.Spacing.lg)
+                .padding(.bottom, AppTheme.Spacing.lg)
         }
     }
 }
 
-#Preview("Dock - Listening (Green)") {
+#Preview("Dock - Listening") {
     ZStack {
         AppColors.backgroundPrimary
             .ignoresSafeArea()
@@ -413,20 +343,9 @@ struct AdaptiveBottomDock: View {
         VStack {
             Spacer()
             
-            AdaptiveBottomDock(
-                viewModel: {
-                    let vm = PracticeViewModel()
-                    vm.affirmations = Affirmation.samples
-                    vm.dockManager.setMode(.speakOnly)
-                    vm.dockManager.updateSpeakOnlyPhase(.listening)
-                    vm.audioLevel = 0.7
-                    return vm
-                }(),
-                onBinauralChange: { _ in },
-                onModeChange: { _ in }
-            )
-            .padding(.horizontal, AppTheme.Spacing.lg)
-            .padding(.bottom, AppTheme.Spacing.lg)
+            AdaptiveBottomDock(store: .previewListening)
+                .padding(.horizontal, AppTheme.Spacing.lg)
+                .padding(.bottom, AppTheme.Spacing.lg)
         }
     }
 }
@@ -439,19 +358,9 @@ struct AdaptiveBottomDock: View {
         VStack {
             Spacer()
             
-            AdaptiveBottomDock(
-                viewModel: {
-                    let vm = PracticeViewModel()
-                    vm.affirmations = Affirmation.samples
-                    vm.dockManager.setMode(.speakOnly)
-                    vm.dockManager.updateSpeakOnlyPhase(.showingScore(score: 0.78))
-                    return vm
-                }(),
-                onBinauralChange: { _ in },
-                onModeChange: { _ in }
-            )
-            .padding(.horizontal, AppTheme.Spacing.lg)
-            .padding(.bottom, AppTheme.Spacing.lg)
+            AdaptiveBottomDock(store: .previewShowingScore)
+                .padding(.horizontal, AppTheme.Spacing.lg)
+                .padding(.bottom, AppTheme.Spacing.lg)
         }
     }
 }

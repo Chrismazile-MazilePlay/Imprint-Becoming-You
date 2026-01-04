@@ -4,7 +4,7 @@
 //
 //  Created by Christopher Mazile on 12/24/25.
 //
-
+/*
 import Foundation
 
 // MARK: - DockState
@@ -80,3 +80,4 @@ enum DockState: Equatable, Sendable {
         }
     }
 }
+*/

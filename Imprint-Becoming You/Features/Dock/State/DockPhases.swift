@@ -4,7 +4,7 @@
 //
 //  Created by Christopher Mazile on 12/24/25.
 //
-
+/*
 import Foundation
 
 // MARK: - TTS Phase
@@ -79,3 +79,4 @@ enum SpeakPhase: Equatable, Sendable {
     /// Displaying the final resonance score
     case showingScore(score: Double)
 }
+*/

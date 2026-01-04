@@ -4,7 +4,7 @@
 //
 //  Created by Christopher Mazile on 12/24/25.
 //
-
+/*
 import SwiftUI
 
 // MARK: - DockConfiguration
@@ -166,3 +166,4 @@ struct DockConfiguration: Equatable, Sendable {
         )
     }
 }
+*/

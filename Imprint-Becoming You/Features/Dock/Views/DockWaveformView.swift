@@ -52,8 +52,8 @@ struct DockWaveformView: View {
     /// Size of idle dots (width AND height for perfect circles)
     private let dotSize: CGFloat = 6
     
-    /// Maximum bar height when animating
-    private let maxHeight: CGFloat = 28
+    /// Maximum bar height when animating (increased for consistent dock size)
+    private let maxHeight: CGFloat = 44
     
     /// Bar width (same as dot size for smooth morph)
     private let barWidth: CGFloat = 6

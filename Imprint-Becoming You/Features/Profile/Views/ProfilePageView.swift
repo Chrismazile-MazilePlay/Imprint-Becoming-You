@@ -29,7 +29,7 @@ struct ProfilePageView: View {
     
     // MARK: - Properties
     
-    @Bindable var viewModel: PracticeViewModel
+    @Bindable var store: PracticeStore
     let onNavigateToCenter: () -> Void
     
     // MARK: - State
@@ -77,7 +77,7 @@ struct ProfilePageView: View {
             await loadStats()
         }
         .navigationDestination(isPresented: $showFavorites) {
-            FavoritesFullListView(viewModel: viewModel)
+            FavoritesFullListView(store: store)
         }
     }
     
@@ -445,7 +445,7 @@ struct FavoritesFullListView: View {
     
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @Bindable var viewModel: PracticeViewModel
+    @Bindable var store: PracticeStore
     
     @State private var favorites: [Affirmation] = []
     
@@ -502,7 +502,7 @@ struct FavoritesFullListView: View {
             // Start session button
             Button {
                 Task {
-                    await viewModel.loadFavorites(from: modelContext)
+                    await store.loadFavorites(from: modelContext)
                     dismiss()
                 }
             } label: {
@@ -593,7 +593,7 @@ struct FavoriteListRow: View {
 
 #Preview("Profile Page") {
     ProfilePageView(
-        viewModel: PracticeViewModel(),
+        store: .preview,
         onNavigateToCenter: {}
     )
     .previewEnvironment()

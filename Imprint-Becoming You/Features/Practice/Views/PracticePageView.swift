@@ -20,10 +20,10 @@ import SwiftData
 /// - NO opacity/fade on content - pure vertical movement
 ///
 /// ## Auto-Advance Integration
-/// - ViewModel sets `pendingAutoAdvance` to trigger animated transition
+/// - Store sets `pendingAutoAdvance` to trigger animated transition
 /// - VerticalPager performs animation and calls `onAutoAdvanceComplete`
-/// - ViewModel's `continueFlow()` starts the next affirmation flow
-/// - DockProgressBars stay in sync via `currentIndex.didSet`
+/// - Store's `continueFlow()` starts the next affirmation flow
+/// - DockProgressBars stay in sync via store state
 ///
 /// ## Gesture Priority
 /// Vertical gestures take strict priority over horizontal (parent TabView).
@@ -31,7 +31,7 @@ struct PracticePageView: View {
     
     // MARK: - Properties
     
-    @Bindable var viewModel: PracticeViewModel
+    @Bindable var store: PracticeStore
     
     /// Callback to navigate to profile page
     let onNavigateToProfile: () -> Void
@@ -52,12 +52,23 @@ struct PracticePageView: View {
     
     var body: some View {
         ZStack {
+            // Dismiss overlay - appears when selectors are expanded
+            // This must be BELOW the dock but ABOVE the pager content
+            if store.isModeSelectorExpanded || store.isBinauralSelectorExpanded {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        store.send(.closeSelectors)
+                    }
+                    .zIndex(1)
+            }
+            
             // Vertical pager with auto-advance support
             VerticalPager(
-                currentIndex: $viewModel.currentIndex,
-                itemCount: viewModel.affirmations.count,
+                currentIndex: currentIndexBinding,
+                itemCount: store.affirmations.count,
                 canNavigate: canNavigate,
-                pendingAdvance: $viewModel.pendingAutoAdvance,
+                pendingAdvance: pendingAdvanceBinding,
                 onNavigate: handleUserNavigation,
                 onAutoAdvanceComplete: handleAutoAdvanceComplete
             ) { index in
@@ -70,32 +81,50 @@ struct PracticePageView: View {
             
             // Fixed overlay layers (don't move with gesture)
             overlayLayers
+                .zIndex(2) // Dock is above the dismiss overlay
         }
-        .simultaneousGesture(tapGesture)
         .gesture(horizontalBlockingGesture)
         .fullScreenCover(isPresented: $showCategories) {
-            CategoriesFullScreenView(viewModel: viewModel)
+            CategoriesFullScreenView(store: store)
         }
+    }
+    
+    // MARK: - Bindings
+    
+    /// Binding for currentIndex that updates store
+    private var currentIndexBinding: Binding<Int> {
+        Binding(
+            get: { store.currentIndex },
+            set: { store.updateIndex($0) }
+        )
+    }
+    
+    /// Binding for pendingAutoAdvance
+    private var pendingAdvanceBinding: Binding<NavigationDirection?> {
+        Binding(
+            get: { store.pendingAutoAdvance },
+            set: { store.pendingAutoAdvance = $0 }
+        )
     }
     
     // MARK: - Navigation Handlers
     
     /// Called when user swipes to navigate
     private func handleUserNavigation(_ direction: NavigationDirection) {
-        viewModel.navigate(direction)
+        store.send(.userNavigated(direction))
     }
     
     /// Called when auto-advance animation completes
     private func handleAutoAdvanceComplete() {
-        viewModel.continueFlow()
+        store.send(.autoAdvanceCompleted)
     }
     
     // MARK: - Navigation Logic
     
     private var canNavigate: Bool {
         // Block if selectors are expanded
-        guard !viewModel.dockManager.isModeSelectorExpanded else { return false }
-        guard !viewModel.dockManager.isBinauralSelectorExpanded else { return false }
+        guard !store.isModeSelectorExpanded else { return false }
+        guard !store.isBinauralSelectorExpanded else { return false }
         
         // Allow navigation even during active phases - swipe will interrupt
         // The navigate() method handles cancelling current activity
@@ -108,7 +137,7 @@ struct PracticePageView: View {
     private func targetCategory(for currentIndex: Int, progress: CGFloat) -> GoalCategory? {
         let currentCategory = affirmation(at: currentIndex)?.goalCategory
         
-        if progress > 0 && currentIndex < viewModel.affirmations.count - 1 {
+        if progress > 0 && currentIndex < store.affirmations.count - 1 {
             return affirmation(at: currentIndex + 1)?.goalCategory
         } else if progress < 0 && currentIndex > 0 {
             return affirmation(at: currentIndex - 1)?.goalCategory
@@ -179,16 +208,17 @@ struct PracticePageView: View {
                     Spacer()
                     
                     // Recognized text (only current index, during listening)
-                    if index == viewModel.currentIndex,
+                    if index == store.currentIndex,
                        currentPhase == .listening,
-                       !viewModel.recognizedText.isEmpty {
-                        RecognizedTextView(text: viewModel.recognizedText)
+                       let recognizedText = store.flow.listeningContext?.recognizedText,
+                       !recognizedText.isEmpty {
+                        RecognizedTextView(text: recognizedText)
                             .padding(.bottom, AppTheme.Spacing.md)
                     }
                     
                     // Action buttons - positioned close to dock
                     // Only show for current index to avoid duplicate buttons
-                    if index == viewModel.currentIndex {
+                    if index == store.currentIndex {
                         actionButtons(for: affirmation)
                             .padding(.bottom, dockOffset)
                     } else {
@@ -202,14 +232,19 @@ struct PracticePageView: View {
         }
     }
     
-    /// Offset from bottom to position buttons just above dock
+    /// Offset from bottom to position buttons just above dock.
+    /// Uses centralized layout constants from AppTheme.Layout.
     private var dockOffset: CGFloat {
-        viewModel.dockManager.isInActiveMode ? 140 : 110
+        if store.isSessionActive {
+            return AppTheme.Layout.activeDockOffset
+        } else {
+            return AppTheme.Layout.homeDockOffset
+        }
     }
     
     private func affirmation(at index: Int) -> Affirmation? {
-        guard viewModel.affirmations.indices.contains(index) else { return nil }
-        return viewModel.affirmations[index]
+        guard store.affirmations.indices.contains(index) else { return nil }
+        return store.affirmations[index]
     }
     
     // MARK: - Action Buttons
@@ -218,7 +253,7 @@ struct PracticePageView: View {
         HStack(spacing: AppTheme.Spacing.xxl + 8) {
             // Share button
             Button {
-                viewModel.shareAffirmation()
+                store.send(.shareAffirmation)
             } label: {
                 VStack(spacing: AppTheme.Spacing.sm) {
                     Image(systemName: "square.and.arrow.up")
@@ -237,7 +272,7 @@ struct PracticePageView: View {
             
             // Favorite button
             Button {
-                viewModel.toggleFavorite()
+                store.send(.toggleFavorite)
             } label: {
                 VStack(spacing: AppTheme.Spacing.sm) {
                     Image(systemName: affirmation.isFavorited ? "heart.fill" : "heart")
@@ -262,55 +297,28 @@ struct PracticePageView: View {
     private var overlayLayers: some View {
         // Top HUD
         FloatingHUDLayer(
-            viewModel: viewModel,
+            store: store,
             onProfileTap: onNavigateToProfile,
             onPromptsTap: onNavigateToPrompts,
             onCategoriesTap: { showCategories = true }
         )
         
-        // Bottom dock
-        VStack {
-            Spacer()
+        // Bottom dock - anchored to bottom edge, grows upward
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
             
-            AdaptiveBottomDock(
-                viewModel: viewModel,
-                onBinauralChange: { preset in
-                    await viewModel.changeBinauralPreset(
-                        preset,
-                        audioService: dependencies.audioService
-                    )
-                },
-                onModeChange: { mode in
-                    await viewModel.changeMode(
-                        mode,
-                        audioService: dependencies.audioService
-                    )
-                }
-            )
-            .padding(.horizontal, AppTheme.Spacing.lg)
-            .padding(.bottom, AppTheme.Spacing.md)
+            AdaptiveBottomDock(store: store)
+                .padding(.horizontal, AppTheme.Spacing.lg)
         }
-    }
-    
-    // MARK: - Tap Gesture
-    
-    private var tapGesture: some Gesture {
-        TapGesture()
-            .onEnded { _ in
-                if viewModel.dockManager.isModeSelectorExpanded ||
-                   viewModel.dockManager.isBinauralSelectorExpanded {
-                    viewModel.dockManager.closeSelectors()
-                } else {
-                    viewModel.recordInteraction()
-                }
-            }
+        .padding(.bottom, AppTheme.Layout.dockBottomPadding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }
     
     // MARK: - Horizontal Blocking Gesture
     
     /// Blocks horizontal swipes from reaching parent TabView when in active mode
     private var horizontalBlockingGesture: some Gesture {
-        DragGesture(minimumDistance: viewModel.isSessionActive ? 0 : 10000)
+        DragGesture(minimumDistance: store.isSessionActive ? 0 : 10000)
             .onChanged { _ in
                 // Consume the gesture - do nothing
                 // This prevents horizontal swipes from propagating to TabView
@@ -323,13 +331,13 @@ struct PracticePageView: View {
     // MARK: - Phase Mapping
     
     private var currentPhase: AffirmationPhase {
-        switch viewModel.dockManager.state {
+        switch store.flow {
         case .home:
             return .displaying
         case .readAloud(let phase):
             switch phase {
             case .idle: return .displaying
-            case .speaking: return .playing
+            case .playing: return .playing
             case .complete: return .displaying
             }
         case .readAndSpeak(let phase):
@@ -356,30 +364,7 @@ struct PracticePageView: View {
 
 #Preview("Practice Page") {
     PracticePageView(
-        viewModel: {
-            let vm = PracticeViewModel()
-            vm.affirmations = Affirmation.samples
-            return vm
-        }(),
-        onNavigateToProfile: {},
-        onNavigateToPrompts: {}
-    )
-    .previewEnvironment()
-}
-
-#Preview("Practice Page - Multi Category") {
-    PracticePageView(
-        viewModel: {
-            let vm = PracticeViewModel()
-            vm.affirmations = [
-                Affirmation(text: "I am confident and capable in all I do.", category: GoalCategory.confidence.rawValue, batchIndex: 0),
-                Affirmation(text: "Peace flows through me effortlessly.", category: GoalCategory.peace.rawValue, batchIndex: 1),
-                Affirmation(text: "My faith grows stronger each day.", category: GoalCategory.faith.rawValue, batchIndex: 2),
-                Affirmation(text: "I maintain sharp focus on my goals.", category: GoalCategory.focus.rawValue, batchIndex: 3),
-                Affirmation(text: "I nurture meaningful connections.", category: GoalCategory.relationships.rawValue, batchIndex: 4),
-            ]
-            return vm
-        }(),
+        store: .preview,
         onNavigateToProfile: {},
         onNavigateToPrompts: {}
     )
@@ -388,12 +373,7 @@ struct PracticePageView: View {
 
 #Preview("Practice Page - Active Mode") {
     PracticePageView(
-        viewModel: {
-            let vm = PracticeViewModel()
-            vm.affirmations = Affirmation.samples
-            vm.dockManager.setMode(.readAloud)
-            return vm
-        }(),
+        store: .previewReadAloud,
         onNavigateToProfile: {},
         onNavigateToPrompts: {}
     )

@@ -33,6 +33,33 @@ enum AppTheme {
         static let xxl: CGFloat = 48
     }
     
+    // MARK: - Layout
+    
+    /// Fixed layout dimensions for consistent component sizing
+    enum Layout {
+        /// Height of dock in home/browse mode: 68pt
+        static let homeDockHeight: CGFloat = 68
+        
+        /// Height of dock in active session mode: 155pt
+        static let activeDockHeight: CGFloat = 155
+        
+        /// Standard bottom padding for dock: 24pt
+        static let dockBottomPadding: CGFloat = 24
+        
+        /// Gap between content and dock: 24pt
+        static let dockContentGap: CGFloat = 24
+        
+        /// Computed offset for content above dock in home mode
+        static var homeDockOffset: CGFloat {
+            homeDockHeight + dockBottomPadding + dockContentGap  // 116pt
+        }
+        
+        /// Computed offset for content above dock in active mode
+        static var activeDockOffset: CGFloat {
+            activeDockHeight + dockBottomPadding + dockContentGap  // 203pt
+        }
+    }
+    
     // MARK: - Corner Radius
     
     /// Corner radius scale for consistent rounding

@@ -24,7 +24,7 @@ struct CategoriesFullScreenView: View {
     
     // MARK: - Properties
     
-    @Bindable var viewModel: PracticeViewModel
+    @Bindable var store: PracticeStore
     
     // MARK: - State
     
@@ -159,7 +159,7 @@ struct CategoriesFullScreenView: View {
         
         // Reload affirmations with new categories
         Task {
-            await viewModel.loadAffirmations(from: modelContext)
+            await store.loadAffirmations(from: modelContext)
         }
         
         HapticFeedback.notification(.success)
@@ -170,6 +170,6 @@ struct CategoriesFullScreenView: View {
 // MARK: - Previews
 
 #Preview("Categories Full Screen") {
-    CategoriesFullScreenView(viewModel: PracticeViewModel())
+    CategoriesFullScreenView(store: .preview)
         .previewEnvironment()
 }

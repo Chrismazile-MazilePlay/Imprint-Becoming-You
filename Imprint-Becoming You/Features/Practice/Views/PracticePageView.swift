@@ -17,7 +17,24 @@ import SwiftData
 /// - Current content moves with finger (1:1 tracking)
 /// - Next/Previous content slides in from edge simultaneously
 /// - Background morphs color based on drag progress
-/// - NO opacity/fade on content - pure vertical movement
+/// - Content fades and scales as it moves (via ContentTransitionModifier)
+///
+/// ## Vertical Centering
+/// Affirmation content is centered between two boundaries:
+/// - **Top**: Bottom edge of the floating HUD (exit button area)
+/// - **Bottom**: Top edge of the Share/Save buttons
+///
+/// This is achieved by applying matching top and bottom offsets to the content VStack.
+/// The `topContentOffset` accounts for the HUD, while `dockOffset` accounts for the dock.
+///
+/// ## Color Morphing
+/// Background colors use true RGB interpolation (not opacity crossfade) for smooth
+/// transitions. The system has two modes:
+/// - **Active navigation** (progress ≠ 0): Uses `interpolatedBackground` for real-time color blending
+/// - **At rest** (progress ≈ 0): Uses `staticBackground` with `displayedBackgroundCategory`
+///
+/// When navigation completes, `displayedBackgroundCategory` is immediately updated
+/// to match the new index, ensuring seamless handoff between modes.
 ///
 /// ## Auto-Advance Integration
 /// - Store sets `pendingAutoAdvance` to trigger animated transition
@@ -48,6 +65,11 @@ struct PracticePageView: View {
     
     @State private var showCategories = false
     
+    /// Tracks the background category to display when at rest (progress ≈ 0).
+    /// Updated immediately (no animation) when index changes, because the
+    /// progress-based interpolation already handles the visual transition.
+    @State private var displayedBackgroundCategory: GoalCategory?
+    
     // MARK: - Body
     
     var body: some View {
@@ -75,7 +97,7 @@ struct PracticePageView: View {
                 // Content for each index (moves with gesture)
                 affirmationContent(at: index)
             } background: { currentIndex, progress in
-                // Background with color morphing
+                // Background with smooth color morphing
                 morphingBackground(currentIndex: currentIndex, progress: progress)
             }
             
@@ -86,6 +108,17 @@ struct PracticePageView: View {
         .gesture(horizontalBlockingGesture)
         .fullScreenCover(isPresented: $showCategories) {
             CategoriesFullScreenView(store: store)
+        }
+        .onAppear {
+            // Initialize background to current category
+            displayedBackgroundCategory = store.currentAffirmation?.goalCategory
+        }
+        .onChange(of: store.currentIndex) { _, newIndex in
+            // Immediately update displayed category (no animation needed).
+            // The progress-based interpolation already handled the visual transition
+            // during drag or auto-advance. This ensures staticBackground shows
+            // the correct color when progress returns to 0.
+            displayedBackgroundCategory = affirmation(at: newIndex)?.goalCategory
         }
     }
     
@@ -137,44 +170,81 @@ struct PracticePageView: View {
     private func targetCategory(for currentIndex: Int, progress: CGFloat) -> GoalCategory? {
         let currentCategory = affirmation(at: currentIndex)?.goalCategory
         
-        if progress > 0 && currentIndex < store.affirmations.count - 1 {
+        if progress > 0.05 && currentIndex < store.affirmations.count - 1 {
             return affirmation(at: currentIndex + 1)?.goalCategory
-        } else if progress < 0 && currentIndex > 0 {
+        } else if progress < -0.05 && currentIndex > 0 {
             return affirmation(at: currentIndex - 1)?.goalCategory
         } else {
             return currentCategory
         }
     }
     
+    /// Background view that smoothly morphs between category colors.
+    ///
+    /// Uses two rendering modes:
+    /// - **At rest** (|progress| < 0.01): Shows static gradient for `displayedBackgroundCategory`
+    /// - **During navigation** (|progress| ≥ 0.01): Interpolates between current and target colors
+    ///
+    /// The handoff between modes is seamless because `displayedBackgroundCategory`
+    /// is updated immediately when the index changes.
     @ViewBuilder
     private func morphingBackground(currentIndex: Int, progress: CGFloat) -> some View {
-        let currentCategory = affirmation(at: currentIndex)?.goalCategory
-        let currentGradient = CategoryGradient.forCategory(currentCategory)
-        let targetGradient = CategoryGradient.forCategory(targetCategory(for: currentIndex, progress: progress))
-        let interpolation = min(abs(progress), 1.0)
+        if abs(progress) < 0.01 {
+            // At rest - show static background for current category
+            staticBackground(for: displayedBackgroundCategory)
+        } else {
+            // Active navigation - interpolate colors based on progress
+            interpolatedBackground(currentIndex: currentIndex, progress: progress)
+        }
+    }
+    
+    /// Static background for a single category (used when at rest)
+    @ViewBuilder
+    private func staticBackground(for category: GoalCategory?) -> some View {
+        let gradient = CategoryGradient.forCategory(category)
         
         ZStack {
-            // Current gradient
             LinearGradient(
-                colors: [currentGradient.primary.opacity(0.3), currentGradient.secondary],
+                colors: [gradient.primary.opacity(0.3), gradient.secondary],
                 startPoint: .top,
                 endPoint: .bottom
             )
             
-            // Target gradient (fades in based on progress)
-            LinearGradient(
-                colors: [targetGradient.primary.opacity(0.3), targetGradient.secondary],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .opacity(Double(interpolation))
-            
-            // Center glow
             RadialGradient(
-                colors: [
-                    currentGradient.primary.opacity(0.12),
-                    Color.clear
-                ],
+                colors: [gradient.primary.opacity(0.12), Color.clear],
+                center: .center,
+                startRadius: 50,
+                endRadius: 400
+            )
+        }
+        .ignoresSafeArea()
+    }
+    
+    /// Interpolated background using true RGB blending (used during navigation)
+    @ViewBuilder
+    private func interpolatedBackground(currentIndex: Int, progress: CGFloat) -> some View {
+        let currentCategory = affirmation(at: currentIndex)?.goalCategory
+        let targetCat = targetCategory(for: currentIndex, progress: progress)
+        
+        let currentGradient = CategoryGradient.forCategory(currentCategory)
+        let targetGradient = CategoryGradient.forCategory(targetCat)
+        
+        // Use absolute progress for interpolation (0 to 1)
+        let t = min(abs(progress), 1.0)
+        
+        // Interpolate primary and secondary colors
+        let blendedPrimary = Color.interpolate(from: currentGradient.primary, to: targetGradient.primary, t: t)
+        let blendedSecondary = Color.interpolate(from: currentGradient.secondary, to: targetGradient.secondary, t: t)
+        
+        ZStack {
+            LinearGradient(
+                colors: [blendedPrimary.opacity(0.3), blendedSecondary],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            
+            RadialGradient(
+                colors: [blendedPrimary.opacity(0.12), Color.clear],
                 center: .center,
                 startRadius: 50,
                 endRadius: 400
@@ -216,20 +286,28 @@ struct PracticePageView: View {
                             .padding(.bottom, AppTheme.Spacing.md)
                     }
                     
-                    // Action buttons - positioned close to dock
-                    // Only show for current index to avoid duplicate buttons
-                    if index == store.currentIndex {
-                        actionButtons(for: affirmation)
-                            .padding(.bottom, dockOffset)
-                    } else {
-                        // Spacer for consistent layout on adjacent pages
-                        Color.clear
-                            .frame(height: 80 + dockOffset)
-                    }
+                    // Action buttons - shown on ALL pages for unified animation
+                    // Buttons animate together with text via ContentTransitionModifier
+                    actionButtons(for: affirmation, isCurrentPage: index == store.currentIndex)
+                        .padding(.bottom, dockOffset)
                 }
+                .padding(.top, topContentOffset)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+    
+    // MARK: - Content Offset Calculations
+    
+    /// Offset from top to account for the floating HUD layer.
+    ///
+    /// This ensures the affirmation text is vertically centered between:
+    /// - Top: Bottom edge of the HUD (exit button area)
+    /// - Bottom: Top edge of the Share/Save buttons
+    ///
+    /// The offset equals the HUD height to create balanced spacing with the bottom dock offset.
+    private var topContentOffset: CGFloat {
+        AppTheme.Layout.hudContentOffset
     }
     
     /// Offset from bottom to position buttons just above dock.
@@ -249,7 +327,12 @@ struct PracticePageView: View {
     
     // MARK: - Action Buttons
     
-    private func actionButtons(for affirmation: Affirmation) -> some View {
+    /// Action buttons with unified styling.
+    ///
+    /// Both buttons use the same visual treatment for consistency.
+    /// The `isCurrentPage` parameter enables/disables interactivity
+    /// without affecting appearance during transitions.
+    private func actionButtons(for affirmation: Affirmation, isCurrentPage: Bool) -> some View {
         HStack(spacing: AppTheme.Spacing.xxl + 8) {
             // Share button
             Button {
@@ -258,17 +341,16 @@ struct PracticePageView: View {
                 VStack(spacing: AppTheme.Spacing.sm) {
                     Image(systemName: "square.and.arrow.up")
                         .font(.system(size: 28, weight: .medium))
-                        .foregroundStyle(AppColors.textTertiary)
+                        .foregroundStyle(AppColors.textSecondary)
                         .frame(width: 56, height: 56)
                     
                     Text("Share")
                         .font(AppTypography.caption1.weight(.medium))
-                        .foregroundStyle(AppColors.textTertiary)
+                        .foregroundStyle(AppColors.textSecondary)
                 }
             }
             .accessibilityLabel("Share affirmation")
-            .disabled(true)
-            .opacity(0.5)
+            .disabled(!isCurrentPage) // Disable on non-current pages
             
             // Favorite button
             Button {
@@ -288,6 +370,7 @@ struct PracticePageView: View {
                 }
             }
             .accessibilityLabel(affirmation.isFavorited ? "Remove from favorites" : "Add to favorites")
+            .disabled(!isCurrentPage) // Disable on non-current pages
         }
     }
     
@@ -357,6 +440,39 @@ struct PracticePageView: View {
             case .showingScore: return .showingScore
             }
         }
+    }
+}
+
+// MARK: - Color Interpolation Extension
+
+extension Color {
+    /// Interpolates between two colors using RGB values.
+    ///
+    /// - Parameters:
+    ///   - from: Starting color
+    ///   - to: Ending color
+    ///   - t: Interpolation factor (0.0 = from, 1.0 = to)
+    /// - Returns: Interpolated color
+    static func interpolate(from: Color, to: Color, t: CGFloat) -> Color {
+        let t = min(max(t, 0), 1) // Clamp to 0-1
+        
+        // Convert to UIColor to extract RGB components
+        let fromUIColor = UIColor(from)
+        let toUIColor = UIColor(to)
+        
+        var fromR: CGFloat = 0, fromG: CGFloat = 0, fromB: CGFloat = 0, fromA: CGFloat = 0
+        var toR: CGFloat = 0, toG: CGFloat = 0, toB: CGFloat = 0, toA: CGFloat = 0
+        
+        fromUIColor.getRed(&fromR, green: &fromG, blue: &fromB, alpha: &fromA)
+        toUIColor.getRed(&toR, green: &toG, blue: &toB, alpha: &toA)
+        
+        // Linear interpolation
+        let r = fromR + (toR - fromR) * t
+        let g = fromG + (toG - fromG) * t
+        let b = fromB + (toB - fromB) * t
+        let a = fromA + (toA - fromA) * t
+        
+        return Color(red: r, green: g, blue: b, opacity: a)
     }
 }
 

@@ -9,11 +9,16 @@ import SwiftUI
 
 // MARK: - AffirmationBackgroundView
 
-/// Standalone background view with morphing gradient transitions.
+/// Standalone background view with smooth gradient transitions.
 ///
-/// Note: In `PracticePageView`, the background morphing is handled inline
-/// within the `VerticalPager` for real-time drag progress interpolation.
-/// This view is useful for standalone display (e.g., detail sheets).
+/// Uses SwiftUI's built-in animation system for color transitions.
+/// For the main practice flow, `PracticePageView` handles morphing
+/// inline with true RGB interpolation during drag gestures.
+///
+/// ## Usage
+/// ```swift
+/// AffirmationBackgroundView(category: .confidence)
+/// ```
 struct AffirmationBackgroundView: View {
     
     // MARK: - Properties
@@ -22,22 +27,21 @@ struct AffirmationBackgroundView: View {
     
     // MARK: - State
     
-    @State private var primaryColor: Color = CategoryGradient.default.primary
-    @State private var secondaryColor: Color = CategoryGradient.default.secondary
+    @State private var currentGradient: CategoryGradient = .default
     
     // MARK: - Body
     
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [primaryColor.opacity(0.3), secondaryColor],
+                colors: [currentGradient.primary.opacity(0.3), currentGradient.secondary],
                 startPoint: .top,
                 endPoint: .bottom
             )
             
             RadialGradient(
                 colors: [
-                    primaryColor.opacity(0.15),
+                    currentGradient.primary.opacity(0.12),
                     Color.clear
                 ],
                 center: .center,
@@ -47,24 +51,12 @@ struct AffirmationBackgroundView: View {
         }
         .ignoresSafeArea()
         .onAppear {
-            updateColors(animated: false)
+            currentGradient = CategoryGradient.forCategory(category)
         }
-        .onChange(of: category) { _, _ in
-            updateColors(animated: true)
-        }
-    }
-    
-    private func updateColors(animated: Bool) {
-        let gradient = CategoryGradient.forCategory(category)
-        
-        if animated {
-            withAnimation(.easeInOut(duration: 0.5)) {
-                primaryColor = gradient.primary
-                secondaryColor = gradient.secondary
+        .onChange(of: category) { _, newCategory in
+            withAnimation(.easeInOut(duration: 0.4)) {
+                currentGradient = CategoryGradient.forCategory(newCategory)
             }
-        } else {
-            primaryColor = gradient.primary
-            secondaryColor = gradient.secondary
         }
     }
 }
@@ -72,11 +64,14 @@ struct AffirmationBackgroundView: View {
 // MARK: - CategoryGradient
 
 /// Gradient color pairs for each category group.
-struct CategoryGradient: Sendable {
+///
+/// Each goal category belongs to a group, and each group has a unique
+/// gradient palette. Colors are designed for the dark/minimalist aesthetic.
+struct CategoryGradient: Sendable, Equatable {
     let primary: Color
     let secondary: Color
     
-    /// Default gradient
+    /// Default gradient (warm amber)
     static let `default` = CategoryGradient(
         primary: Color(red: 0.85, green: 0.75, blue: 0.55),
         secondary: Color(red: 0.08, green: 0.08, blue: 0.10)
@@ -136,4 +131,12 @@ struct CategoryGradient: Sendable {
 
 #Preview("Background - Faith") {
     AffirmationBackgroundView(category: .faith)
+}
+
+#Preview("Background - Connection") {
+    AffirmationBackgroundView(category: .relationships)
+}
+
+#Preview("Background - Performance") {
+    AffirmationBackgroundView(category: .focus)
 }

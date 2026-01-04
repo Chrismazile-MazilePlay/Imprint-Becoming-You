@@ -16,17 +16,28 @@ import SwiftUI
 /// - 1:1 finger tracking with rubber-band at boundaries
 /// - Supports programmatic auto-advance with animation
 /// - High-priority vertical gesture (overrides parent horizontal)
+/// - **Graceful transitions**: Content fades and scales as it moves
 ///
-/// ## Auto-Advance
-/// Set `pendingAdvance` to trigger an animated transition. After the animation
-/// completes, `onAutoAdvanceComplete` is called to continue any flow logic.
+/// ## Content Transitions
+/// As content moves away from center:
+/// - Opacity fades from 1.0 → 0.3
+/// - Scale reduces from 1.0 → 0.95
+/// This creates a polished, depth-aware transition that masks any index swap artifacts.
 ///
-/// ## Visual During Drag UP (to next):
+/// ## Auto-Advance Architecture
+/// Auto-advance uses a fundamentally different approach than manual dragging:
+/// - **Outgoing content**: Animates from center to off-screen
+/// - **Incoming content**: Stays FIXED at center position, fades in
+///
+/// This eliminates "jumping" because the incoming content is already at its
+/// final position when the index changes. No position reset is needed.
+///
+/// ## Visual During Auto-Advance (to next):
 /// ```
 /// ┌─────────────────────┐
-/// │  Current (moves up) │ offset = dragOffset
+/// │  Current (moving)   │ offset animates: 0 → -screenHeight
 /// ├─────────────────────┤
-/// │  Next (slides in)   │ offset = screenHeight + dragOffset
+/// │  Next (FIXED)       │ offset = 0 (always centered!)
 /// └─────────────────────┘
 /// ```
 struct VerticalPager<Content: View, Background: View>: View {
@@ -64,13 +75,31 @@ struct VerticalPager<Content: View, Background: View>: View {
     private let boundaryResistance: CGFloat = 0.3
     private let animationDuration: Double = 0.35
     
-    // MARK: - State
+    /// Minimum opacity for content as it moves away (0.0 - 1.0)
+    private let minContentOpacity: Double = 0.3
+    
+    /// Minimum scale for content as it moves away (0.0 - 1.0)
+    private let minContentScale: CGFloat = 0.95
+    
+    // MARK: - Drag State (Manual Navigation)
     
     @State private var dragOffset: CGFloat = 0
     @State private var isVerticalDrag: Bool = false
     @State private var gestureDirectionLocked: Bool = false
     @State private var screenHeight: CGFloat = 0
-    @State private var isAutoAdvancing: Bool = false
+    
+    // MARK: - Auto-Advance State
+    
+    /// Progress of auto-advance animation (0 = start, 1 = complete)
+    @State private var autoAdvanceProgress: CGFloat = 0
+    
+    /// Direction of current auto-advance, or nil if not auto-advancing
+    @State private var autoAdvanceDirection: NavigationDirection? = nil
+    
+    /// Whether an auto-advance animation is in progress
+    private var isAutoAdvancing: Bool {
+        autoAdvanceDirection != nil
+    }
     
     // MARK: - Computed
     
@@ -87,14 +116,30 @@ struct VerticalPager<Content: View, Background: View>: View {
     var body: some View {
         GeometryReader { geometry in
             let height = geometry.size.height
-            let progress = height > 0 ? -dragOffset / height : 0
+            
+            // Progress for background morphing
+            let backgroundProgress: CGFloat = {
+                if let direction = autoAdvanceDirection {
+                    // During auto-advance, use autoAdvanceProgress
+                    return direction == .next ? autoAdvanceProgress : -autoAdvanceProgress
+                } else {
+                    // During drag, use dragOffset
+                    return height > 0 ? -dragOffset / height : 0
+                }
+            }()
             
             ZStack {
                 // Background layer (fixed position, color morphs)
-                background(currentIndex, progress)
+                background(currentIndex, backgroundProgress)
                 
-                // Content layers (both visible during drag/animation)
-                contentLayers(screenHeight: height)
+                // Content layers
+                if isAutoAdvancing {
+                    // Auto-advance: special positioning (incoming stays fixed)
+                    autoAdvanceContentLayers(screenHeight: height)
+                } else {
+                    // Manual drag: normal positioning
+                    dragContentLayers(screenHeight: height)
+                }
             }
             .contentShape(Rectangle())
             .highPriorityGesture(
@@ -114,25 +159,84 @@ struct VerticalPager<Content: View, Background: View>: View {
         }
     }
     
-    // MARK: - Content Layers
+    // MARK: - Auto-Advance Content Layers
     
+    /// Content positioning during auto-advance.
+    ///
+    /// Key difference from drag: incoming content stays FIXED at center.
+    /// Only outgoing content moves. This eliminates any position discontinuity
+    /// when the index changes.
     @ViewBuilder
-    private func contentLayers(screenHeight: CGFloat) -> some View {
+    private func autoAdvanceContentLayers(screenHeight: CGFloat) -> some View {
+        if let direction = autoAdvanceDirection {
+            let outgoingIndex = currentIndex
+            let incomingIndex = direction == .next ? currentIndex + 1 : currentIndex - 1
+            
+            if incomingIndex >= 0 && incomingIndex < itemCount {
+                let progress = autoAdvanceProgress
+                
+                ZStack {
+                    // INCOMING content - FIXED at center, fades in
+                    content(incomingIndex)
+                        .offset(y: 0) // Always at center!
+                        .modifier(ContentTransitionModifier(
+                            progress: progress, // 0 → 1 (fades in)
+                            minOpacity: minContentOpacity,
+                            minScale: minContentScale
+                        ))
+                    
+                    // OUTGOING content - moves away from center
+                    content(outgoingIndex)
+                        .offset(y: direction == .next ? -screenHeight * progress : screenHeight * progress)
+                        .modifier(ContentTransitionModifier(
+                            progress: 1 - progress, // 1 → 0 (fades out)
+                            minOpacity: minContentOpacity,
+                            minScale: minContentScale,
+                            isCurrent: true
+                        ))
+                }
+            }
+        }
+    }
+    
+    // MARK: - Drag Content Layers (Manual Navigation)
+    
+    /// Content positioning during manual drag gestures.
+    @ViewBuilder
+    private func dragContentLayers(screenHeight: CGFloat) -> some View {
+        let progress = screenHeight > 0 ? -dragOffset / screenHeight : 0
+        
         ZStack {
             // PREVIOUS content - visible when dragging DOWN (dragOffset > 0)
             if canGoPrevious && dragOffset > 0 {
                 content(currentIndex - 1)
                     .offset(y: -screenHeight + dragOffset)
+                    .modifier(ContentTransitionModifier(
+                        progress: -progress,
+                        minOpacity: minContentOpacity,
+                        minScale: minContentScale
+                    ))
             }
             
             // CURRENT content - always visible, moves with drag
             content(currentIndex)
                 .offset(y: dragOffset)
+                .modifier(ContentTransitionModifier(
+                    progress: 1 - abs(progress),
+                    minOpacity: minContentOpacity,
+                    minScale: minContentScale,
+                    isCurrent: true
+                ))
             
             // NEXT content - visible when dragging UP (dragOffset < 0)
             if canGoNext && dragOffset < 0 {
                 content(currentIndex + 1)
                     .offset(y: screenHeight + dragOffset)
+                    .modifier(ContentTransitionModifier(
+                        progress: progress,
+                        minOpacity: minContentOpacity,
+                        minScale: minContentScale
+                    ))
             }
         }
     }
@@ -217,7 +321,7 @@ struct VerticalPager<Content: View, Background: View>: View {
         }
     }
     
-    /// Completes user-initiated navigation with animation
+    /// Completes user-initiated navigation with animation.
     private func completeUserNavigation(direction: NavigationDirection, screenHeight: CGFloat) {
         let targetOffset = direction == .next ? -screenHeight : screenHeight
         
@@ -236,7 +340,13 @@ struct VerticalPager<Content: View, Background: View>: View {
     
     // MARK: - Programmatic Auto-Advance
     
-    /// Performs animated transition triggered programmatically
+    /// Performs animated transition triggered programmatically.
+    ///
+    /// Uses a dedicated progress-based animation where:
+    /// - Outgoing content animates from center to off-screen
+    /// - Incoming content stays FIXED at center, just fades in
+    ///
+    /// This eliminates visual "jumping" because no position reset is needed.
     private func performAutoAdvance(direction: NavigationDirection) {
         // Don't start new auto-advance while one is in progress
         guard !isAutoAdvancing else {
@@ -263,26 +373,60 @@ struct VerticalPager<Content: View, Background: View>: View {
             return
         }
         
-        // Clear pending and mark as auto-advancing
+        // Clear pending and start auto-advance
         pendingAdvance = nil
-        isAutoAdvancing = true
+        autoAdvanceDirection = direction
+        autoAdvanceProgress = 0
         
-        let targetOffset = direction == .next ? -screenHeight : screenHeight
-        
-        // Animate to target position
+        // Animate progress from 0 to 1
         withAnimation(.spring(duration: animationDuration, bounce: 0.0)) {
-            dragOffset = targetOffset
+            autoAdvanceProgress = 1
         }
         
-        // Update index and trigger continuation after animation
-        DispatchQueue.main.asyncAfter(deadline: .now() + animationDuration * 0.6) {
-            dragOffset = 0
+        // Complete the transition after animation
+        DispatchQueue.main.asyncAfter(deadline: .now() + animationDuration + 0.05) {
+            // Update index
             currentIndex += (direction == .next ? 1 : -1)
-            isAutoAdvancing = false
             
-            // Call completion handler to continue flow
+            // Clear auto-advance state (no position reset needed!)
+            autoAdvanceDirection = nil
+            autoAdvanceProgress = 0
+            
+            // Call completion handler
             onAutoAdvanceComplete?()
         }
+    }
+}
+
+// MARK: - Content Transition Modifier
+
+/// Applies opacity and scale transitions to content based on progress.
+///
+/// This creates a polished "depth" effect as content moves in/out of view,
+/// and masks any visual artifacts from index swapping.
+private struct ContentTransitionModifier: ViewModifier {
+    
+    /// Progress from 0 (fully away) to 1 (fully visible/centered)
+    let progress: CGFloat
+    
+    /// Minimum opacity when content is fully away
+    let minOpacity: Double
+    
+    /// Minimum scale when content is fully away
+    let minScale: CGFloat
+    
+    /// Whether this is the current (center) content
+    var isCurrent: Bool = false
+    
+    func body(content: Content) -> some View {
+        let clampedProgress = min(max(progress, 0), 1)
+        
+        let opacity = minOpacity + (1.0 - minOpacity) * clampedProgress
+        let scale = minScale + (1.0 - minScale) * clampedProgress
+        
+        content
+            .opacity(opacity)
+            .scaleEffect(scale)
     }
 }
 
@@ -332,6 +476,57 @@ extension VerticalPager {
 }
 
 // MARK: - Previews
+
+#Preview("Vertical Pager - Transition Demo") {
+    struct TransitionDemo: View {
+        @State private var index = 0
+        @State private var pendingAdvance: NavigationDirection? = nil
+        
+        private let colors: [Color] = [.blue, .purple, .orange, .green, .pink]
+        private let items = ["First", "Second", "Third", "Fourth", "Fifth"]
+        
+        var body: some View {
+            ZStack {
+                VerticalPager(
+                    currentIndex: $index,
+                    itemCount: items.count,
+                    canNavigate: true,
+                    pendingAdvance: $pendingAdvance,
+                    onNavigate: { _ in },
+                    onAutoAdvanceComplete: {}
+                ) { itemIndex in
+                    VStack(spacing: 20) {
+                        Text(items[itemIndex])
+                            .font(.system(size: 48, weight: .bold))
+                            .foregroundStyle(.white)
+                        
+                        Text("Page \(itemIndex + 1) of \(items.count)")
+                            .foregroundStyle(.white.opacity(0.7))
+                        
+                        Text("Swipe up/down")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } background: { currentIndex, progress in
+                    let currentColor = colors[currentIndex]
+                    let nextIndex = min(currentIndex + 1, colors.count - 1)
+                    let prevIndex = max(currentIndex - 1, 0)
+                    let targetColor = progress > 0 ? colors[nextIndex] : colors[prevIndex]
+                    let t = min(abs(progress), 1.0)
+                    
+                    ZStack {
+                        currentColor
+                        targetColor.opacity(Double(t))
+                    }
+                    .ignoresSafeArea()
+                }
+            }
+        }
+    }
+    
+    return TransitionDemo()
+}
 
 #Preview("Vertical Pager - Auto Advance Demo") {
     struct AutoAdvanceDemo: View {

@@ -49,6 +49,11 @@ enum AppTheme {
         /// Gap between content and dock: 24pt
         static let dockContentGap: CGFloat = 24
         
+        /// Height reserved for the floating HUD layer at top of screen.
+        /// This accounts for the exit button, navigation buttons, and their padding.
+        /// Used to properly center content between HUD and dock.
+        static let hudContentOffset: CGFloat = 80
+        
         /// Computed offset for content above dock in home mode
         static var homeDockOffset: CGFloat {
             homeDockHeight + dockBottomPadding + dockContentGap  // 116pt

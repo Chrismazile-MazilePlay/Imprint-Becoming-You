@@ -36,11 +36,6 @@ enum AppPage: Int, CaseIterable {
 /// horizontal swiping is completely disabled. User must exit the mode
 /// to navigate between pages.
 ///
-/// ## Performance Optimization
-/// Selector views (ModeSelectorExpanded, BinauralSelectorExpanded) are pre-warmed
-/// at launch by rendering them invisibly. This forces SwiftUI to compile their
-/// view bodies and Metal shaders upfront, eliminating first-tap delay.
-///
 /// Navigation:
 /// - AI button (top-left) → slides to Prompts page (left) [home mode only]
 /// - Profile button (top-right) → slides to Profile page (right) [home mode only]
@@ -75,9 +70,6 @@ struct MainPracticeView: View {
                 // Loading state
                 loadingView
             }
-            
-            // Pre-warm selectors (invisible, renders once to compile shaders)
-            selectorPrewarm
         }
         .task {
             await initializePractice()
@@ -163,31 +155,6 @@ struct MainPracticeView: View {
         }
     }
     
-    // MARK: - Pre-warm Views
-
-    /// Renders selector views invisibly to pre-compile Metal shaders and SwiftUI view bodies.
-    ///
-    /// This eliminates the ~1 second first-tap delay when opening mode/binaural selectors.
-    /// The views are rendered at 1x1 pixel size with zero opacity and hit testing disabled,
-    /// so they have no visual or interactive impact on the UI.
-    @ViewBuilder
-    private var selectorPrewarm: some View {
-        ModeSelectorExpanded(
-            selectedMode: .readOnly,
-            onSelect: { _ in }
-        )
-        .frame(width: 1, height: 1)
-        .opacity(0)
-        .allowsHitTesting(false)
-        
-        BinauralSelectorExpanded(
-            selectedPreset: .off,
-            onSelect: { _ in }
-        )
-        .frame(width: 1, height: 1)
-        .opacity(0)
-        .allowsHitTesting(false)
-    }
     // MARK: - Navigation
     
     private func navigateToPage(_ page: AppPage) {

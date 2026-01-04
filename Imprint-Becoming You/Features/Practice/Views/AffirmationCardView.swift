@@ -15,6 +15,10 @@ import SwiftUI
 /// directly within `VerticalPager` for proper dual-content transitions.
 /// This view is retained for backwards compatibility and simpler use
 /// cases (detail sheets, previews, etc.).
+///
+/// ## Related Components
+/// - `CategoryBadge` - Displays the goal category pill (Features/Shared)
+/// - `RecognizedTextView` - Shows recognized speech text (Features/Shared)
 struct AffirmationCardView: View {
     
     // MARK: - Properties
@@ -125,54 +129,6 @@ struct AffirmationCardView: View {
             textOpacity = 1
             textScale = 1
         }
-    }
-}
-
-// MARK: - CategoryBadge
-
-struct CategoryBadge: View {
-    
-    let category: GoalCategory
-    
-    var body: some View {
-        HStack(spacing: AppTheme.Spacing.xs) {
-            Image(systemName: category.iconName)
-                .font(.system(size: 12, weight: .semibold))
-            
-            Text(category.rawValue)
-                .font(AppTypography.caption1.weight(.medium))
-        }
-        .foregroundStyle(badgeColor)
-        .padding(.horizontal, AppTheme.Spacing.md)
-        .padding(.vertical, AppTheme.Spacing.sm)
-        .background(badgeColor.opacity(0.15))
-        .clipShape(Capsule())
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Category: \(category.rawValue)")
-    }
-    
-    private var badgeColor: Color {
-        CategoryGradient.forGroup(category.group).primary
-    }
-}
-
-// MARK: - RecognizedTextView
-
-struct RecognizedTextView: View {
-    
-    let text: String
-    
-    var body: some View {
-        Text(text)
-            .font(AppTypography.body)
-            .foregroundStyle(AppColors.textSecondary)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, AppTheme.Spacing.xl)
-            .padding(.vertical, AppTheme.Spacing.md)
-            .background(AppColors.backgroundSecondary.opacity(0.8))
-            .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium))
-            .padding(.horizontal, AppTheme.Spacing.lg)
-            .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 }
 

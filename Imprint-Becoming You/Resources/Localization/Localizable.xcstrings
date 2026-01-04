@@ -1,0 +1,305 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "\"%@\"" : {
+
+    },
+    "%@, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@"
+          }
+        }
+      }
+    },
+    "%@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@: %2$@"
+          }
+        }
+      }
+    },
+    "%lld" : {
+
+    },
+    "%lld affirmations" : {
+
+    },
+    "%lld of %lld goals selected" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld of %2$lld goals selected"
+          }
+        }
+      }
+    },
+    "%lld percent complete" : {
+
+    },
+    "%lld/%lld selected" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld/%2$lld selected"
+          }
+        }
+      }
+    },
+    "•" : {
+
+    },
+    "Add to favorites" : {
+
+    },
+    "Affirmation: %@" : {
+
+    },
+    "AI Prompts" : {
+
+    },
+    "Already at first affirmation" : {
+
+    },
+    "Already at last affirmation" : {
+
+    },
+    "Becoming You" : {
+
+    },
+    "Begin Your Journey" : {
+
+    },
+    "Best: %lld" : {
+
+    },
+    "Binaural beats: %@" : {
+
+    },
+    "Cancel" : {
+
+    },
+    "Categories" : {
+
+    },
+    "Category: %@" : {
+
+    },
+    "Choose up to %lld areas to focus your affirmations" : {
+
+    },
+    "Clear Selection" : {
+
+    },
+    "Collapse section" : {
+
+    },
+    "Coming Soon" : {
+
+    },
+    "Continue" : {
+
+    },
+    "Create custom prompts to generate\npersonalized affirmations." : {
+
+    },
+    "Done" : {
+
+    },
+    "Double tap to advance" : {
+
+    },
+    "Double tap to change binaural preset" : {
+
+    },
+    "Double tap to change mode" : {
+
+    },
+    "Double tap to go back" : {
+
+    },
+    "Double tap to navigate to the practice page" : {
+
+    },
+    "Error" : {
+
+    },
+    "Exit" : {
+
+    },
+    "Exit session" : {
+
+    },
+    "Expand section" : {
+
+    },
+    "Favorites" : {
+
+    },
+    "Get Started" : {
+
+    },
+    "Go to Practice" : {
+
+    },
+    "History" : {
+
+    },
+    "Imprint" : {
+
+    },
+    "Imprint needs microphone access to calibrate your voice. Please enable it in Settings." : {
+
+    },
+    "Let's Learn Your Voice" : {
+
+    },
+    "Listening" : {
+
+    },
+    "Listening indicator" : {
+
+    },
+    "Microphone Access Required" : {
+
+    },
+    "Next affirmation" : {
+
+    },
+    "No Favorites Yet" : {
+
+    },
+    "No history yet" : {
+
+    },
+    "OK" : {
+
+    },
+    "Onboarding progress" : {
+
+    },
+    "Open Settings" : {
+
+    },
+    "Phrase %lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Phrase %1$lld of %2$lld"
+          }
+        }
+      }
+    },
+    "Practice" : {
+
+    },
+    "Practice Favorites" : {
+
+    },
+    "Preparing your practice..." : {
+
+    },
+    "Previous affirmation" : {
+
+    },
+    "Profile" : {
+
+    },
+    "Read each affirmation aloud so we can personalize your experience" : {
+
+    },
+    "Remove from favorites" : {
+
+    },
+    "Reset to Current" : {
+
+    },
+    "Resonance" : {
+
+    },
+    "Resonance score: %@" : {
+
+    },
+    "Resonance score: %lld" : {
+
+    },
+    "Resonance score: %lld percent" : {
+
+    },
+    "Save" : {
+
+    },
+    "Save Changes" : {
+
+    },
+    "Saved" : {
+
+    },
+    "Saved %@" : {
+
+    },
+    "Saved Affirmations" : {
+
+    },
+    "Say:" : {
+
+    },
+    "Session mode: %@" : {
+
+    },
+    "Share" : {
+
+    },
+    "Share affirmation" : {
+
+    },
+    "Skip for Now" : {
+
+    },
+    "Soon" : {
+
+    },
+    "Start Calibration" : {
+
+    },
+    "Tap the heart on any affirmation to save it here." : {
+
+    },
+    "Track your journey" : {
+
+    },
+    "Voice calibrated for personalized scoring" : {
+
+    },
+    "Voice calibration skipped – you can do this later in Settings" : {
+
+    },
+    "What matters to you?" : {
+
+    },
+    "You're All Set!" : {
+
+    },
+    "Your Focus Areas" : {
+
+    },
+    "Your journey to becoming you starts now" : {
+
+    },
+    "Your personalized affirmation journey begins now" : {
+
+    },
+    "Your Profile" : {
+
+    }
+  },
+  "version" : "1.0"
+}

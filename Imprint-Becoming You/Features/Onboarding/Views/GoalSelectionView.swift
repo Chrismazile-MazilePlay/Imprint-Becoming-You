@@ -14,6 +14,11 @@ import SwiftUI
 /// Wraps the reusable `GoalPickerView` with onboarding-specific
 /// header, footer, and navigation logic.
 ///
+/// ## Faith Content Filtering
+/// This view respects the user's faith preference from the previous
+/// onboarding step. If `includeFaithContent` is `false`, the
+/// Faith & Bible-Based group is hidden from the picker.
+///
 /// Features:
 /// - Custom header with title and instructions
 /// - Reusable goal picker component
@@ -36,7 +41,8 @@ struct GoalSelectionView: View {
             GoalPickerView(
                 selectedGoals: $viewModel.selectedGoals,
                 maxSelections: viewModel.maxGoals,
-                showCounter: true
+                showCounter: true,
+                excludeFaithCategories: viewModel.includeFaithContent == false
             )
             
             // Footer
@@ -97,7 +103,17 @@ struct GoalSelectionView: View {
 
 #Preview("Goal Selection - With Selections") {
     let vm = OnboardingViewModel()
+    vm.includeFaithContent = true
     vm.selectedGoals = [.confidence, .faith, .abundance]
+    
+    return GoalSelectionView(viewModel: vm)
+        .background(AppColors.backgroundPrimary)
+}
+
+#Preview("Goal Selection - Faith Excluded") {
+    let vm = OnboardingViewModel()
+    vm.includeFaithContent = false
+    vm.selectedGoals = [.confidence, .focus]
     
     return GoalSelectionView(viewModel: vm)
         .background(AppColors.backgroundPrimary)

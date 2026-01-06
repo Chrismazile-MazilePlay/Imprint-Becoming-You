@@ -67,6 +67,16 @@ final class UserProfile {
     /// Whether onboarding has been completed
     var hasCompletedOnboarding: Bool
     
+    /// Whether the user wants faith-based content included in their affirmations.
+    ///
+    /// - `nil`: User has not made a choice yet (forces decision during onboarding)
+    /// - `true`: Include Biblical scripture and faith-based affirmations
+    /// - `false`: Secular content only (faith categories hidden)
+    ///
+    /// - Note: User can change this in Settings.
+    /// - TODO: Phase 9 - Add Settings UI for changing this preference
+    var includeFaithContent: Bool?
+    
     // MARK: - Initialization
     
     /// Creates a new user profile with default values
@@ -84,7 +94,8 @@ final class UserProfile {
         premiumExpiresAt: Date? = nil,
         lastSyncedAt: Date? = nil,
         firebaseUserId: String? = nil,
-        hasCompletedOnboarding: Bool = false
+        hasCompletedOnboarding: Bool = false,
+        includeFaithContent: Bool? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -100,6 +111,7 @@ final class UserProfile {
         self.lastSyncedAt = lastSyncedAt
         self.firebaseUserId = firebaseUserId
         self.hasCompletedOnboarding = hasCompletedOnboarding
+        self.includeFaithContent = includeFaithContent
     }
 }
 
@@ -151,6 +163,32 @@ extension UserProfile {
     /// Selected goals as GoalCategory objects
     var selectedGoalCategories: [GoalCategory] {
         selectedGoals.compactMap { GoalCategory(rawValue: $0) }
+    }
+    
+    /// Whether the user has made a faith content preference choice
+    var hasMadeFaithPreferenceChoice: Bool {
+        includeFaithContent != nil
+    }
+    
+    /// Available goal categories based on faith preference.
+    ///
+    /// If `includeFaithContent` is `false`, faith-based categories are excluded.
+    /// If `includeFaithContent` is `true` or `nil`, all categories are available.
+    var availableGoalCategories: [GoalCategory] {
+        if includeFaithContent == false {
+            return GoalCategory.allCases.filter { !$0.isFaithBased }
+        }
+        return GoalCategory.allCases
+    }
+    
+    /// Available goal groups based on faith preference.
+    ///
+    /// If `includeFaithContent` is `false`, the faith-based group is excluded.
+    var availableGoalGroups: [GoalGroup] {
+        if includeFaithContent == false {
+            return GoalGroup.allCases.filter { $0 != .faithBased }
+        }
+        return GoalGroup.allCases
     }
 }
 

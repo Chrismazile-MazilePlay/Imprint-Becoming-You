@@ -13,9 +13,10 @@ import SwiftUI
 ///
 /// Manages navigation between:
 /// 1. Welcome screen
-/// 2. Goal selection
-/// 3. Voice calibration
-/// 4. Completion
+/// 2. Faith preference selection
+/// 3. Goal selection
+/// 4. Voice calibration
+/// 5. Completion
 ///
 /// ## Usage
 /// ```swift
@@ -54,6 +55,9 @@ struct OnboardingContainerView: View {
                 TabView(selection: $viewModel.currentStep) {
                     WelcomeView(viewModel: viewModel)
                         .tag(OnboardingStep.welcome)
+                    
+                    FaithPreferenceView(viewModel: viewModel)
+                        .tag(OnboardingStep.faithPreference)
                     
                     GoalSelectionView(viewModel: viewModel)
                         .tag(OnboardingStep.goalSelection)
@@ -170,8 +174,9 @@ struct OnboardingPageTemplate<Content: View, Footer: View>: View {
 #Preview("Progress Bar") {
     VStack(spacing: 20) {
         OnboardingProgressBar(progress: 0)
-        OnboardingProgressBar(progress: 0.33)
-        OnboardingProgressBar(progress: 0.66)
+        OnboardingProgressBar(progress: 0.25)
+        OnboardingProgressBar(progress: 0.50)
+        OnboardingProgressBar(progress: 0.75)
         OnboardingProgressBar(progress: 1.0)
     }
     .padding()

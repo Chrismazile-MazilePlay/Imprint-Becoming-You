@@ -226,14 +226,35 @@ enum Constants {
         static let progress = "progress"
         static let voiceProfiles = "voiceProfiles"
     }
+    
+    // MARK: - Content Refresh
+    
+    enum ContentRefresh {
+        /// Minimum view count before category is considered "depleted"
+        /// When all affirmations in a category have viewCount >= this value,
+        /// the app will generate fresh content when online.
+        static let depletedViewCountThreshold = 3
+    }
 }
 
 // MARK: - Goal Categories
 
-/// All available goal categories organized by group
+/// All available goal categories organized by group.
+///
+/// ## Category Count: 41
+/// - Core Identity: 7
+/// - Performance & Impact: 7
+/// - Well-being: 7
+/// - Faith & Bible-Based: 15
+/// - Connection: 5
+///
+/// ## Content per Category
+/// - Secular categories: 20 affirmations each
+/// - Faith categories: 40 items each (20 affirmations + 20 scripture verses)
 enum GoalCategory: String, CaseIterable, Codable, Identifiable, Sendable {
     
-    // Core Identity
+    // MARK: - Core Identity (7)
+    
     case confidence = "Confidence"
     case purpose = "Purpose"
     case identity = "Identity"
@@ -242,7 +263,8 @@ enum GoalCategory: String, CaseIterable, Codable, Identifiable, Sendable {
     case resilience = "Resilience"
     case discipline = "Discipline"
     
-    // Performance & Impact
+    // MARK: - Performance & Impact (7)
+    
     case focus = "Focus"
     case creativity = "Creativity"
     case abundance = "Abundance"
@@ -251,7 +273,8 @@ enum GoalCategory: String, CaseIterable, Codable, Identifiable, Sendable {
     case influence = "Influence"
     case energy = "Energy"
     
-    // Well-being
+    // MARK: - Well-being (7)
+    
     case health = "Health"
     case peace = "Peace"
     case vitality = "Vitality"
@@ -260,7 +283,8 @@ enum GoalCategory: String, CaseIterable, Codable, Identifiable, Sendable {
     case rest = "Rest"
     case clarity = "Clarity"
     
-    // Faith & Bible-Based
+    // MARK: - Faith & Bible-Based (15)
+    
     case faith = "Faith"
     case grace = "Grace"
     case wisdom = "Wisdom"
@@ -272,18 +296,18 @@ enum GoalCategory: String, CaseIterable, Codable, Identifiable, Sendable {
     case victory = "Victory"
     case surrender = "Surrender"
     case righteousness = "Righteousness"
-    case peaceFaith = "Peace (Faith)"
+    case divinePeace = "Divine Peace"
     case love = "Love"
     case patience = "Patience"
     case spirit = "Spirit"
     
-    // Connection
+    // MARK: - Connection (5)
+    
     case relationships = "Relationships"
     case connection = "Connection"
     case unity = "Unity"
     case charisma = "Charisma"
     case forgiveness = "Forgiveness"
-    case influenceConnection = "Influence (Connection)"
     
     var id: String { rawValue }
     
@@ -297,10 +321,10 @@ enum GoalCategory: String, CaseIterable, Codable, Identifiable, Sendable {
         case .health, .peace, .vitality, .gratitude, .balance, .rest, .clarity:
             return .wellBeing
         case .faith, .grace, .wisdom, .strength, .provision, .favor, .healing,
-             .authority, .victory, .surrender, .righteousness, .peaceFaith,
+             .authority, .victory, .surrender, .righteousness, .divinePeace,
              .love, .patience, .spirit:
             return .faithBased
-        case .relationships, .connection, .unity, .charisma, .forgiveness, .influenceConnection:
+        case .relationships, .connection, .unity, .charisma, .forgiveness:
             return .connection
         }
     }
@@ -308,6 +332,7 @@ enum GoalCategory: String, CaseIterable, Codable, Identifiable, Sendable {
     /// SF Symbol icon for the category
     var iconName: String {
         switch self {
+        // Core Identity
         case .confidence: return "star.fill"
         case .purpose: return "target"
         case .identity: return "person.fill"
@@ -315,6 +340,7 @@ enum GoalCategory: String, CaseIterable, Codable, Identifiable, Sendable {
         case .courage: return "flame.fill"
         case .resilience: return "arrow.up.heart.fill"
         case .discipline: return "checkmark.seal.fill"
+        // Performance & Impact
         case .focus: return "scope"
         case .creativity: return "paintbrush.fill"
         case .abundance: return "dollarsign.circle.fill"
@@ -322,6 +348,7 @@ enum GoalCategory: String, CaseIterable, Codable, Identifiable, Sendable {
         case .success: return "trophy.fill"
         case .influence: return "person.3.fill"
         case .energy: return "bolt.fill"
+        // Well-being
         case .health: return "heart.fill"
         case .peace: return "leaf.circle.fill"
         case .vitality: return "figure.run"
@@ -329,6 +356,7 @@ enum GoalCategory: String, CaseIterable, Codable, Identifiable, Sendable {
         case .balance: return "scale.3d"
         case .rest: return "moon.fill"
         case .clarity: return "eye.fill"
+        // Faith & Bible-Based
         case .faith: return "book.closed.fill"
         case .grace: return "sparkles"
         case .wisdom: return "lightbulb.fill"
@@ -340,17 +368,22 @@ enum GoalCategory: String, CaseIterable, Codable, Identifiable, Sendable {
         case .victory: return "flag.fill"
         case .surrender: return "hands.and.sparkles.fill"
         case .righteousness: return "scale.3d"
-        case .peaceFaith: return "dove.fill"
+        case .divinePeace: return "dove.fill"
         case .love: return "heart.circle.fill"
         case .patience: return "clock.fill"
         case .spirit: return "wind"
+        // Connection
         case .relationships: return "heart.text.square.fill"
         case .connection: return "link"
         case .unity: return "person.2.fill"
         case .charisma: return "sparkle"
         case .forgiveness: return "arrow.uturn.backward.circle.fill"
-        case .influenceConnection: return "megaphone.fill"
         }
+    }
+    
+    /// Whether this category is faith-based
+    var isFaithBased: Bool {
+        group == .faithBased
     }
 }
 

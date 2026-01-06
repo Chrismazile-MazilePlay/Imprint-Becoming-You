@@ -20,6 +20,11 @@ import SwiftData
 /// - Settings section
 ///
 /// Navigation: This page is on the RIGHT. Back navigation goes LEFT to Practice.
+///
+/// ## Note on Navigation
+/// Since this view is inside a TabView (not a NavigationStack), we use
+/// `.fullScreenCover` for the Favorites detail view instead of
+/// `.navigationDestination` which requires NavigationStack.
 struct ProfilePageView: View {
     
     // MARK: - Environment
@@ -76,8 +81,12 @@ struct ProfilePageView: View {
         .task {
             await loadStats()
         }
-        .navigationDestination(isPresented: $showFavorites) {
-            FavoritesFullListView(store: store)
+        .fullScreenCover(isPresented: $showFavorites) {
+            // Wrap in NavigationStack so FavoritesFullListView's
+            // .navigationTitle and toolbar work correctly
+            NavigationStack {
+                FavoritesFullListView(store: store)
+            }
         }
     }
     
@@ -441,6 +450,9 @@ struct SettingsRow: View {
 // MARK: - FavoritesFullListView
 
 /// Full list of favorites accessible from Profile page.
+///
+/// Note: This view expects to be presented inside a NavigationStack
+/// so that .navigationTitle and toolbar items work correctly.
 struct FavoritesFullListView: View {
     
     @Environment(\.modelContext) private var modelContext
@@ -462,6 +474,14 @@ struct FavoritesFullListView: View {
         }
         .navigationTitle("Favorites")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Close") {
+                    dismiss()
+                }
+                .foregroundStyle(AppColors.accent)
+            }
+        }
         .task {
             await loadFavorites()
         }

@@ -16,9 +16,17 @@ import Observation
 ///
 /// Handles:
 /// - Navigation between onboarding steps
+/// - Faith preference selection
 /// - Goal selection validation
 /// - Voice calibration coordination
 /// - Profile updates on completion
+///
+/// ## Onboarding Flow
+/// 1. Welcome - Introduction to the app
+/// 2. Faith Preference - Choose to include Biblical content
+/// 3. Goal Selection - Select up to 5 focus areas
+/// 4. Calibration - Voice setup (optional)
+/// 5. Complete - Ready to practice
 ///
 /// ## Usage
 /// ```swift
@@ -33,6 +41,10 @@ final class OnboardingViewModel {
     
     /// Current step in the onboarding flow
     var currentStep: OnboardingStep = .welcome
+    
+    /// Whether user wants faith-based content included.
+    /// `nil` means no choice has been made yet.
+    var includeFaithContent: Bool? = nil
     
     /// Selected goal categories
     var selectedGoals: Set<GoalCategory> = []
@@ -68,6 +80,16 @@ final class OnboardingViewModel {
         Constants.FreeTier.maxGoals
     }
     
+    /// Whether user has made a faith preference choice
+    var hasMadeFaithChoice: Bool {
+        includeFaithContent != nil
+    }
+    
+    /// Whether the user can proceed from faith preference step
+    var canProceedFromFaithPreference: Bool {
+        hasMadeFaithChoice
+    }
+    
     /// Whether the user can proceed from goal selection
     var canProceedFromGoals: Bool {
         !selectedGoals.isEmpty && selectedGoals.count <= maxGoals
@@ -81,6 +103,19 @@ final class OnboardingViewModel {
     /// Whether we can go back from current step
     var canGoBack: Bool {
         currentStep != .welcome
+    }
+    
+    /// Available goal groups based on faith preference
+    var availableGoalGroups: [GoalGroup] {
+        if includeFaithContent == false {
+            return GoalGroup.allCases.filter { $0 != .faithBased }
+        }
+        return GoalGroup.allCases
+    }
+    
+    /// Faith-based categories for preview display
+    var faithCategories: [GoalCategory] {
+        GoalGroup.faithBased.categories
     }
     
     // MARK: - Initialization
@@ -120,11 +155,31 @@ final class OnboardingViewModel {
         }
     }
     
+    // MARK: - Faith Preference
+    
+    /// Sets the user's faith content preference
+    /// - Parameter include: Whether to include faith-based content
+    func setFaithPreference(_ include: Bool) {
+        includeFaithContent = include
+        
+        // If user opts out of faith content, remove any faith goals they may have selected
+        if !include {
+            selectedGoals = selectedGoals.filter { !$0.isFaithBased }
+        }
+        
+        HapticFeedback.selection()
+    }
+    
     // MARK: - Goal Selection
     
     /// Toggles selection of a goal category
     /// - Parameter goal: Goal to toggle
     func toggleGoal(_ goal: GoalCategory) {
+        // Don't allow selecting faith goals if user opted out
+        if goal.isFaithBased && includeFaithContent == false {
+            return
+        }
+        
         if selectedGoals.contains(goal) {
             selectedGoals.remove(goal)
         } else if selectedGoals.count < maxGoals {
@@ -210,6 +265,7 @@ final class OnboardingViewModel {
             profile.goalsLastChangedAt = Date()
             profile.calibrationData = calibrationData
             profile.hasCompletedOnboarding = true
+            profile.includeFaithContent = includeFaithContent
             
             // Save
             try modelContext.save()
@@ -249,9 +305,10 @@ final class OnboardingViewModel {
 /// Steps in the onboarding flow
 enum OnboardingStep: Int, CaseIterable, Identifiable, Sendable {
     case welcome = 0
-    case goalSelection = 1
-    case calibration = 2
-    case complete = 3
+    case faithPreference = 1
+    case goalSelection = 2
+    case calibration = 3
+    case complete = 4
     
     var id: Int { rawValue }
     
@@ -260,6 +317,8 @@ enum OnboardingStep: Int, CaseIterable, Identifiable, Sendable {
         switch self {
         case .welcome:
             return "Welcome"
+        case .faithPreference:
+            return "Faith Content"
         case .goalSelection:
             return "Your Goals"
         case .calibration:

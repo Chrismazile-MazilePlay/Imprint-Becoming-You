@@ -14,13 +14,19 @@ import SwiftUI
 /// This is a pure UI component that can be embedded in any context.
 /// The parent view provides the binding and handles persistence.
 ///
+/// ## Faith Content Filtering
+/// When `excludeFaithCategories` is `true`, the Faith & Bible-Based group
+/// is hidden entirely. This respects the user's faith preference choice
+/// made during onboarding.
+///
 /// ## Usage
 /// ```swift
 /// @State private var selectedGoals: Set<GoalCategory> = []
 ///
 /// GoalPickerView(
 ///     selectedGoals: $selectedGoals,
-///     maxSelections: 5
+///     maxSelections: 5,
+///     excludeFaithCategories: !userProfile.includeFaithContent
 /// )
 /// ```
 struct GoalPickerView: View {
@@ -36,9 +42,23 @@ struct GoalPickerView: View {
     /// Whether to show the selection counter
     var showCounter: Bool = true
     
+    /// Whether to exclude faith-based categories from display.
+    /// When `true`, the Faith & Bible-Based group is hidden.
+    var excludeFaithCategories: Bool = false
+    
     // MARK: - State
     
     @State private var expandedGroup: GoalGroup? = .coreIdentity
+    
+    // MARK: - Computed Properties
+    
+    /// Groups to display based on faith preference
+    private var displayedGroups: [GoalGroup] {
+        if excludeFaithCategories {
+            return GoalGroup.allCases.filter { $0 != .faithBased }
+        }
+        return GoalGroup.allCases
+    }
     
     // MARK: - Body
     
@@ -56,7 +76,7 @@ struct GoalPickerView: View {
             // Goal categories
             ScrollView {
                 LazyVStack(spacing: AppTheme.Spacing.md) {
-                    ForEach(GoalGroup.allCases) { group in
+                    ForEach(displayedGroups) { group in
                         GoalPickerGroupSection(
                             group: group,
                             selectedGoals: $selectedGoals,
@@ -248,7 +268,7 @@ struct GoalPickerChip: View {
 
 // MARK: - Previews
 
-#Preview("Goal Picker") {
+#Preview("Goal Picker - All Categories") {
     struct PreviewWrapper: View {
         @State private var selected: Set<GoalCategory> = [.confidence, .faith]
         
@@ -256,6 +276,22 @@ struct GoalPickerChip: View {
             GoalPickerView(
                 selectedGoals: $selected,
                 maxSelections: 5
+            )
+            .background(AppColors.backgroundPrimary)
+        }
+    }
+    return PreviewWrapper()
+}
+
+#Preview("Goal Picker - Faith Excluded") {
+    struct PreviewWrapper: View {
+        @State private var selected: Set<GoalCategory> = [.confidence, .focus]
+        
+        var body: some View {
+            GoalPickerView(
+                selectedGoals: $selected,
+                maxSelections: 5,
+                excludeFaithCategories: true
             )
             .background(AppColors.backgroundPrimary)
         }

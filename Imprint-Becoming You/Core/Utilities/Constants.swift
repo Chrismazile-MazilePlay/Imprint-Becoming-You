@@ -27,10 +27,16 @@ enum Constants {
     // MARK: - Session Configuration
     
     enum Session {
-        /// Number of affirmations generated per batch
+        /// Number of affirmations fetched from database per batch.
+        /// This is the pool of affirmations available for practice.
         static let batchSize = 30
         
-        /// Index at which to trigger next batch generation (25 of 30)
+        /// Number of affirmations per non-default mode session.
+        /// After completing this many, the session ends and user returns to home.
+        static let sessionSize = 10
+        
+        /// Index at which to trigger next batch fetch (proactive refresh).
+        /// When batchConsumed >= this value, fetch next batch in background.
         static let regenerationTriggerIndex = 25
         
         /// Number of unseen affirmations before regeneration for custom prompts
@@ -368,7 +374,7 @@ enum GoalCategory: String, CaseIterable, Codable, Identifiable, Sendable {
         case .victory: return "flag.fill"
         case .surrender: return "hands.and.sparkles.fill"
         case .righteousness: return "scale.3d"
-        case .divinePeace: return "dove.fill"
+        case .divinePeace: return "bird.fill"  // Fixed: "dove.fill" doesn't exist in SF Symbols
         case .love: return "heart.circle.fill"
         case .patience: return "clock.fill"
         case .spirit: return "wind"

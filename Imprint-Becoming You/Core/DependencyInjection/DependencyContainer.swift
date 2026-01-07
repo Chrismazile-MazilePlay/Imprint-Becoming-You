@@ -30,6 +30,14 @@ import SwiftData
 ///     }
 /// }
 /// ```
+///
+/// ## Repository Pattern
+/// For SwiftData-dependent services like `AffirmationRepository`, use the factory methods:
+/// ```swift
+/// @Environment(\.modelContext) private var modelContext
+///
+/// let repository = dependencies.makeAffirmationRepository(modelContext: modelContext)
+/// ```
 final class DependencyContainer: @unchecked Sendable {
     
     // MARK: - Singleton
@@ -155,6 +163,33 @@ final class DependencyContainer: @unchecked Sendable {
         self.isPreview = isPreview
     }
     
+    // MARK: - Repository Factory Methods
+    
+    /// Creates an affirmation repository for the given model context.
+    ///
+    /// For production, returns a real `AffirmationRepository`.
+    /// For previews, returns a `MockAffirmationRepository`.
+    ///
+    /// - Parameter modelContext: SwiftData model context
+    /// - Returns: Repository conforming to `AffirmationRepositoryProtocol`
+    @MainActor
+    func makeAffirmationRepository(modelContext: ModelContext) -> any AffirmationRepositoryProtocol {
+        if isPreview {
+            return MockAffirmationRepository()
+        }
+        return AffirmationRepository(modelContext: modelContext)
+    }
+    
+    /// Creates an offline content loader.
+    ///
+    /// Note: The loader should be created ad-hoc when needed since its methods
+    /// require `@MainActor` isolation and a `ModelContext`.
+    ///
+    /// - Returns: A new `OfflineContentLoader` instance
+    func makeOfflineContentLoader() -> OfflineContentLoader {
+        OfflineContentLoader()
+    }
+    
     // MARK: - Service Registration (for testing)
     
     /// Registers a custom audio service (useful for testing)
@@ -253,7 +288,8 @@ func previewModelContainer() -> ModelContainer {
                 GoalCategory.focus.rawValue,
                 GoalCategory.faith.rawValue
             ],
-            hasCompletedOnboarding: true
+            hasCompletedOnboarding: true,
+            includeFaithContent: true
         )
         context.insert(profile)
         
@@ -326,6 +362,9 @@ final class AppState {
     /// Network connectivity status
     var isOnline: Bool = true
     
+    /// Whether offline content has been seeded
+    var hasSeededOfflineContent: Bool = false
+    
     /// Whether user is authenticated
     var isAuthenticated: Bool {
         userProfile?.isAuthenticated ?? false
@@ -354,6 +393,11 @@ final class AppState {
     func updateProfile(_ profile: UserProfile?) {
         userProfile = profile
         hasCompletedOnboarding = profile?.hasCompletedOnboarding ?? false
+    }
+    
+    /// Marks offline content as seeded
+    func markOfflineContentSeeded() {
+        hasSeededOfflineContent = true
     }
 }
 

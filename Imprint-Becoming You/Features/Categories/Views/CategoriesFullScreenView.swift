@@ -21,6 +21,7 @@ struct CategoriesFullScreenView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.appState) private var appState
+    @Environment(\.dependencies) private var dependencies
     
     // MARK: - Properties
     
@@ -157,9 +158,15 @@ struct CategoriesFullScreenView: View {
             appState.updateProfile(profile)
         }
         
-        // Reload affirmations with new categories
+        // Reload affirmations with new categories using repository
+        let categories = selectedGoals.map { $0.rawValue }
+        let repository = dependencies.makeAffirmationRepository(modelContext: modelContext)
+        
         Task {
-            await store.loadAffirmations(from: modelContext)
+            await store.loadAffirmations(
+                using: repository,
+                forCategories: categories
+            )
         }
         
         HapticFeedback.notification(.success)

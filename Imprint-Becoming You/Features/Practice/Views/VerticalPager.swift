@@ -20,8 +20,8 @@ import SwiftUI
 ///
 /// ## Content Transitions
 /// As content moves away from center:
-/// - Opacity fades from 1.0 → 0.3
-/// - Scale reduces from 1.0 → 0.95
+/// - Opacity fades from 1.0 â†’ 0.3
+/// - Scale reduces from 1.0 â†’ 0.95
 /// This creates a polished, depth-aware transition that masks any index swap artifacts.
 ///
 /// ## Auto-Advance Architecture
@@ -34,11 +34,11 @@ import SwiftUI
 ///
 /// ## Visual During Auto-Advance (to next):
 /// ```
-/// ┌─────────────────────┐
-/// │  Current (moving)   │ offset animates: 0 → -screenHeight
-/// ├─────────────────────┤
-/// │  Next (FIXED)       │ offset = 0 (always centered!)
-/// └─────────────────────┘
+/// â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+/// â”‚  Current (moving)   â”‚ offset animates: 0 â†’ -screenHeight
+/// â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
+/// â”‚  Next (FIXED)       â”‚ offset = 0 (always centered!)
+/// â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 /// ```
 struct VerticalPager<Content: View, Background: View>: View {
     
@@ -50,8 +50,16 @@ struct VerticalPager<Content: View, Background: View>: View {
     /// Total number of items
     let itemCount: Int
     
-    /// Whether navigation gestures are allowed
+    /// Whether navigation gestures are allowed at all
     let canNavigate: Bool
+    
+    /// External control for whether "next" navigation is allowed (session bounds)
+    /// When false, prevents swiping to next even if more items exist
+    let canNavigateNext: Bool
+    
+    /// External control for whether "previous" navigation is allowed (session bounds)
+    /// When false, prevents swiping to previous even if at index > 0
+    let canNavigatePrevious: Bool
     
     /// Set to trigger programmatic advance with animation
     @Binding var pendingAdvance: NavigationDirection?
@@ -103,12 +111,16 @@ struct VerticalPager<Content: View, Background: View>: View {
     
     // MARK: - Computed
     
+    /// Whether navigation to next item is allowed
+    /// Respects both item count AND external session bounds
     private var canGoNext: Bool {
-        currentIndex < itemCount - 1
+        currentIndex < itemCount - 1 && canNavigateNext
     }
     
+    /// Whether navigation to previous item is allowed
+    /// Respects both item count AND external session bounds
     private var canGoPrevious: Bool {
-        currentIndex > 0
+        currentIndex > 0 && canNavigatePrevious
     }
     
     // MARK: - Body
@@ -180,7 +192,7 @@ struct VerticalPager<Content: View, Background: View>: View {
                     content(incomingIndex)
                         .offset(y: 0) // Always at center!
                         .modifier(ContentTransitionModifier(
-                            progress: progress, // 0 → 1 (fades in)
+                            progress: progress, // 0 â†’ 1 (fades in)
                             minOpacity: minContentOpacity,
                             minScale: minContentScale
                         ))
@@ -189,7 +201,7 @@ struct VerticalPager<Content: View, Background: View>: View {
                     content(outgoingIndex)
                         .offset(y: direction == .next ? -screenHeight * progress : screenHeight * progress)
                         .modifier(ContentTransitionModifier(
-                            progress: 1 - progress, // 1 → 0 (fades out)
+                            progress: 1 - progress, // 1 â†’ 0 (fades out)
                             minOpacity: minContentOpacity,
                             minScale: minContentScale,
                             isCurrent: true
@@ -434,11 +446,13 @@ private struct ContentTransitionModifier: ViewModifier {
 
 extension VerticalPager {
     
-    /// Full initializer with auto-advance support
+    /// Full initializer with auto-advance support and session bounds
     init(
         currentIndex: Binding<Int>,
         itemCount: Int,
         canNavigate: Bool = true,
+        canNavigateNext: Bool = true,
+        canNavigatePrevious: Bool = true,
         pendingAdvance: Binding<NavigationDirection?>,
         onNavigate: @escaping (_ direction: NavigationDirection) -> Void,
         onAutoAdvanceComplete: @escaping () -> Void,
@@ -448,6 +462,8 @@ extension VerticalPager {
         self._currentIndex = currentIndex
         self.itemCount = itemCount
         self.canNavigate = canNavigate
+        self.canNavigateNext = canNavigateNext
+        self.canNavigatePrevious = canNavigatePrevious
         self._pendingAdvance = pendingAdvance
         self.onNavigate = onNavigate
         self.onAutoAdvanceComplete = onAutoAdvanceComplete
@@ -460,6 +476,8 @@ extension VerticalPager {
         currentIndex: Binding<Int>,
         itemCount: Int,
         canNavigate: Bool = true,
+        canNavigateNext: Bool = true,
+        canNavigatePrevious: Bool = true,
         onNavigate: @escaping (_ direction: NavigationDirection) -> Void,
         @ViewBuilder content: @escaping (_ index: Int) -> Content,
         @ViewBuilder background: @escaping (_ currentIndex: Int, _ progress: CGFloat) -> Background
@@ -467,6 +485,8 @@ extension VerticalPager {
         self._currentIndex = currentIndex
         self.itemCount = itemCount
         self.canNavigate = canNavigate
+        self.canNavigateNext = canNavigateNext
+        self.canNavigatePrevious = canNavigatePrevious
         self._pendingAdvance = .constant(nil)
         self.onNavigate = onNavigate
         self.onAutoAdvanceComplete = nil

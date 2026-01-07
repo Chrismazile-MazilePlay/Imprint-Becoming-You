@@ -18,6 +18,17 @@ import SwiftData
 /// - Views bind to this store and call `send()` for interactions
 /// - Async effects (TTS, listening, etc.) are managed internally
 ///
+/// ## Session vs Batch
+/// - **Batch Size (30)**: Affirmations fetched from DB per batch
+/// - **Session Size (10)**: Affirmations per non-default mode session
+/// - **Refresh Trigger (25)**: When batchConsumed >= 25, proactively fetch next batch
+///
+/// ## Repository Integration
+/// Uses `AffirmationRepositoryProtocol` for data access:
+/// - Smart queue loading with category filtering
+/// - Engagement tracking (views, speaks, resonance scores)
+/// - Favorites management
+///
 /// ## Replaces (Deleted)
 /// - `PracticeViewModel` - all state and logic
 /// - `DockStateManager` - dock state is derived from `flow`
@@ -59,6 +70,49 @@ final class PracticeStore {
     /// Whether navigation is temporarily locked (during score display)
     private(set) var isNavigationLocked: Bool = false
     
+    // MARK: - Session Tracking
+    
+    /// Affirmations completed in current non-default session.
+    /// Resets when: entering non-default mode, exiting session, session completes.
+    private(set) var sessionProgress: Int = 0
+    
+    /// Total affirmations consumed from current batch.
+    /// Increments on every navigation (any mode).
+    /// Resets when new batch is loaded.
+    private(set) var batchConsumed: Int = 0
+    
+    /// Whether a batch refresh is in progress
+    private var isBatchRefreshInProgress: Bool = false
+    
+    /// Categories used for loading (needed for batch refresh)
+    private var loadedCategories: [String] = []
+    
+    // MARK: - Session Summary State
+    
+    /// Whether the results summary is being shown
+    private(set) var isShowingSummary: Bool = false
+    
+    /// Results collected during the session for summary display
+    private(set) var sessionResults: [SessionAffirmationResult] = []
+    
+    /// The start index of the session (for retry functionality)
+    private var sessionStartIndex: Int = 0
+    
+    /// The mode used for the session (for retry functionality)
+    private var sessionMode: SessionMode = .readOnly
+    
+    /// Timestamp when session started
+    private var sessionStartTime: Date = Date()
+    
+    /// Complete session summary for display
+    var sessionSummary: SessionSummary {
+        SessionSummary(
+            mode: sessionMode,
+            results: sessionResults,
+            startedAt: sessionStartTime
+        )
+    }
+    
     // MARK: - Audio State
     
     /// Current binaural preset
@@ -96,6 +150,9 @@ final class PracticeStore {
     /// Service dependencies (injected)
     private let dependencies: DependencyContainer
     
+    /// Repository for affirmation data access (set during load)
+    private var repository: (any AffirmationRepositoryProtocol)?
+    
     // MARK: - Initialization
     
     /// Creates a new practice store with dependencies
@@ -113,13 +170,22 @@ final class PracticeStore {
     }
     
     /// Whether we can navigate to previous affirmation
+    /// In session mode, respects session start boundary (index 0)
     var canGoPrevious: Bool {
         currentIndex > 0
     }
     
     /// Whether we can navigate to next affirmation
+    /// In session mode, respects session boundary (sessionSize - 1)
     var canGoNext: Bool {
-        currentIndex < affirmations.count - 1
+        // In active session mode, limit to session size
+        if isSessionActive {
+            // Session runs from index 0 to sessionSize - 1
+            // Can only go next if not at last session affirmation
+            return currentIndex < Constants.Session.sessionSize - 1
+        }
+        // In home mode, limit to full batch
+        return currentIndex < affirmations.count - 1
     }
     
     /// Total count of affirmations
@@ -160,6 +226,41 @@ final class PracticeStore {
         flow.scoreResult?.score ?? 0
     }
     
+    /// Session progress text (e.g., "3 / 10")
+    var sessionProgressText: String {
+        "\(sessionProgress) / \(Constants.Session.sessionSize)"
+    }
+    
+    // MARK: - Computed Properties (Dock Display)
+    
+    /// Total count for dock progress bar display.
+    ///
+    /// Returns session size (10) for active modes to show a fixed 10-bar progress indicator.
+    /// Returns full batch count for home/browse mode.
+    ///
+    /// This ensures the dock always shows exactly 10 progress bars during non-default sessions,
+    /// regardless of how many affirmations are loaded in the background batch.
+    var displayTotalCount: Int {
+        if isSessionActive {
+            return Constants.Session.sessionSize
+        }
+        return totalCount
+    }
+    
+    /// Current index for dock progress bar display.
+    ///
+    /// Returns session progress (0-9) for active modes to track position within the 10-item session.
+    /// Returns current index for home/browse mode.
+    ///
+    /// Combined with `displayTotalCount`, this ensures progress bars accurately reflect
+    /// session progress rather than position within the larger batch.
+    var displayCurrentIndex: Int {
+        if isSessionActive {
+            return sessionProgress
+        }
+        return currentIndex
+    }
+    
     // MARK: - Computed Properties (Background)
     
     /// Background state for morphing gradient
@@ -190,7 +291,7 @@ extension PracticeStore {
     func send(_ event: PracticeEvent) {
         // Log for debugging (can be disabled in production)
         #if DEBUG
-        print("📨 PracticeStore.send: \(event)")
+        print("[LOG] PracticeStore.send: \(event)")
         #endif
         
         // Record interaction time for user events
@@ -258,6 +359,16 @@ extension PracticeStore {
                 startFlowForCurrentAffirmation()
             }
             
+        // MARK: Session Summary Events
+        case .dismissSummary:
+            handleDismissSummary()
+            
+        case .retrySession:
+            handleRetrySession()
+            
+        case .toggleFavoriteInSummary(let affirmationId):
+            handleToggleFavoriteInSummary(affirmationId: affirmationId)
+            
         // MARK: TTS Events
         case .ttsStarted:
             // State already updated when flow started
@@ -313,8 +424,7 @@ extension PracticeStore {
             handleToggleFavorite()
             
         case .shareAffirmation:
-            // TODO: Implement share sheet
-            break
+            handleShareAffirmation()
             
         case .recordView:
             recordAffirmationView()
@@ -334,6 +444,7 @@ extension PracticeStore {
         case .affirmationsLoaded(let newAffirmations):
             affirmations = newAffirmations
             currentIndex = 0
+            batchConsumed = 0 // Reset batch consumption on new load
             
         case .affirmationsLoadFailed(let error):
             self.error = error
@@ -357,6 +468,15 @@ private extension PracticeStore {
         
         // Reset progress immediately (before any animation)
         segmentProgress = 0
+        
+        // Reset session tracking when entering non-default mode
+        if mode != .readOnly {
+            sessionProgress = 0
+            sessionResults = []
+            sessionStartIndex = currentIndex
+            sessionMode = mode
+            sessionStartTime = Date()
+        }
         
         withAnimation(AppTheme.Animation.standard) {
             isModeSelectorExpanded = false
@@ -409,7 +529,21 @@ private extension PracticeStore {
         // Flow was reset to idle in updateIndex (atomic with index change)
         cancelCurrentActivity()
         
+        // Track batch consumption (any mode)
+        incrementBatchConsumed()
+        
+        // Record view for the new affirmation
+        recordEngagement(.view)
+        
+        // Track session progress (non-default modes only)
         if isSessionActive {
+            incrementSessionProgress()
+            
+            // Check if session should end
+            if checkSessionCompletion() {
+                return // Session ended, don't continue flow
+            }
+            
             startFlowForCurrentAffirmation()
         }
     }
@@ -437,9 +571,21 @@ private extension PracticeStore {
     func handleAutoAdvanceCompleted() {
         pendingAutoAdvance = nil
         
-        // Note: Flow reset to idle happens in updateIndex (atomic with index change)
+        // Track batch consumption (any mode)
+        incrementBatchConsumed()
         
+        // Record view for the new affirmation
+        recordEngagement(.view)
+        
+        // Track session progress (non-default modes only)
         if isSessionActive {
+            incrementSessionProgress()
+            
+            // Check if session should end
+            if checkSessionCompletion() {
+                return // Session ended, don't continue flow
+            }
+            
             startFlowForCurrentAffirmation()
         }
     }
@@ -452,7 +598,19 @@ private extension PracticeStore {
         currentIndex = index
         resetToIdle()
         
+        // Track batch consumption
+        incrementBatchConsumed()
+        
+        // Record view for the new affirmation
+        recordEngagement(.view)
+        
         if isSessionActive {
+            incrementSessionProgress()
+            
+            if checkSessionCompletion() {
+                return
+            }
+            
             startFlowForCurrentAffirmation()
         }
     }
@@ -462,6 +620,9 @@ private extension PracticeStore {
     func handleExitSession() {
         cancelCurrentActivity()
         resetToIdle()
+        
+        // Reset session progress
+        sessionProgress = 0
         
         withAnimation(AppTheme.Animation.standard) {
             flow = .home
@@ -573,11 +734,20 @@ private extension PracticeStore {
         // Save the record
         lastResonanceRecord = result.toRecord()
         
-        // Update affirmation stats
+        // Update affirmation stats via direct model access (backward compat)
         if let affirmation = currentAffirmation {
             affirmation.speakCount += 1
             affirmation.resonanceScores.append(result.toRecord())
+            
+            // Update existing session result with score (was added with nil score when visited)
+            if let index = sessionResults.firstIndex(where: { $0.affirmationId == affirmation.id }) {
+                sessionResults[index].score = result.percentScore
+            }
         }
+        
+        // Also record via repository for persistence
+        recordEngagement(.speak)
+        recordResonance(result.toRecord())
         
         // Transition to showing score
         withAnimation(AppTheme.Animation.standard) {
@@ -608,9 +778,23 @@ private extension PracticeStore {
     }
     
     func handleScoreDisplayCompleted() {
+        // Check if this is the last affirmation in the session BEFORE triggering auto-advance.
+        // sessionProgress tracks navigations completed. After navigating to the 10th affirmation,
+        // sessionProgress = 9 (sessionSize - 1). When we complete that affirmation flow,
+        // we should show the results summary.
+        if isSessionActive && sessionProgress >= Constants.Session.sessionSize - 1 {
+            // Session complete - show results summary
+            #if DEBUG
+            print("[LOG] PracticeStore: Session complete at affirmation \(sessionProgress + 1)")
+            #endif
+            
+            showSessionSummary()
+            return
+        }
+        
         if canGoNext {
             // DO NOT reset to idle here - keep the score showing during the animation
-            // This prevents the progress bar from flickering (100% → 0% → 100%)
+            // This prevents the progress bar from flickering (100% to 0% to 100%)
             // The reset to idle happens in handleAutoAdvanceCompleted AFTER index changes
             pendingAutoAdvance = .next
         } else {
@@ -624,18 +808,306 @@ private extension PracticeStore {
     func handleToggleFavorite() {
         guard let affirmation = currentAffirmation else { return }
         
+        // Update model directly for immediate UI feedback.
+        // The FavoriteButton component observes the Affirmation model directly,
+        // so SwiftUI automatically re-renders when isFavorited changes.
         affirmation.isFavorited.toggle()
         affirmation.favoritedAt = affirmation.isFavorited ? Date() : nil
         
+        // Also persist via repository
+        if let repository = repository {
+            do {
+                try repository.toggleFavorite(affirmationId: affirmation.id)
+            } catch {
+                #if DEBUG
+                print("[WARN] PracticeStore: Failed to persist favorite toggle: \(error.localizedDescription)")
+                #endif
+            }
+        }
+        
         HapticFeedback.selection()
+    }
+    
+    func handleShareAffirmation() {
+        recordEngagement(.share)
+        // TODO: Implement share sheet
     }
     
     func recordAffirmationView() {
         guard let affirmation = currentAffirmation else { return }
         
+        // Update model directly for immediate state
         affirmation.hasBeenSeen = true
         affirmation.viewCount += 1
         affirmation.lastInteractedAt = Date()
+    }
+}
+
+// MARK: - Session & Batch Tracking
+
+private extension PracticeStore {
+    
+    /// Increments batch consumed counter and triggers refresh if needed
+    func incrementBatchConsumed() {
+        batchConsumed += 1
+        
+        #if DEBUG
+        print("[LOG] Batch consumed: \(batchConsumed)/\(Constants.Session.batchSize)")
+        #endif
+        
+        // Check if we need to proactively refresh
+        checkBatchRefresh()
+    }
+    
+    /// Increments session progress counter (non-default modes only)
+    func incrementSessionProgress() {
+        guard isSessionActive else { return }
+        sessionProgress += 1
+        
+        #if DEBUG
+        print("[LOG] Session progress: \(sessionProgress)/\(Constants.Session.sessionSize)")
+        #endif
+    }
+    
+    /// Records the current affirmation for the session summary (scoring modes only).
+    ///
+    /// Called when starting flow for an affirmation. Adds with nil score initially.
+    /// Score is updated later in handleScoreCalculated if user completes the flow.
+    /// If user skips, the affirmation remains with nil score (shown as "Skipped").
+    func recordAffirmationForSession() {
+        guard let affirmation = currentAffirmation else { return }
+        
+        // Check if already recorded (handles back-then-forward navigation)
+        guard !sessionResults.contains(where: { $0.affirmationId == affirmation.id }) else { return }
+        
+        // Determine if this mode produces scores
+        let isFromScoringMode = (sessionMode == .readThenSpeak || sessionMode == .speakOnly)
+        
+        // Add with nil score (pending)
+        let result = SessionAffirmationResult(affirmation: affirmation, isFromScoringMode: isFromScoringMode)
+        sessionResults.append(result)
+        
+        #if DEBUG
+        print("[LOG] PracticeStore: Recorded affirmation for session: \(affirmation.text.prefix(30))...")
+        #endif
+    }
+    
+    /// Checks if batch needs refresh and triggers background fetch
+    func checkBatchRefresh() {
+        guard batchConsumed >= Constants.Session.regenerationTriggerIndex else { return }
+        guard !isBatchRefreshInProgress else { return }
+        guard let repo = repository else { return }
+        guard !loadedCategories.isEmpty else { return }
+        
+        isBatchRefreshInProgress = true
+        
+        #if DEBUG
+        print("[LOG] PracticeStore: Triggering background batch refresh...")
+        #endif
+        
+        // Capture categories for the task
+        let categories = loadedCategories
+        
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            
+            do {
+                // Fetch next batch (synchronous call on MainActor)
+                let newAffirmations = try repo.fetchQueue(
+                    forCategories: categories,
+                    limit: Constants.Session.batchSize
+                )
+                
+                // Append to queue seamlessly
+                self.appendNewBatch(newAffirmations)
+                self.isBatchRefreshInProgress = false
+                
+                #if DEBUG
+                print("[OK] PracticeStore: Batch refresh complete. Added \(newAffirmations.count) affirmations")
+                #endif
+            } catch {
+                self.isBatchRefreshInProgress = false
+                
+                #if DEBUG
+                print("[LOG] PracticeStore: Batch refresh failed: \(error)")
+                #endif
+            }
+        }
+    }
+    
+    /// Appends new affirmations to the queue
+    func appendNewBatch(_ newAffirmations: [Affirmation]) {
+        // Filter out any duplicates
+        let existingIds = Set(affirmations.map { $0.id })
+        let uniqueNew = newAffirmations.filter { !existingIds.contains($0.id) }
+        
+        affirmations.append(contentsOf: uniqueNew)
+        batchConsumed = 0 // Reset counter after refresh
+    }
+    
+    /// Checks if session should complete (10 affirmations in non-default mode)
+    /// - Returns: `true` if session ended, `false` to continue
+    func checkSessionCompletion() -> Bool {
+        guard isSessionActive else { return false }
+        guard sessionProgress >= Constants.Session.sessionSize else { return false }
+        
+        #if DEBUG
+        print("[LOG] PracticeStore: Session complete! (\(sessionProgress) affirmations)")
+        #endif
+        
+        // Complete session WITHOUT animation to prevent visual artifacts.
+        // When animated, the dock height change causes the page to slide up.
+        // We want a clean transition back to home mode.
+        completeSessionSilently()
+        
+        return true
+    }
+    
+    /// Completes the session and returns to home mode without animation.
+    ///
+    /// This method is separate from `handleExitSession()` because:
+    /// - `handleExitSession()` is triggered by user pressing Exit button (should animate)
+    /// - `completeSessionSilently()` is triggered when session naturally completes (should NOT animate)
+    ///
+    /// Without animation, the dock height change happens instantly, preventing
+    /// the visual artifact where the page slides up before transitioning.
+    private func completeSessionSilently() {
+        // Cancel any pending work first
+        cancelCurrentActivity()
+        
+        // Reset progress immediately (NOT animated - prevents visual artifacts)
+        segmentProgress = 0
+        
+        // Reset session tracking
+        sessionProgress = 0
+        
+        // Transition to home IMMEDIATELY without animation.
+        // CRITICAL: Do NOT wrap this in withAnimation()!
+        // When flow changes, isSessionActive becomes false, which changes dockOffset.
+        // If animated, the padding change causes the page content to slide up.
+        // By changing instantly, the view updates without visible motion.
+        flow = .home
+        isModeSelectorExpanded = false
+        isBinauralSelectorExpanded = false
+        
+        // Success haptic feedback
+        HapticFeedback.notification(.success)
+    }
+    
+    // MARK: - Session Summary
+    
+    /// Shows the results summary after a scoring session completes.
+    ///
+    /// Called when the 10th affirmation's score display completes in
+    /// Read & Speak or Speak Only modes.
+    private func showSessionSummary() {
+        // Cancel any pending work
+        cancelCurrentActivity()
+        
+        // Brief pause before transition (user sees final score)
+        Task {
+            try? await Task.sleep(for: PracticeTiming.sessionCompletePause)
+            
+            guard !Task.isCancelled else { return }
+            
+            await MainActor.run {
+                // Disable interactions during crossfade
+                isNavigationLocked = true
+                
+                // Show summary with crossfade animation
+                withAnimation(.easeInOut(duration: PracticeTiming.summaryTransitionDuration)) {
+                    isShowingSummary = true
+                }
+                
+                // Re-enable interactions after crossfade
+                Task {
+                    try? await Task.sleep(for: .milliseconds(Int(PracticeTiming.summaryTransitionDuration * 1000)))
+                    await MainActor.run {
+                        isNavigationLocked = false
+                    }
+                }
+                
+                // Success haptic
+                HapticFeedback.notification(.success)
+            }
+        }
+    }
+    
+    /// Handles dismissing the summary and returning to home.
+    func handleDismissSummary() {
+        // Reset session state
+        sessionProgress = 0
+        sessionResults = []
+        
+        // Hide summary with slide-down animation
+        withAnimation(.easeInOut(duration: PracticeTiming.summaryDismissDuration)) {
+            isShowingSummary = false
+        }
+        
+        // Return to home (instant, hidden by animation)
+        flow = .home
+        isModeSelectorExpanded = false
+        isBinauralSelectorExpanded = false
+    }
+    
+    /// Handles retry - restarts session with same affirmations.
+    func handleRetrySession() {
+        // Reset to session start
+        currentIndex = sessionStartIndex
+        sessionProgress = 0
+        sessionResults = []
+        segmentProgress = 0
+        
+        // Reset flow to idle state of the session mode
+        switch sessionMode {
+        case .readAloud:
+            flow = .readAloud(.idle)
+        case .readThenSpeak:
+            flow = .readAndSpeak(.idle)
+        case .speakOnly:
+            flow = .speakOnly(.idle)
+        default:
+            flow = .home
+        }
+        
+        // Hide summary with slide-down animation
+        withAnimation(.easeInOut(duration: PracticeTiming.summaryDismissDuration)) {
+            isShowingSummary = false
+        }
+        
+        // Start flow after animation completes
+        Task {
+            try? await Task.sleep(for: .milliseconds(Int(PracticeTiming.summaryDismissDuration * 1000) + 50))
+            await MainActor.run {
+                startFlowForCurrentAffirmation()
+            }
+        }
+    }
+    
+    /// Handles toggling favorite for an affirmation in the summary.
+    func handleToggleFavoriteInSummary(affirmationId: UUID) {
+        // Find the affirmation in our list
+        guard let affirmation = affirmations.first(where: { $0.id == affirmationId }) else { return }
+        
+        // Toggle favorite
+        affirmation.isFavorited.toggle()
+        affirmation.favoritedAt = affirmation.isFavorited ? Date() : nil
+        
+        // Update the session result to match
+        if let index = sessionResults.firstIndex(where: { $0.affirmationId == affirmationId }) {
+            sessionResults[index].isFavorited = affirmation.isFavorited
+        }
+        
+        // Persist via repository
+        if let repository = repository {
+            do {
+                try repository.toggleFavorite(affirmationId: affirmationId)
+            } catch {
+                #if DEBUG
+                print("[WARN] PracticeStore: Failed to persist favorite toggle: \(error.localizedDescription)")
+                #endif
+            }
+        }
     }
 }
 
@@ -655,6 +1127,13 @@ private extension PracticeStore {
         
         // Record the view
         recordAffirmationView()
+        recordEngagement(.view)
+        
+        // For all session modes, record this affirmation for the session summary
+        // (if not already recorded - handles case where user goes back then forward)
+        if sessionMode != .readOnly {
+            recordAffirmationForSession()
+        }
         
         // Capture generation for this flow
         let generation = flowGeneration
@@ -859,6 +1338,12 @@ private extension PracticeStore {
             guard !Task.isCancelled else { return }
             
             await MainActor.run {
+                // Check session completion before auto-advancing (for readAloud mode)
+                if isSessionActive && sessionProgress >= Constants.Session.sessionSize - 1 {
+                    showSessionSummary()
+                    return
+                }
+                
                 if canGoNext {
                     pendingAutoAdvance = .next
                 }
@@ -915,47 +1400,68 @@ private extension PracticeStore {
 
 extension PracticeStore {
     
-    /// Loads affirmations from SwiftData
-    func loadAffirmations(from modelContext: ModelContext) async {
+    /// Loads affirmations using the repository pattern.
+    ///
+    /// Uses the smart queue algorithm to prioritize:
+    /// 1. Unseen affirmations first
+    /// 2. Least viewed affirmations
+    /// 3. Oldest practiced affirmations
+    ///
+    /// - Parameters:
+    ///   - repository: The affirmation repository to use
+    ///   - categories: User's selected goal categories (empty = load all)
+    func loadAffirmations(
+        using repository: any AffirmationRepositoryProtocol,
+        forCategories categories: [String]
+    ) async {
+        // Store repository for later engagement tracking and batch refresh
+        self.repository = repository
+        self.loadedCategories = categories
+        
         do {
-            let now = Date()
-            let descriptor = FetchDescriptor<Affirmation>(
-                predicate: #Predicate { $0.expiresAt > now },
-                sortBy: [SortDescriptor(\.batchIndex)]
-            )
+            let queue: [Affirmation]
             
-            var fetched = try modelContext.fetch(descriptor)
-            
-            // Sort: unseen first, then by batch index
-            fetched.sort { a, b in
-                if a.hasBeenSeen != b.hasBeenSeen {
-                    return !a.hasBeenSeen
-                }
-                return a.batchIndex < b.batchIndex
+            if categories.isEmpty {
+                // No categories selected - use sample data
+                #if DEBUG
+                print("[LOG] PracticeStore: No categories selected, using samples")
+                #endif
+                queue = Affirmation.samples
+            } else {
+                // Fetch from repository with smart queue sorting
+                queue = try repository.fetchQueue(
+                    forCategories: categories,
+                    limit: Constants.Session.batchSize
+                )
+                
+                #if DEBUG
+                print("[LOG] PracticeStore: Loaded \(queue.count) affirmations for \(categories.count) categories")
+                #endif
             }
             
-            let batch = Array(fetched.prefix(Constants.Session.batchSize))
-            
-            if batch.isEmpty {
+            if queue.isEmpty {
+                // Fallback to samples if database is empty
                 send(.affirmationsLoaded(Affirmation.samples))
             } else {
-                send(.affirmationsLoaded(batch))
+                send(.affirmationsLoaded(queue))
             }
             
         } catch {
+            #if DEBUG
+            print("[LOG] PracticeStore: Load failed - \(error.localizedDescription)")
+            #endif
             send(.affirmationsLoadFailed(.dataLoadError(error.localizedDescription)))
         }
     }
     
-    /// Loads favorited affirmations
-    func loadFavorites(from modelContext: ModelContext) async {
+    /// Loads favorited affirmations using the repository.
+    ///
+    /// - Parameter repository: The affirmation repository to use
+    func loadFavorites(using repository: any AffirmationRepositoryProtocol) async {
+        self.repository = repository
+        
         do {
-            let descriptor = FetchDescriptor<Affirmation>(
-                predicate: #Predicate { $0.isFavorited },
-                sortBy: [SortDescriptor(\.favoritedAt, order: .reverse)]
-            )
-            
-            let favorites = try modelContext.fetch(descriptor)
+            let favorites = try repository.fetchFavorites()
             
             guard !favorites.isEmpty else {
                 error = .dataLoadError("No favorites yet. Heart some affirmations first!")
@@ -990,6 +1496,127 @@ extension PracticeStore {
         
         currentIndex = newIndex
     }
+    
+    // MARK: - Legacy Support (Deprecated)
+    
+    /// Legacy method - use `loadAffirmations(using:forCategories:)` instead.
+    @available(*, deprecated, message: "Use loadAffirmations(using:forCategories:) instead")
+    func loadAffirmations(from modelContext: ModelContext) async {
+        // Legacy fallback - loads all affirmations without filtering
+        let now = Date()
+        let descriptor = FetchDescriptor<Affirmation>(
+            predicate: #Predicate { $0.expiresAt > now },
+            sortBy: [SortDescriptor(\.batchIndex)]
+        )
+        
+        do {
+            var fetched = try modelContext.fetch(descriptor)
+            
+            fetched.sort { a, b in
+                if a.hasBeenSeen != b.hasBeenSeen {
+                    return !a.hasBeenSeen
+                }
+                return a.batchIndex < b.batchIndex
+            }
+            
+            let batch = Array(fetched.prefix(Constants.Session.batchSize))
+            
+            if batch.isEmpty {
+                send(.affirmationsLoaded(Affirmation.samples))
+            } else {
+                send(.affirmationsLoaded(batch))
+            }
+            
+        } catch {
+            send(.affirmationsLoadFailed(.dataLoadError(error.localizedDescription)))
+        }
+    }
+    
+    /// Legacy method - use `loadFavorites(using:)` instead.
+    @available(*, deprecated, message: "Use loadFavorites(using:) instead")
+    func loadFavorites(from modelContext: ModelContext) async {
+        let descriptor = FetchDescriptor<Affirmation>(
+            predicate: #Predicate { $0.isFavorited },
+            sortBy: [SortDescriptor(\.favoritedAt, order: .reverse)]
+        )
+        
+        do {
+            let favorites = try modelContext.fetch(descriptor)
+            
+            guard !favorites.isEmpty else {
+                error = .dataLoadError("No favorites yet. Heart some affirmations first!")
+                return
+            }
+            
+            send(.affirmationsLoaded(favorites))
+            send(.exitSession)
+            
+        } catch {
+            send(.affirmationsLoadFailed(.dataLoadError(error.localizedDescription)))
+        }
+    }
+}
+
+// MARK: - Engagement Tracking
+
+extension PracticeStore {
+    
+    /// Records engagement for the current affirmation.
+    ///
+    /// Call this when user views, speaks, or interacts with an affirmation.
+    ///
+    /// - Parameter type: The type of engagement to record
+    func recordEngagement(_ type: EngagementType) {
+        guard let affirmation = currentAffirmation,
+              let repository = repository else { return }
+        
+        do {
+            switch type {
+            case .view:
+                try repository.recordView(affirmationId: affirmation.id)
+            case .speak:
+                try repository.recordSpeak(affirmationId: affirmation.id)
+            case .skip:
+                try repository.recordSkip(affirmationId: affirmation.id)
+            case .share:
+                try repository.recordShare(affirmationId: affirmation.id)
+            }
+        } catch {
+            #if DEBUG
+            print("[LOG] PracticeStore: Failed to record \(type) engagement: \(error.localizedDescription)")
+            #endif
+        }
+    }
+    
+    /// Records a resonance score for the current affirmation.
+    ///
+    /// - Parameter record: The resonance record to save
+    func recordResonance(_ record: ResonanceRecord) {
+        guard let affirmation = currentAffirmation,
+              let repository = repository else { return }
+        
+        do {
+            try repository.addResonanceRecord(affirmationId: affirmation.id, record: record)
+        } catch {
+            #if DEBUG
+            print("[LOG] PracticeStore: Failed to record resonance: \(error.localizedDescription)")
+            #endif
+        }
+    }
+}
+
+// MARK: - Engagement Type
+
+/// Types of user engagement with affirmations
+enum EngagementType: Sendable {
+    /// User viewed the affirmation
+    case view
+    /// User spoke the affirmation
+    case speak
+    /// User skipped past quickly
+    case skip
+    /// User shared the affirmation
+    case share
 }
 
 // MARK: - Background State

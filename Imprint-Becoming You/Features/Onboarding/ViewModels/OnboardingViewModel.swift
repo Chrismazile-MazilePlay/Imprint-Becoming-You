@@ -157,10 +157,19 @@ final class OnboardingViewModel {
     
     // MARK: - Faith Preference
     
-    /// Sets the user's faith content preference
+    /// Sets the user's faith content preference.
+    ///
+    /// Uses `withAnimation` to ensure SwiftUI's animation context is engaged
+    /// from the first tap, preventing initial selection delay.
+    ///
     /// - Parameter include: Whether to include faith-based content
     func setFaithPreference(_ include: Bool) {
-        includeFaithContent = include
+        // Wrap state change in withAnimation to engage animation context immediately.
+        // This prevents the "first tap delay" issue where the initial nil → value
+        // transition would otherwise not be tracked by the animation system.
+        withAnimation(AppTheme.Animation.quick) {
+            includeFaithContent = include
+        }
         
         // If user opts out of faith content, remove any faith goals they may have selected
         if !include {
@@ -336,13 +345,5 @@ enum OnboardingStep: Int, CaseIterable, Identifiable, Sendable {
         default:
             return false
         }
-    }
-}
-
-// MARK: - Animation Helper
-
-private func animateStateChange(_ action: () -> Void) {
-    withAnimation(AppTheme.Animation.standard) {
-        action()
     }
 }

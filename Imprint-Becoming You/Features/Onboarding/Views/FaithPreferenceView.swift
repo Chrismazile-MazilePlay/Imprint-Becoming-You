@@ -177,6 +177,11 @@ struct FaithPreferenceView: View {
 // MARK: - FaithOptionCard
 
 /// Selectable option card for faith preference choice.
+///
+/// ## Animation Strategy
+/// State changes happen immediately (no animation wrapper).
+/// Only decorative visual elements (checkmark, border) animate after state commits.
+/// This ensures instant UI response while maintaining polish.
 struct FaithOptionCard: View {
     
     let icon: String
@@ -186,9 +191,12 @@ struct FaithOptionCard: View {
     let onTap: () -> Void
     
     var body: some View {
-        Button(action: onTap) {
+        Button {
+            // Action executes immediately - no animation delay
+            onTap()
+        } label: {
             HStack(spacing: AppTheme.Spacing.md) {
-                // Icon
+                // Icon - animates color change
                 Image(systemName: icon)
                     .font(.system(size: 24))
                     .foregroundStyle(isSelected ? AppColors.accent : AppColors.textSecondary)
@@ -197,8 +205,9 @@ struct FaithOptionCard: View {
                         Circle()
                             .fill(isSelected ? AppColors.accent.opacity(0.15) : AppColors.surfaceTertiary)
                     )
+                    .animation(AppTheme.Animation.quick, value: isSelected)
                 
-                // Text
+                // Text - no animation needed
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(AppTypography.headline)
@@ -211,10 +220,11 @@ struct FaithOptionCard: View {
                 
                 Spacer()
                 
-                // Selection indicator
+                // Selection indicator - animates independently
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 24))
                     .foregroundStyle(isSelected ? AppColors.accent : AppColors.textTertiary)
+                    .animation(AppTheme.Animation.quick, value: isSelected)
             }
             .padding(AppTheme.Spacing.md)
             .background(AppColors.surfaceSecondary)
@@ -225,10 +235,12 @@ struct FaithOptionCard: View {
                         isSelected ? AppColors.accent : Color.clear,
                         lineWidth: 2
                     )
+                    .animation(AppTheme.Animation.quick, value: isSelected)
             )
         }
         .buttonStyle(.plain)
-        .animation(AppTheme.Animation.quick, value: isSelected)
+        // REMOVED: .animation(AppTheme.Animation.quick, value: isSelected)
+        // This was causing the delay by animating the entire button hierarchy
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityLabel("\(title), \(subtitle)")
     }

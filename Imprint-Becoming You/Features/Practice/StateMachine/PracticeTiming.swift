@@ -41,8 +41,17 @@ enum PracticeTiming {
     /// Duration to show the "analyzing" state
     static let analysisDuration: Duration = .milliseconds(500)
     
-    /// Duration to display score before auto-advancing
+    /// Duration to display score before showing summary/auto-advancing
     static let scoreDisplayDuration: Duration = .seconds(1.5)
+    
+    /// Brief pause after final score before transitioning to summary
+    static let sessionCompletePause: Duration = .milliseconds(800)
+    
+    /// Duration for crossfade transition to results summary
+    static let summaryTransitionDuration: TimeInterval = 0.5
+    
+    /// Duration for slide-down dismissal of results summary
+    static let summaryDismissDuration: TimeInterval = 0.35
     
     /// Duration navigation is locked during score display
     static let navigationLockDuration: Duration = .seconds(1.0)

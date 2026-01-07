@@ -15,6 +15,12 @@ import SwiftData
 /// After onboarding, the app presents `MainPracticeView` as the sole
 /// root experience - no tab bar, fully immersive.
 ///
+/// ## First Launch Behavior
+/// On first launch, `loadInitialData()` will:
+/// 1. Seed offline affirmations from bundled JSON (1,120 items)
+/// 2. Create a new `UserProfile`
+/// 3. Show onboarding flow
+///
 /// Note: `OnboardingContainerView` is defined in its own file
 /// at `Sources/Features/Onboarding/OnboardingContainerView.swift`
 struct RootView: View {
@@ -23,6 +29,7 @@ struct RootView: View {
     
     @Environment(\.appState) private var appState
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dependencies) private var dependencies
     
     // MARK: - Body
     
@@ -68,8 +75,54 @@ struct RootView: View {
     
     @MainActor
     private func loadInitialData() async {
+        // Brief delay for launch animation
         try? await Task.sleep(for: .milliseconds(300))
         
+        // Step 1: Seed offline content if needed (first launch)
+        await seedOfflineContentIfNeeded()
+        
+        // Step 2: Load or create user profile
+        await loadUserProfile()
+        
+        // Complete loading
+        appState.isLoading = false
+    }
+    
+    /// Seeds offline affirmations from bundled JSON on first launch.
+    @MainActor
+    private func seedOfflineContentIfNeeded() async {
+        let loader = dependencies.makeOfflineContentLoader()
+        
+        // Skip if already seeded
+        guard !loader.hasBeenSeeded else {
+            appState.markOfflineContentSeeded()
+            return
+        }
+        
+        do {
+            try await loader.seedIfNeeded(modelContext: modelContext)
+            appState.markOfflineContentSeeded()
+            
+            #if DEBUG
+            // Verify seeding
+            let count = try? modelContext.fetchCount(FetchDescriptor<Affirmation>())
+            print("✅ RootView: Offline content seeded. Total affirmations: \(count ?? 0)")
+            #endif
+            
+        } catch {
+            // Log but don't block - app can still function with samples
+            #if DEBUG
+            print("⚠️ RootView: Failed to seed offline content: \(error.localizedDescription)")
+            #endif
+            
+            // Still mark as attempted to avoid retry loops
+            appState.markOfflineContentSeeded()
+        }
+    }
+    
+    /// Loads existing user profile or creates a new one.
+    @MainActor
+    private func loadUserProfile() async {
         let descriptor = FetchDescriptor<UserProfile>()
         
         do {
@@ -78,6 +131,7 @@ struct RootView: View {
             if let profile = profiles.first {
                 appState.updateProfile(profile)
             } else {
+                // First launch - create new profile
                 let newProfile = UserProfile()
                 modelContext.insert(newProfile)
                 try modelContext.save()
@@ -86,8 +140,6 @@ struct RootView: View {
         } catch {
             appState.presentError(.loadFailed(reason: error.localizedDescription))
         }
-        
-        appState.isLoading = false
     }
 }
 

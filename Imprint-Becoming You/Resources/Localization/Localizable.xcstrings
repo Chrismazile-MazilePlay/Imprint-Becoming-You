@@ -137,6 +137,9 @@
     "Exit" : {
 
     },
+    "Exit and return to home" : {
+
+    },
     "Exit session" : {
 
     },
@@ -144,6 +147,9 @@
 
     },
     "Faith-Based Content" : {
+
+    },
+    "Favorite" : {
 
     },
     "Favorites" : {
@@ -243,13 +249,13 @@
     "Resonance score: %lld percent" : {
 
     },
-    "Save" : {
+    "Retry Session" : {
+
+    },
+    "Retry this session with the same affirmations" : {
 
     },
     "Save Changes" : {
-
-    },
-    "Saved" : {
 
     },
     "Saved %@" : {
@@ -259,6 +265,12 @@
 
     },
     "Say:" : {
+
+    },
+    "Score" : {
+
+    },
+    "Session Complete" : {
 
     },
     "Session mode: %@" : {
@@ -271,6 +283,9 @@
 
     },
     "Skip for Now" : {
+
+    },
+    "Skipped" : {
 
     },
     "Soon" : {

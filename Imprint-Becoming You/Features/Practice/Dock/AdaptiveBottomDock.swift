@@ -167,10 +167,11 @@ struct AdaptiveBottomDock: View {
         isBinauralSelectorExpanded: Bool
     ) -> some View {
         VStack(spacing: AppTheme.Spacing.md) {
-            // Progress bars (Stories style)
+            // Progress bars (Stories style) - uses session-aware display properties
+            // Shows exactly 10 bars during active sessions, regardless of batch size
             DockProgressBars(
-                current: store.currentIndex,
-                total: store.totalCount,
+                current: store.displayCurrentIndex,
+                total: store.displayTotalCount,
                 progress: currentProgress,
                 isAnimating: isPlayingOrListening
             )

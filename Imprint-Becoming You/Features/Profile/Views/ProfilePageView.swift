@@ -31,6 +31,7 @@ struct ProfilePageView: View {
     
     @Environment(\.modelContext) private var modelContext
     @Environment(\.appState) private var appState
+    @Environment(\.dependencies) private var dependencies
     
     // MARK: - Properties
     
@@ -85,7 +86,10 @@ struct ProfilePageView: View {
             // Wrap in NavigationStack so FavoritesFullListView's
             // .navigationTitle and toolbar work correctly
             NavigationStack {
-                FavoritesFullListView(store: store)
+                FavoritesFullListView(
+                    store: store,
+                    dependencies: dependencies
+                )
             }
         }
     }
@@ -458,6 +462,7 @@ struct FavoritesFullListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Bindable var store: PracticeStore
+    let dependencies: DependencyContainer
     
     @State private var favorites: [Affirmation] = []
     
@@ -521,10 +526,7 @@ struct FavoritesFullListView: View {
             
             // Start session button
             Button {
-                Task {
-                    await store.loadFavorites(from: modelContext)
-                    dismiss()
-                }
+                startFavoritesSession()
             } label: {
                 HStack {
                     Image(systemName: "play.fill")
@@ -543,6 +545,15 @@ struct FavoritesFullListView: View {
             sortBy: [SortDescriptor(\.favoritedAt, order: .reverse)]
         )
         favorites = (try? modelContext.fetch(descriptor)) ?? []
+    }
+    
+    private func startFavoritesSession() {
+        let repository = dependencies.makeAffirmationRepository(modelContext: modelContext)
+        
+        Task {
+            await store.loadFavorites(using: repository)
+            dismiss()
+        }
     }
     
     private func unfavorite(_ affirmation: Affirmation) {

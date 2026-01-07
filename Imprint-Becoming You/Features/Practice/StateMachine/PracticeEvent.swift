@@ -79,6 +79,18 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     /// Resume a paused flow
     case resumeFlow
     
+    // MARK: - Session Summary Events
+    
+    /// User dismissed the summary, return to home
+    case dismissSummary
+    
+    /// User tapped retry, restart session with same affirmations
+    case retrySession
+    
+    /// User toggled favorite on an affirmation in the summary
+    /// - Parameter affirmationId: The ID of the affirmation to toggle
+    case toggleFavoriteInSummary(UUID)
+    
     // MARK: - TTS Events
     
     /// TTS playback started
@@ -313,6 +325,12 @@ extension PracticeEvent: CustomStringConvertible {
             return "goToIndex(\(idx))"
         case .exitSession:
             return "exitSession"
+        case .dismissSummary:
+            return "dismissSummary"
+        case .retrySession:
+            return "retrySession"
+        case .toggleFavoriteInSummary(let id):
+            return "toggleFavoriteInSummary(\(id.uuidString.prefix(8)))"
         case .startFlow:
             return "startFlow"
         case .pauseFlow:

@@ -36,17 +36,22 @@ enum AppPage: Int, CaseIterable {
 /// horizontal swiping is completely disabled. User must exit the mode
 /// to navigate between pages.
 ///
+/// ## Affirmation Loading
+/// On appear, loads affirmations from SwiftData filtered by user's selected
+/// goals using the `AffirmationRepository` smart queue algorithm.
+///
 /// Navigation:
-/// - AI button (top-left) → slides to Prompts page (left) [home mode only]
-/// - Profile button (top-right) → slides to Profile page (right) [home mode only]
-/// - Categories button → full-screen cover (no slide)
-/// - Swipe left/right → Only works in home mode
+/// - AI button (top-left) Ã¢â€ â€™ slides to Prompts page (left) [home mode only]
+/// - Profile button (top-right) Ã¢â€ â€™ slides to Profile page (right) [home mode only]
+/// - Categories button Ã¢â€ â€™ full-screen cover (no slide)
+/// - Swipe left/right Ã¢â€ â€™ Only works in home mode
 struct MainPracticeView: View {
     
     // MARK: - Environment
     
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dependencies) private var dependencies
+    @Environment(\.appState) private var appState
     
     // MARK: - State
     
@@ -103,41 +108,78 @@ struct MainPracticeView: View {
     
     @ViewBuilder
     private var pageContent: some View {
-        if store.isSessionActive {
-            // ACTIVE MODE: No TabView, no horizontal swiping possible
-            // Just show PracticePageView directly
-            PracticePageView(
-                store: store,
-                onNavigateToProfile: { }, // Disabled in active mode
-                onNavigateToPrompts: { }  // Disabled in active mode
-            )
-            .ignoresSafeArea()
-        } else {
-            // HOME MODE: Full TabView with horizontal navigation
-            TabView(selection: $currentPage) {
-                // Page 0: Prompts (Left)
-                PromptsPageView(
-                    onNavigateToCenter: { navigateToPage(.practice) }
-                )
-                .tag(AppPage.prompts)
-                
-                // Page 1: Practice (Center - Main)
+        ZStack {
+            // Base content layer
+            if store.isSessionActive && !store.isShowingSummary {
+                // ACTIVE MODE: No TabView, no horizontal swiping possible
+                // Just show PracticePageView directly
                 PracticePageView(
                     store: store,
-                    onNavigateToProfile: { navigateToPage(.profile) },
-                    onNavigateToPrompts: { navigateToPage(.prompts) }
+                    onNavigateToProfile: { }, // Disabled in active mode
+                    onNavigateToPrompts: { }  // Disabled in active mode
                 )
-                .tag(AppPage.practice)
-                
-                // Page 2: Profile (Right)
-                ProfilePageView(
-                    store: store,
-                    onNavigateToCenter: { navigateToPage(.practice) }
-                )
-                .tag(AppPage.profile)
+                .ignoresSafeArea()
+                .transition(.opacity)
+            } else if !store.isShowingSummary {
+                // HOME MODE: Full TabView with horizontal navigation
+                TabView(selection: $currentPage) {
+                    // Page 0: Prompts (Left)
+                    PromptsPageView(
+                        onNavigateToCenter: { navigateToPage(.practice) }
+                    )
+                    .tag(AppPage.prompts)
+                    
+                    // Page 1: Practice (Center - Main)
+                    PracticePageView(
+                        store: store,
+                        onNavigateToProfile: { navigateToPage(.profile) },
+                        onNavigateToPrompts: { navigateToPage(.prompts) }
+                    )
+                    .tag(AppPage.practice)
+                    
+                    // Page 2: Profile (Right)
+                    ProfilePageView(
+                        store: store,
+                        onNavigateToCenter: { navigateToPage(.practice) }
+                    )
+                    .tag(AppPage.profile)
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .ignoresSafeArea()
+                .transition(.opacity)
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .ignoresSafeArea()
+            
+            // Results Summary overlay with slide-down dismissal
+            if store.isShowingSummary {
+                ResultsSummaryView(
+                    summary: store.sessionSummary,
+                    onExit: {
+                        dismissSummary(retry: false)
+                    },
+                    onRetry: {
+                        dismissSummary(retry: true)
+                    },
+                    onToggleFavorite: { affirmationId in
+                        store.send(.toggleFavoriteInSummary(affirmationId))
+                    }
+                )
+                .transition(.move(edge: .bottom))
+                .zIndex(10) // Ensure summary is on top
+            }
+        }
+    }
+    
+    // MARK: - Summary Dismissal
+    
+    /// Dismisses the summary with slide-down animation.
+    ///
+    /// - Parameter retry: If true, restarts session. If false, returns to home.
+    private func dismissSummary(retry: Bool) {
+        // First, update the store state (this prepares the underlying view)
+        if retry {
+            store.send(.retrySession)
+        } else {
+            store.send(.dismissSummary)
         }
     }
     
@@ -169,7 +211,17 @@ struct MainPracticeView: View {
     // MARK: - Initialization
     
     private func initializePractice() async {
-        await store.loadAffirmations(from: modelContext)
+        // Get user's selected goals from profile
+        let categories = appState.userProfile?.selectedGoals ?? []
+        
+        // Create repository for this context
+        let repository = dependencies.makeAffirmationRepository(modelContext: modelContext)
+        
+        // Load affirmations using repository with user's selected categories
+        await store.loadAffirmations(
+            using: repository,
+            forCategories: categories
+        )
         
         // Ensure we're on practice page when starting
         currentPage = .practice

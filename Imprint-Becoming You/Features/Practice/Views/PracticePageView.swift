@@ -30,8 +30,8 @@ import SwiftData
 /// ## Color Morphing
 /// Background colors use true RGB interpolation (not opacity crossfade) for smooth
 /// transitions. The system has two modes:
-/// - **Active navigation** (progress ≠ 0): Uses `interpolatedBackground` for real-time color blending
-/// - **At rest** (progress ≈ 0): Uses `staticBackground` with `displayedBackgroundCategory`
+/// - **Active navigation** (progress â‰  0): Uses `interpolatedBackground` for real-time color blending
+/// - **At rest** (progress â‰ˆ 0): Uses `staticBackground` with `displayedBackgroundCategory`
 ///
 /// When navigation completes, `displayedBackgroundCategory` is immediately updated
 /// to match the new index, ensuring seamless handoff between modes.
@@ -65,7 +65,7 @@ struct PracticePageView: View {
     
     @State private var showCategories = false
     
-    /// Tracks the background category to display when at rest (progress ≈ 0).
+    /// Tracks the background category to display when at rest (progress â‰ˆ 0).
     /// Updated immediately (no animation) when index changes, because the
     /// progress-based interpolation already handles the visual transition.
     @State private var displayedBackgroundCategory: GoalCategory?
@@ -90,6 +90,8 @@ struct PracticePageView: View {
                 currentIndex: currentIndexBinding,
                 itemCount: store.affirmations.count,
                 canNavigate: canNavigate,
+                canNavigateNext: store.canGoNext,
+                canNavigatePrevious: store.canGoPrevious,
                 pendingAdvance: pendingAdvanceBinding,
                 onNavigate: handleUserNavigation,
                 onAutoAdvanceComplete: handleAutoAdvanceComplete
@@ -183,7 +185,7 @@ struct PracticePageView: View {
     ///
     /// Uses two rendering modes:
     /// - **At rest** (|progress| < 0.01): Shows static gradient for `displayedBackgroundCategory`
-    /// - **During navigation** (|progress| ≥ 0.01): Interpolates between current and target colors
+    /// - **During navigation** (|progress| â‰¥ 0.01): Interpolates between current and target colors
     ///
     /// The handoff between modes is seamless because `displayedBackgroundCategory`
     /// is updated immediately when the index changes.
@@ -327,9 +329,13 @@ struct PracticePageView: View {
     
     // MARK: - Action Buttons
     
-    /// Action buttons with unified styling.
+    /// Action buttons for share and favorite.
     ///
-    /// Both buttons use the same visual treatment for consistency.
+    /// The Share button is implemented inline. The Favorite button uses the
+    /// `FavoriteButton` component which maintains local state for guaranteed
+    /// immediate UI feedback. This is necessary because SwiftUI observation
+    /// breaks when views are created inside nested closures (VerticalPager content).
+    ///
     /// The `isCurrentPage` parameter enables/disables interactivity
     /// without affecting appearance during transitions.
     private func actionButtons(for affirmation: Affirmation, isCurrentPage: Bool) -> some View {
@@ -337,6 +343,7 @@ struct PracticePageView: View {
             // Share button
             Button {
                 store.send(.shareAffirmation)
+                HapticFeedback.impact(.light)
             } label: {
                 VStack(spacing: AppTheme.Spacing.sm) {
                     Image(systemName: "square.and.arrow.up")
@@ -350,27 +357,15 @@ struct PracticePageView: View {
                 }
             }
             .accessibilityLabel("Share affirmation")
-            .disabled(!isCurrentPage) // Disable on non-current pages
+            .disabled(!isCurrentPage)
             
-            // Favorite button
-            Button {
-                store.send(.toggleFavorite)
-            } label: {
-                VStack(spacing: AppTheme.Spacing.sm) {
-                    Image(systemName: affirmation.isFavorited ? "heart.fill" : "heart")
-                        .font(.system(size: 30, weight: .medium))
-                        .foregroundStyle(affirmation.isFavorited ? AppColors.accent : AppColors.textSecondary)
-                        .frame(width: 56, height: 56)
-                        .scaleEffect(affirmation.isFavorited ? 1.15 : 1.0)
-                        .animation(AppTheme.Animation.bouncy, value: affirmation.isFavorited)
-                    
-                    Text(affirmation.isFavorited ? "Saved" : "Save")
-                        .font(AppTypography.caption1.weight(.medium))
-                        .foregroundStyle(affirmation.isFavorited ? AppColors.accent : AppColors.textSecondary)
-                }
-            }
-            .accessibilityLabel(affirmation.isFavorited ? "Remove from favorites" : "Add to favorites")
-            .disabled(!isCurrentPage) // Disable on non-current pages
+            // Favorite button - uses dedicated component with local state
+            // for guaranteed immediate UI feedback
+            FavoriteButton(
+                isFavorited: affirmation.isFavorited,
+                isEnabled: isCurrentPage,
+                onToggle: { store.send(.toggleFavorite) }
+            )
         }
     }
     

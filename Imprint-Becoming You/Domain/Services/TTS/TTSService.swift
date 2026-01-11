@@ -11,38 +11,62 @@ import Foundation
 
 /// Production implementation of text-to-speech service.
 ///
-/// Uses on-device system TTS for basic speech synthesis.
-/// ElevenLabs cloud TTS will be added in Phase 5.
+/// Integrates on-device system TTS with future ElevenLabs cloud TTS.
+/// Configured with optimal settings for affirmation delivery.
 ///
 /// ## Architecture
 /// ```
 /// TTSService
 /// ├── SystemTTSService (on-device synthesis)
-/// └── AudioCacheManager (caching for ElevenLabs)
+/// └── AudioCacheManager (caching for ElevenLabs - Phase 5)
 /// ```
-final class TTSService: TTSServiceProtocol, @unchecked Sendable {
+///
+/// ## Configuration
+/// Speech rate and pitch are configured at initialization using
+/// `TTSConfiguration` values, optimized for clear affirmation delivery.
+///
+/// ## Usage
+/// ```swift
+/// // Access via DependencyContainer (preferred)
+/// let tts = dependencies.ttsService
+/// try await tts.speakText("I am confident and capable", voiceId: nil)
+/// ```
+@MainActor
+final class TTSService: TTSServiceProtocol {
     
     // MARK: - Dependencies
     
-    /// System TTS service for offline speech
+    /// System TTS service for on-device speech synthesis
     private let systemTTS: SystemTTSService
     
-    /// Audio cache manager for ElevenLabs audio
+    /// Audio cache manager for ElevenLabs audio (Phase 5)
     private let cacheManager: AudioCacheManager
     
     // MARK: - Initialization
     
-    /// Creates a new TTS service with default dependencies
+    /// Creates a new TTS service with default dependencies.
+    ///
+    /// Configures SystemTTSService with optimal settings for affirmation delivery:
+    /// - Speech rate: 0.48 (slightly slower for clarity)
+    /// - Pitch: 1.0 (natural)
     init() {
-        self.systemTTS = SystemTTSService()
+        let systemTTS = SystemTTSService()
+        systemTTS.speechRate = TTSConfiguration.speechRate
+        systemTTS.pitchMultiplier = TTSConfiguration.pitchMultiplier
+        
+        self.systemTTS = systemTTS
         self.cacheManager = AudioCacheManager.shared
     }
     
-    /// Creates a TTS service with injected dependencies (for testing)
+    /// Creates a TTS service with injected dependencies (for testing).
+    ///
     /// - Parameters:
-    ///   - systemTTS: System TTS service instance
+    ///   - systemTTS: System TTS service instance (will be configured)
     ///   - cacheManager: Audio cache manager instance
     init(systemTTS: SystemTTSService, cacheManager: AudioCacheManager) {
+        systemTTS.speechRate = TTSConfiguration.speechRate
+        systemTTS.pitchMultiplier = TTSConfiguration.pitchMultiplier
+        
         self.systemTTS = systemTTS
         self.cacheManager = cacheManager
     }
@@ -79,7 +103,7 @@ final class TTSService: TTSServiceProtocol, @unchecked Sendable {
         try await systemTTS.speak(text)
     }
     
-    func stopSpeaking() async {
+    func stopSpeaking() {
         systemTTS.stopSpeaking()
     }
 }

@@ -213,11 +213,11 @@ struct AdaptiveBottomDock: View {
         store.send(.toggleModeSelector)
         
         // Re-enable after animation completes
-        Task {
-            try? await Task.sleep(for: .seconds(animationDuration))
-            await MainActor.run {
-                isAnimatingSelector = false
-            }
+        // Capture duration as local value - no retain cycle risk in View struct
+        let duration = animationDuration
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(duration))
+            isAnimatingSelector = false
         }
     }
     
@@ -230,11 +230,11 @@ struct AdaptiveBottomDock: View {
         store.send(.toggleBinauralSelector)
         
         // Re-enable after animation completes
-        Task {
-            try? await Task.sleep(for: .seconds(animationDuration))
-            await MainActor.run {
-                isAnimatingSelector = false
-            }
+        // Capture duration as local value - no retain cycle risk in View struct
+        let duration = animationDuration
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(duration))
+            isAnimatingSelector = false
         }
     }
     

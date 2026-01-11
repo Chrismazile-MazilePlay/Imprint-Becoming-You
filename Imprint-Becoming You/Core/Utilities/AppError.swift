@@ -90,6 +90,9 @@ enum AppError: Error, Equatable, Sendable {
     /// TTS generation failed
     case ttsGenerationFailed(reason: String)
     
+    /// TTS synthesis or playback error
+    case ttsError(String)
+    
     /// Firebase error
     case firebaseError(reason: String)
     
@@ -280,6 +283,8 @@ extension AppError: LocalizedError {
             return "Voice service error: \(reason)"
         case .ttsGenerationFailed(let reason):
             return "Text-to-speech failed: \(reason)"
+        case .ttsError(let reason):
+            return "Speech synthesis failed: \(reason)"
         case .firebaseError(let reason):
             return "Cloud service error: \(reason)"
         case .voiceCloningFailed(let reason):

@@ -9,54 +9,107 @@ import Foundation
 
 // MARK: - Mock TTS Service
 
-/// Mock implementation of TTS service for previews and testing.
+/// Mock implementation of TTSServiceProtocol for previews and testing.
 ///
-/// Simulates speech synthesis with configurable delays.
+/// Simulates TTS behavior with configurable delays and state.
 /// Does not produce actual audio output.
-final class MockTTSService: TTSServiceProtocol, @unchecked Sendable {
-    
-    // MARK: - Thread Safety
-    
-    private let stateQueue = DispatchQueue(label: "com.imprint.mocktts")
-    private var _isSpeaking: Bool = false
+///
+/// ## Usage in Tests
+/// ```swift
+/// let mockTTS = MockTTSService()
+/// mockTTS.simulatedSpeakDuration = 2.0  // 2 second "speech"
+/// let container = DependencyContainer.preview
+/// // MockTTSService is automatically used in preview container
+/// ```
+///
+/// ## Usage in Previews
+/// ```swift
+/// PracticeStore(dependencies: .preview)  // Uses MockTTSService
+/// ```
+@MainActor
+final class MockTTSService: TTSServiceProtocol {
     
     // MARK: - Configuration
     
-    /// Simulated synthesis delay
-    var synthesisDelay: Duration = .milliseconds(500)
-    
-    /// Simulated speaking delay
-    var speakingDelay: Duration = .seconds(2)
+    /// Duration to simulate for speakText calls (seconds)
+    var simulatedSpeakDuration: TimeInterval = 1.5
     
     /// Whether to simulate errors
     var shouldSimulateError: Bool = false
     
-    // MARK: - TTSServiceProtocol
+    /// Error to throw when shouldSimulateError is true
+    var simulatedError: Error = AppError.ttsError("Mock TTS error")
     
-    var isSpeaking: Bool {
-        stateQueue.sync { _isSpeaking }
-    }
+    // MARK: - State
+    
+    /// Whether speech is currently "playing"
+    private(set) var isSpeaking: Bool = false
+    
+    /// Last text that was spoken
+    private(set) var lastSpokenText: String?
+    
+    /// Count of speakText calls
+    private(set) var speakCallCount: Int = 0
+    
+    /// Count of stopSpeaking calls
+    private(set) var stopCallCount: Int = 0
+    
+    /// Current speak task (for cancellation)
+    private var speakTask: Task<Void, Error>?
+    
+    // MARK: - TTSServiceProtocol
     
     func synthesize(text: String, voiceId: String?) async throws -> Data {
         if shouldSimulateError {
-            throw AppError.ttsGenerationFailed(reason: "Simulated error")
+            throw simulatedError
         }
         
-        try await Task.sleep(for: synthesisDelay)
-        return Data() // Return empty data for mock
+        // Return mock audio data
+        return Data("mock-audio-data-\(text.hashValue)".utf8)
     }
     
     func speakText(_ text: String, voiceId: String?) async throws {
         if shouldSimulateError {
-            throw AppError.ttsGenerationFailed(reason: "Simulated error")
+            throw simulatedError
         }
         
-        stateQueue.sync { _isSpeaking = true }
-        try await Task.sleep(for: speakingDelay)
-        stateQueue.sync { _isSpeaking = false }
+        speakCallCount += 1
+        lastSpokenText = text
+        isSpeaking = true
+        
+        // Simulate speech duration
+        speakTask = Task {
+            try await Task.sleep(for: .seconds(simulatedSpeakDuration))
+        }
+        
+        do {
+            try await speakTask?.value
+            isSpeaking = false
+        } catch {
+            isSpeaking = false
+            if !(error is CancellationError) {
+                throw error
+            }
+        }
     }
     
-    func stopSpeaking() async {
-        stateQueue.sync { _isSpeaking = false }
+    func stopSpeaking() {
+        stopCallCount += 1
+        speakTask?.cancel()
+        speakTask = nil
+        isSpeaking = false
+    }
+    
+    // MARK: - Test Helpers
+    
+    /// Resets all state and counters
+    func reset() {
+        isSpeaking = false
+        lastSpokenText = nil
+        speakCallCount = 0
+        stopCallCount = 0
+        speakTask?.cancel()
+        speakTask = nil
+        shouldSimulateError = false
     }
 }

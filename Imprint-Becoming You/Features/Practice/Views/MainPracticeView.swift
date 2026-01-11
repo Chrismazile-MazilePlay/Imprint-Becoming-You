@@ -41,10 +41,10 @@ enum AppPage: Int, CaseIterable {
 /// goals using the `AffirmationRepository` smart queue algorithm.
 ///
 /// Navigation:
-/// - AI button (top-left) Ã¢â€ â€™ slides to Prompts page (left) [home mode only]
-/// - Profile button (top-right) Ã¢â€ â€™ slides to Profile page (right) [home mode only]
-/// - Categories button Ã¢â€ â€™ full-screen cover (no slide)
-/// - Swipe left/right Ã¢â€ â€™ Only works in home mode
+/// - AI button (top-left) ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ slides to Prompts page (left) [home mode only]
+/// - Profile button (top-right) ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ slides to Profile page (right) [home mode only]
+/// - Categories button ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ full-screen cover (no slide)
+/// - Swipe left/right ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ Only works in home mode
 struct MainPracticeView: View {
     
     // MARK: - Environment
@@ -166,6 +166,39 @@ struct MainPracticeView: View {
                 .transition(.move(edge: .bottom))
                 .zIndex(10) // Ensure summary is on top
             }
+            
+            // Timeout Alert overlay
+            if store.isShowingTimeoutAlert {
+                TimeoutAlertView(
+                    affirmationText: store.currentAffirmation?.text ?? "",
+                    onRetry: {
+                        store.send(.retryListening)
+                    },
+                    onSkip: {
+                        store.send(.skipAffirmation)
+                    },
+                    onExit: {
+                        store.send(.exitSession)
+                    }
+                )
+                .transition(.opacity)
+                .zIndex(20) // Above summary
+            }
+            
+            // Permission Denied Alert overlay
+            if store.isShowingPermissionAlert {
+                PermissionDeniedAlertView(
+                    permissionType: store.deniedPermissionType.toViewType,
+                    onOpenSettings: {
+                        store.send(.openSettings)
+                    },
+                    onContinue: {
+                        store.send(.continueWithoutPermission)
+                    }
+                )
+                .transition(.opacity)
+                .zIndex(20) // Above summary
+            }
         }
     }
     
@@ -258,4 +291,27 @@ struct MainPracticeView: View {
     
     return ActiveModePreview()
         .previewEnvironment()
+}
+
+// MARK: - PermissionType Conversion
+
+extension PermissionType {
+    /// Converts to the view-layer PermissionType for PermissionDeniedAlertView.
+    ///
+    /// Note: The `notifications` case maps to `microphone` as a fallback since
+    /// PermissionDeniedAlertView is only used for audio-related permissions.
+    var toViewType: PermissionDeniedAlertView.PermissionType {
+        switch self {
+        case .microphone:
+            return .microphone
+        case .speechRecognition:
+            return .speechRecognition
+        case .both:
+            return .both
+        case .notifications:
+            // Notifications permission is not handled by PermissionDeniedAlertView
+            // This case should not occur in practice flow, but we need exhaustive matching
+            return .microphone
+        }
+    }
 }

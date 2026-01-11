@@ -44,7 +44,8 @@ import Foundation
 /// ## Related Types
 /// - `CalibrationData` - Defined in Domain/Models/UserProfile.swift
 /// - `ResonanceRecord` - Defined in Domain/Models/ResonanceRecord.swift
-protocol SpeechAnalysisServiceProtocol: AnyObject, Sendable {
+@MainActor
+protocol SpeechAnalysisServiceProtocol: AnyObject {
     
     // MARK: - State
     
@@ -52,10 +53,10 @@ protocol SpeechAnalysisServiceProtocol: AnyObject, Sendable {
     var isAnalyzing: Bool { get }
     
     /// Whether microphone permission has been granted
-    var hasMicrophonePermission: Bool { get async }
+    var hasMicrophonePermission: Bool { get }
     
     /// Whether speech recognition permission has been granted
-    var hasSpeechRecognitionPermission: Bool { get async }
+    var hasSpeechRecognitionPermission: Bool { get }
     
     // MARK: - Permissions
     
@@ -117,6 +118,7 @@ protocol SpeechAnalysisServiceProtocol: AnyObject, Sendable {
 ///
 /// Implement this protocol to receive callbacks about analysis progress,
 /// recognition results, and completion.
+@MainActor
 protocol SpeechAnalysisDelegate: AnyObject {
     /// Called when real-time resonance score updates
     /// - Parameter score: Current score (0.0 - 1.0)

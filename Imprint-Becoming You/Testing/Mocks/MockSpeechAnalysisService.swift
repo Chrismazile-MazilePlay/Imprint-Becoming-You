@@ -12,18 +12,19 @@ import Foundation
 /// Mock implementation of speech analysis service for previews and testing.
 ///
 /// Simulates speech recognition and scoring without actual microphone input.
-final class MockSpeechAnalysisService: SpeechAnalysisServiceProtocol, @unchecked Sendable {
+@MainActor
+final class MockSpeechAnalysisService: SpeechAnalysisServiceProtocol {
     
     // MARK: - State
     
     var isAnalyzing: Bool = false
     
     var hasMicrophonePermission: Bool {
-        get async { simulatePermissionsGranted }
+        simulatePermissionsGranted
     }
     
     var hasSpeechRecognitionPermission: Bool {
-        get async { simulatePermissionsGranted }
+        simulatePermissionsGranted
     }
     
     // MARK: - Configuration
@@ -48,19 +49,19 @@ final class MockSpeechAnalysisService: SpeechAnalysisServiceProtocol, @unchecked
     
     // MARK: - Streams
     
-    lazy var realtimeScoreStream: AsyncStream<Float> = {
+    private(set) lazy var realtimeScoreStream: AsyncStream<Float> = {
         AsyncStream { [weak self] continuation in
             self?.scoreContinuation = continuation
         }
     }()
     
-    lazy var recognizedTextStream: AsyncStream<String> = {
+    private(set) lazy var recognizedTextStream: AsyncStream<String> = {
         AsyncStream { [weak self] continuation in
             self?.textContinuation = continuation
         }
     }()
     
-    lazy var silenceDetectedStream: AsyncStream<Bool> = {
+    private(set) lazy var silenceDetectedStream: AsyncStream<Bool> = {
         AsyncStream { [weak self] continuation in
             self?.silenceContinuation = continuation
         }

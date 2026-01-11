@@ -7,6 +7,11 @@
 
 import Foundation
 import AVFoundation
+import os.log
+
+// MARK: - Logger
+
+private let calibrationLog = Logger(subsystem: "com.imprint.audio", category: "VoiceCalibration")
 
 // MARK: - VoiceCalibrationService
 
@@ -29,7 +34,8 @@ import AVFoundation
 ///     with: ["I am confident", "I am worthy", "I am capable"]
 /// )
 /// ```
-actor VoiceCalibrationService {
+@MainActor
+final class VoiceCalibrationService {
     
     // MARK: - Properties
     
@@ -63,17 +69,17 @@ actor VoiceCalibrationService {
     /// Stream of calibration progress updates
     private(set) lazy var progressStream: AsyncStream<CalibrationProgress> = {
         AsyncStream { [weak self] continuation in
-            Task {
-                await self?.setProgressContinuation(continuation)
-            }
+            self?.progressContinuation = continuation
         }
     }()
     
     // MARK: - Initialization
     
     /// Creates a new calibration service
+    /// - Parameter audioInputManager: Audio input manager (defaults to new instance using AudioCoordinator)
     init(audioInputManager: AudioInputManager? = nil) {
         self.audioInputManager = audioInputManager ?? AudioInputManager()
+        calibrationLog.info("✅ VoiceCalibrationService initialized")
     }
     
     // MARK: - Calibration
@@ -84,12 +90,16 @@ actor VoiceCalibrationService {
     /// - Throws: `AppError.calibrationFailed` if calibration fails
     func performCalibration(with sampleAffirmations: [String]) async throws -> CalibrationData {
         guard !isCalibrating else {
+            calibrationLog.warning("⚠️ Calibration already in progress")
             throw AppError.calibrationFailed(reason: "Calibration already in progress")
         }
         
         guard !sampleAffirmations.isEmpty else {
+            calibrationLog.error("❌ No sample affirmations provided")
             throw AppError.calibrationFailed(reason: "No sample affirmations provided")
         }
+        
+        calibrationLog.info("🎬 Starting calibration with \(sampleAffirmations.count) phrases")
         
         // Reset state
         allRMSSamples.removeAll()
@@ -109,6 +119,8 @@ actor VoiceCalibrationService {
         for (index, affirmation) in sampleAffirmations.enumerated() {
             currentPhraseIndex = index
             progress = Float(index) / Float(totalPhrases)
+            
+            calibrationLog.info("📝 Calibrating phrase \(index + 1)/\(self.totalPhrases): \"\(affirmation.prefix(30))...\"")
             
             // Emit progress update
             let progressUpdate = CalibrationProgress(
@@ -132,6 +144,8 @@ actor VoiceCalibrationService {
         // Compute calibration data from collected samples
         progress = 1.0
         let calibrationData = computeCalibrationData()
+        
+        calibrationLog.info("✅ Calibration complete - RMS: \(calibrationData.baselineRMS), Pitch: \(calibrationData.pitchMin)-\(calibrationData.pitchMax) Hz")
         
         // Emit completion
         let completionUpdate = CalibrationProgress(
@@ -162,7 +176,7 @@ actor VoiceCalibrationService {
         let startTime = Date()
         
         // Process audio buffers
-        for await buffer in await audioInputManager.audioBufferStream {
+        for await buffer in audioInputManager.audioBufferStream {
             // Collect RMS
             allRMSSamples.append(buffer.rmsLevel)
             allDecibelSamples.append(buffer.decibelLevel)
@@ -183,7 +197,7 @@ actor VoiceCalibrationService {
         }
         
         // Stop capturing
-        await audioInputManager.stopCapture()
+        audioInputManager.stopCapture()
     }
     
     /// Computes calibration data from collected samples
@@ -237,10 +251,12 @@ actor VoiceCalibrationService {
     }
     
     /// Cancels an in-progress calibration
-    func cancelCalibration() async {
+    func cancelCalibration() {
         guard isCalibrating else { return }
         
-        await audioInputManager.stopCapture()
+        calibrationLog.info("❌ Calibration cancelled")
+        
+        audioInputManager.stopCapture()
         isCalibrating = false
         
         // Emit cancelled state
@@ -253,13 +269,6 @@ actor VoiceCalibrationService {
         )
         progressContinuation?.yield(cancelUpdate)
         progressContinuation?.finish()
-    }
-    
-    // MARK: - Private Methods
-    
-    /// Sets the progress continuation
-    private func setProgressContinuation(_ continuation: AsyncStream<CalibrationProgress>.Continuation) {
-        progressContinuation = continuation
     }
 }
 

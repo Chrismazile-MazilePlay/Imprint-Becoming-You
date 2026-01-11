@@ -75,6 +75,11 @@ struct RootView: View {
     
     @MainActor
     private func loadInitialData() async {
+        // Step 0: Warm up haptic generators immediately.
+        // This prepares the Taptic Engine so the first user interaction
+        // (e.g., tapping "Yes" in faith preference) has zero latency.
+        HapticFeedback.warmUp()
+        
         // Brief delay for launch animation
         try? await Task.sleep(for: .milliseconds(300))
         

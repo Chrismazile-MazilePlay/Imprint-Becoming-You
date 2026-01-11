@@ -180,11 +180,50 @@ enum AppError: Error, Equatable, Sendable {
 
 // MARK: - PermissionType
 
-/// Types of permissions the app may request
-enum PermissionType: String, Sendable {
+/// Types of permissions the app may request.
+///
+/// Used by both `AppError` and `PracticeEvent` for permission-related errors and events.
+enum PermissionType: String, Equatable, Sendable, CaseIterable {
+    
+    /// Microphone access for audio capture
     case microphone = "Microphone"
+    
+    /// Speech recognition access
     case speechRecognition = "Speech Recognition"
+    
+    /// Push notification access
     case notifications = "Notifications"
+    
+    /// Both microphone and speech recognition (combined request)
+    case both = "Microphone & Speech Recognition"
+    
+    /// User-facing title for permission request dialogs
+    var title: String {
+        switch self {
+        case .microphone:
+            return "Microphone Access Required"
+        case .speechRecognition:
+            return "Speech Recognition Required"
+        case .notifications:
+            return "Notifications Access Required"
+        case .both:
+            return "Permissions Required"
+        }
+    }
+    
+    /// User-facing message explaining why permission is needed
+    var message: String {
+        switch self {
+        case .microphone:
+            return "Imprint needs microphone access to listen to your affirmations and calculate your Resonance Score."
+        case .speechRecognition:
+            return "Imprint needs speech recognition to understand what you're saying and provide feedback."
+        case .notifications:
+            return "Imprint can send you daily reminders to practice your affirmations."
+        case .both:
+            return "Imprint needs microphone and speech recognition access to analyze your affirmations."
+        }
+    }
 }
 
 // MARK: - LocalizedError Conformance

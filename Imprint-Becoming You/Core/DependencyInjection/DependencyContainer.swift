@@ -15,7 +15,8 @@ import SwiftData
 /// Provides both production and preview implementations of all services.
 /// Uses environment-based injection for SwiftUI views.
 ///
-/// **Important:** This class does NOT use @Observable to maintain Sendable conformance.
+/// **Important:** This class is `@MainActor` isolated because most services
+/// require MainActor access (audio, speech recognition, etc.).
 ///
 /// ## Usage in Views
 /// ```swift
@@ -38,7 +39,8 @@ import SwiftData
 ///
 /// let repository = dependencies.makeAffirmationRepository(modelContext: modelContext)
 /// ```
-final class DependencyContainer: @unchecked Sendable {
+@MainActor
+final class DependencyContainer: Sendable {
     
     // MARK: - Singleton
     
@@ -53,108 +55,87 @@ final class DependencyContainer: @unchecked Sendable {
     /// Whether this container is for previews
     let isPreview: Bool
     
-    // MARK: - Services (Thread-Safe Lazy Initialization)
-    
-    /// Serial queue for thread-safe lazy initialization
-    private let initQueue = DispatchQueue(label: "com.imprint.dependencies")
+    // MARK: - Services (Lazy Initialization)
     
     /// Audio playback and binaural beat service
     private var _audioService: (any AudioServiceProtocol)?
     var audioService: any AudioServiceProtocol {
-        initQueue.sync {
-            if _audioService == nil {
-                _audioService = isPreview ? MockAudioService() : AudioService()
-            }
-            return _audioService!
+        if _audioService == nil {
+            _audioService = isPreview ? MockAudioService() : AudioService()
         }
+        return _audioService!
     }
     
     /// Speech recognition and analysis service
     private var _speechAnalysisService: (any SpeechAnalysisServiceProtocol)?
     var speechAnalysisService: any SpeechAnalysisServiceProtocol {
-        initQueue.sync {
-            if _speechAnalysisService == nil {
-                _speechAnalysisService = isPreview ? MockSpeechAnalysisService() : SpeechAnalysisService()
-            }
-            return _speechAnalysisService!
+        if _speechAnalysisService == nil {
+            _speechAnalysisService = isPreview ? MockSpeechAnalysisService() : SpeechAnalysisService()
         }
+        return _speechAnalysisService!
     }
     
     /// Text-to-speech service
     private var _ttsService: (any TTSServiceProtocol)?
     var ttsService: any TTSServiceProtocol {
-        initQueue.sync {
-            if _ttsService == nil {
-                _ttsService = isPreview ? MockTTSService() : TTSService()
-            }
-            return _ttsService!
+        if _ttsService == nil {
+            _ttsService = isPreview ? MockTTSService() : TTSService()
         }
+        return _ttsService!
     }
     
     /// Affirmation generation and management service
     private var _affirmationService: (any AffirmationServiceProtocol)?
     var affirmationService: any AffirmationServiceProtocol {
-        initQueue.sync {
-            if _affirmationService == nil {
-                _affirmationService = isPreview ? MockAffirmationService() : AffirmationService()
-            }
-            return _affirmationService!
+        if _affirmationService == nil {
+            _affirmationService = isPreview ? MockAffirmationService() : AffirmationService()
         }
+        return _affirmationService!
     }
     
     /// Voice cloning service
     private var _voiceCloneService: (any VoiceCloneServiceProtocol)?
     var voiceCloneService: any VoiceCloneServiceProtocol {
-        initQueue.sync {
-            if _voiceCloneService == nil {
-                _voiceCloneService = isPreview ? MockVoiceCloneService() : VoiceCloneService()
-            }
-            return _voiceCloneService!
+        if _voiceCloneService == nil {
+            _voiceCloneService = isPreview ? MockVoiceCloneService() : VoiceCloneService()
         }
+        return _voiceCloneService!
     }
     
     /// Authentication service
     private var _authService: (any AuthServiceProtocol)?
     var authService: any AuthServiceProtocol {
-        initQueue.sync {
-            if _authService == nil {
-                _authService = isPreview ? MockAuthService() : AuthService()
-            }
-            return _authService!
+        if _authService == nil {
+            _authService = isPreview ? MockAuthService() : AuthService()
         }
+        return _authService!
     }
     
     /// Data synchronization service
     private var _syncService: (any SyncServiceProtocol)?
     var syncService: any SyncServiceProtocol {
-        initQueue.sync {
-            if _syncService == nil {
-                _syncService = isPreview ? MockSyncService() : SyncService()
-            }
-            return _syncService!
+        if _syncService == nil {
+            _syncService = isPreview ? MockSyncService() : SyncService()
         }
+        return _syncService!
     }
     
     /// Subscription/StoreKit service
     private var _subscriptionService: (any SubscriptionServiceProtocol)?
     var subscriptionService: any SubscriptionServiceProtocol {
-        initQueue.sync {
-            if _subscriptionService == nil {
-                _subscriptionService = isPreview ? MockSubscriptionService() : SubscriptionService()
-            }
-            return _subscriptionService!
+        if _subscriptionService == nil {
+            _subscriptionService = isPreview ? MockSubscriptionService() : SubscriptionService()
         }
+        return _subscriptionService!
     }
     
     /// Audio caching service
     private var _audioCacheService: (any AudioCacheServiceProtocol)?
     var audioCacheService: any AudioCacheServiceProtocol {
-        initQueue.sync {
-            if _audioCacheService == nil {
-                _audioCacheService = isPreview ? MockAudioCacheService() : AudioCacheService()
-            }
-            return _audioCacheService!
+        if _audioCacheService == nil {
+            _audioCacheService = isPreview ? MockAudioCacheService() : AudioCacheService()
         }
+        return _audioCacheService!
     }
     
     // MARK: - Initialization
@@ -172,7 +153,6 @@ final class DependencyContainer: @unchecked Sendable {
     ///
     /// - Parameter modelContext: SwiftData model context
     /// - Returns: Repository conforming to `AffirmationRepositoryProtocol`
-    @MainActor
     func makeAffirmationRepository(modelContext: ModelContext) -> any AffirmationRepositoryProtocol {
         if isPreview {
             return MockAffirmationRepository()
@@ -194,49 +174,41 @@ final class DependencyContainer: @unchecked Sendable {
     
     /// Registers a custom audio service (useful for testing)
     func register(audioService: any AudioServiceProtocol) {
-        initQueue.sync {
-            _audioService = audioService
-        }
+        _audioService = audioService
     }
     
     /// Registers a custom speech analysis service
     func register(speechAnalysisService: any SpeechAnalysisServiceProtocol) {
-        initQueue.sync {
-            _speechAnalysisService = speechAnalysisService
-        }
+        _speechAnalysisService = speechAnalysisService
     }
     
     /// Registers a custom TTS service
     func register(ttsService: any TTSServiceProtocol) {
-        initQueue.sync {
-            _ttsService = ttsService
-        }
+        _ttsService = ttsService
     }
     
     /// Registers a custom affirmation service
     func register(affirmationService: any AffirmationServiceProtocol) {
-        initQueue.sync {
-            _affirmationService = affirmationService
-        }
+        _affirmationService = affirmationService
     }
     
     /// Registers a custom auth service
     func register(authService: any AuthServiceProtocol) {
-        initQueue.sync {
-            _authService = authService
-        }
+        _authService = authService
     }
 }
 
 // MARK: - Environment Key
 
 /// Environment key for dependency container
-private struct DependencyContainerKey: EnvironmentKey {
-    static let defaultValue = DependencyContainer.shared
+/// Uses @preconcurrency to bridge MainActor-isolated default value with nonisolated protocol requirement
+private struct DependencyContainerKey: @preconcurrency EnvironmentKey {
+    @MainActor static let defaultValue = DependencyContainer.shared
 }
 
 extension EnvironmentValues {
     /// Access to the dependency container
+    @MainActor
     var dependencies: DependencyContainer {
         get { self[DependencyContainerKey.self] }
         set { self[DependencyContainerKey.self] = newValue }
@@ -247,11 +219,19 @@ extension EnvironmentValues {
 
 extension View {
     /// Injects dependencies into the view hierarchy
-    func withDependencies(_ container: DependencyContainer = .shared) -> some View {
+    @MainActor
+    func withDependencies(_ container: DependencyContainer) -> some View {
         environment(\.dependencies, container)
     }
     
+    /// Injects shared dependencies into the view hierarchy
+    @MainActor
+    func withDependencies() -> some View {
+        environment(\.dependencies, .shared)
+    }
+    
     /// Injects preview dependencies with mock services
+    @MainActor
     func withPreviewDependencies() -> some View {
         environment(\.dependencies, .preview)
     }
@@ -266,7 +246,6 @@ func previewModelContainer() -> ModelContainer {
         UserProfile.self,
         Affirmation.self,
         CustomPrompt.self,
-        SessionState.self,
         ProgressData.self
     ])
     

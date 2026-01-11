@@ -15,6 +15,7 @@ import Foundation
 /// - In-memory storage using arrays
 /// - Configurable initial data
 /// - Simulation of all repository operations
+/// - Source-aware queue sorting
 /// - No dependency on SwiftData
 ///
 /// ## Usage
@@ -26,6 +27,11 @@ import Foundation
 ///
 /// // Use in tests
 /// let queue = try mock.fetchQueue(forCategories: ["Confidence"], limit: 10)
+/// let session = try mock.fetchSessionQueue(
+///     forCategories: ["Confidence"],
+///     excluding: Set(queue.prefix(5).map { $0.id }),
+///     limit: 10
+/// )
 /// ```
 @MainActor
 final class MockAffirmationRepository: AffirmationRepositoryProtocol {
@@ -43,6 +49,9 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
     /// Number of times `fetchQueue` was called
     private(set) var fetchQueueCallCount = 0
     
+    /// Number of times `fetchSessionQueue` was called
+    private(set) var fetchSessionQueueCallCount = 0
+    
     /// Number of times `recordView` was called
     private(set) var recordViewCallCount = 0
     
@@ -55,6 +64,9 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
     /// Number of times `insertBatch` was called
     private(set) var insertBatchCallCount = 0
     
+    /// Last exclusion set passed to `fetchSessionQueue`
+    private(set) var lastSessionExclusionSet: Set<UUID> = []
+    
     // MARK: - Initialization
     
     init() {}
@@ -65,7 +77,7 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
         self.mockAffirmations = affirmations
     }
     
-    // MARK: - Fetching
+    // MARK: - Queue Fetching
     
     func fetchQueue(forCategories categories: [String], limit: Int) throws -> [Affirmation] {
         try throwIfErrorConfigured()
@@ -73,16 +85,30 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
         
         let filtered = mockAffirmations.filter { categories.contains($0.category) }
         
-        // Apply simple smart queue logic (unseen first)
-        let sorted = filtered.sorted { a, b in
-            if a.hasBeenSeen != b.hasBeenSeen {
-                return !a.hasBeenSeen
-            }
-            return a.viewCount < b.viewCount
-        }
+        // Apply source-aware smart queue logic
+        let sorted = applySmartQueueSorting(filtered, excluding: [])
         
         return Array(sorted.prefix(limit))
     }
+    
+    func fetchSessionQueue(
+        forCategories categories: [String],
+        excluding: Set<UUID>,
+        limit: Int
+    ) throws -> [Affirmation] {
+        try throwIfErrorConfigured()
+        fetchSessionQueueCallCount += 1
+        lastSessionExclusionSet = excluding
+        
+        let filtered = mockAffirmations.filter { categories.contains($0.category) }
+        
+        // Apply source-aware smart queue logic with exclusions
+        let sorted = applySmartQueueSorting(filtered, excluding: excluding)
+        
+        return Array(sorted.prefix(limit))
+    }
+    
+    // MARK: - Basic Fetching
     
     func fetchFavorites() throws -> [Affirmation] {
         try throwIfErrorConfigured()
@@ -104,6 +130,8 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
         return mockAffirmations.first { $0.id == id }
     }
     
+    // MARK: - Counting
+    
     func countTotal() throws -> Int {
         try throwIfErrorConfigured()
         
@@ -114,6 +142,12 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
         try throwIfErrorConfigured()
         
         return mockAffirmations.filter { categories.contains($0.category) }.count
+    }
+    
+    func countBySource(_ source: AffirmationSource) throws -> Int {
+        try throwIfErrorConfigured()
+        
+        return mockAffirmations.filter { $0.source == source }.count
     }
     
     // MARK: - Engagement Tracking
@@ -199,8 +233,9 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
         let now = Date()
         let initialCount = mockAffirmations.count
         
+        // Only delete non-seeded content that has expired
         mockAffirmations.removeAll { affirmation in
-            affirmation.expiresAt < now && !affirmation.isOfflineContent
+            affirmation.expiresAt < now && affirmation.source != .seeded
         }
         
         return initialCount - mockAffirmations.count
@@ -230,10 +265,12 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
     /// Resets all call counts
     func resetCallCounts() {
         fetchQueueCallCount = 0
+        fetchSessionQueueCallCount = 0
         recordViewCallCount = 0
         recordSpeakCallCount = 0
         toggleFavoriteCallCount = 0
         insertBatchCallCount = 0
+        lastSessionExclusionSet = []
     }
     
     /// Resets mock to default state
@@ -241,6 +278,19 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
         mockAffirmations = Affirmation.samples
         errorToThrow = nil
         resetCallCounts()
+    }
+    
+    /// Adds test affirmations with specific sources
+    func addTestAffirmations(count: Int, source: AffirmationSource, category: String) {
+        for i in 0..<count {
+            let affirmation = Affirmation(
+                text: "Test affirmation \(i) from \(source.rawValue)",
+                category: category,
+                source: source,
+                batchIndex: mockAffirmations.count + i
+            )
+            mockAffirmations.append(affirmation)
+        }
     }
     
     // MARK: - Private Helpers
@@ -251,5 +301,69 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
             errorToThrow = nil // Clear after throwing
             throw error
         }
+    }
+    
+    /// Applies source-aware smart queue sorting.
+    private func applySmartQueueSorting(
+        _ affirmations: [Affirmation],
+        excluding: Set<UUID>
+    ) -> [Affirmation] {
+        // Filter out excluded IDs
+        var filtered = affirmations
+        if !excluding.isEmpty {
+            filtered = affirmations.filter { !excluding.contains($0.id) }
+        }
+        
+        // Group by source priority
+        var generated: [Affirmation] = []
+        var backend: [Affirmation] = []
+        var seeded: [Affirmation] = []
+        
+        for affirmation in filtered {
+            switch affirmation.source {
+            case .generated:
+                generated.append(affirmation)
+            case .backend:
+                backend.append(affirmation)
+            case .seeded:
+                seeded.append(affirmation)
+            }
+        }
+        
+        // Sort each tier
+        generated = sortByEngagement(generated)
+        backend = sortByEngagement(backend)
+        seeded = sortByEngagement(seeded)
+        
+        // Combine in priority order
+        return generated + backend + seeded
+    }
+    
+    /// Sorts by engagement metrics.
+    private func sortByEngagement(_ affirmations: [Affirmation]) -> [Affirmation] {
+        var unseen: [Affirmation] = []
+        var seen: [Affirmation] = []
+        
+        for affirmation in affirmations {
+            if !affirmation.hasBeenSeen {
+                unseen.append(affirmation)
+            } else {
+                seen.append(affirmation)
+            }
+        }
+        
+        unseen.shuffle()
+        
+        seen.sort { a, b in
+            if a.speakCount != b.speakCount {
+                return a.speakCount < b.speakCount
+            }
+            if a.viewCount != b.viewCount {
+                return a.viewCount < b.viewCount
+            }
+            return true
+        }
+        
+        return unseen + seen
     }
 }

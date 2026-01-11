@@ -59,6 +59,34 @@ enum PracticeTiming {
     /// Delay before starting flow when entering active mode
     static let flowStartDelay: Duration = .milliseconds(300)
     
+    // MARK: - TTS Duration Constants
+    
+    /// Minimum duration to hold on TTS affirmation before advancing.
+    /// Ensures user has time to absorb the message.
+    static let ttsMininumHoldDuration: TimeInterval = 3.0
+    
+    /// Maximum allowed speech duration for affirmations (QA threshold).
+    /// Affirmations exceeding this should be flagged or excluded.
+    static let ttsMaximumSpeechDuration: TimeInterval = 7.0
+    
+    /// Additional hold time after TTS completes before auto-advancing.
+    /// Provides absorption time beyond the speech itself.
+    static let ttsPostSpeechHold: Duration = .seconds(2)
+    
+    // MARK: - Word Detection Timeout Constants
+    
+    /// Duration without new word match before triggering timeout modal.
+    /// Timer resets each time a matching word is detected.
+    static let wordDetectionTimeout: TimeInterval = 10.0
+    
+    /// Minimum words that must be matched before timeout logic activates.
+    /// Prevents timeout during initial silence before user starts speaking.
+    static let wordDetectionMinimumBeforeTimeout: Int = 1
+    
+    /// Grace period before word detection timeout starts counting.
+    /// Allows user time to prepare before speaking.
+    static let wordDetectionGracePeriod: Duration = .seconds(2)
+    
     // MARK: - Animation Durations
     
     /// Duration for phase transition animations

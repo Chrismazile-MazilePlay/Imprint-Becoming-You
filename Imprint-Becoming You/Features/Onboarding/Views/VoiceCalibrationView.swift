@@ -309,14 +309,6 @@ struct CalibrationInProgressView: View {
     }
 }
 
-// MARK: - Array Safe Subscript
-
-extension Array {
-    subscript(safe index: Index) -> Element? {
-        indices.contains(index) ? self[index] : nil
-    }
-}
-
 // MARK: - Previews
 
 #Preview("Voice Calibration - Ready") {

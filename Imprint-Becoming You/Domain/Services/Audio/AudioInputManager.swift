@@ -7,6 +7,11 @@
 
 import AVFoundation
 import Accelerate
+import os.log
+
+// MARK: - Logger
+
+private let audioInputLog = Logger(subsystem: "com.imprint.audio", category: "AudioInputManager")
 
 // MARK: - AudioInputManager
 
@@ -15,15 +20,21 @@ import Accelerate
 /// Provides real-time audio buffers for speech recognition and
 /// audio analysis (RMS, pitch detection).
 ///
+/// ## SOLID Compliance
+/// - **SRP**: Only handles audio input capture
+/// - **OCP**: Works with any AudioSessionProviding implementation
+/// - **DIP**: Depends on protocols, not concrete implementations
+///
 /// ## Usage
 /// ```swift
-/// let manager = AudioInputManager()
+/// let manager = AudioInputManager(sessionProvider: AudioCoordinator.shared)
 /// try await manager.startCapture()
 /// for await buffer in manager.audioBufferStream {
 ///     // Process buffer
 /// }
 /// ```
-actor AudioInputManager {
+@MainActor
+final class AudioInputManager {
     
     // MARK: - Properties
     
@@ -44,8 +55,8 @@ actor AudioInputManager {
     /// Continuation for audio buffer stream
     private var bufferContinuation: AsyncStream<AudioAnalysisBuffer>.Continuation?
     
-    /// Session manager reference
-    private let sessionManager: AudioSessionManager
+    /// Session provider (protocol-based dependency)
+    private let sessionProvider: any AudioSessionProviding & AudioPermissionProviding
     
     /// Buffer size for analysis
     private let analysisBufferSize: AVAudioFrameCount
@@ -55,8 +66,8 @@ actor AudioInputManager {
     /// Stream of audio buffers for analysis
     private(set) lazy var audioBufferStream: AsyncStream<AudioAnalysisBuffer> = {
         AsyncStream { [weak self] continuation in
-            Task {
-                await self?.setBufferContinuation(continuation)
+            Task { @MainActor in
+                self?.bufferContinuation = continuation
             }
         }
     }()
@@ -64,11 +75,13 @@ actor AudioInputManager {
     // MARK: - Initialization
     
     /// Creates a new audio input manager
-    /// - Parameter sessionManager: Audio session manager for permissions
-    init(sessionManager: AudioSessionManager = .shared) {
+    /// - Parameter sessionProvider: Provider for audio session operations (defaults to AudioCoordinator.shared)
+    init(sessionProvider: (any AudioSessionProviding & AudioPermissionProviding)? = nil) {
         self.audioEngine = AVAudioEngine()
-        self.sessionManager = sessionManager
+        self.sessionProvider = sessionProvider ?? AudioCoordinator.shared
         self.analysisBufferSize = Constants.Audio.bufferSize
+        
+        audioInputLog.info("✅ AudioInputManager initialized")
     }
     
     // MARK: - Public Methods
@@ -76,24 +89,37 @@ actor AudioInputManager {
     /// Starts capturing audio from the microphone
     /// - Throws: `AppError.microphoneAccessDenied` or `AppError.audioRecordingFailed`
     func startCapture() async throws {
-        guard !isCapturing else { return }
+        guard !isCapturing else {
+            audioInputLog.debug("Already capturing, ignoring startCapture")
+            return
+        }
+        
+        audioInputLog.info("🎤 Starting audio capture...")
         
         // Check permission
-        let hasPermission = await sessionManager.hasMicrophonePermission
-        guard hasPermission else {
+        guard sessionProvider.hasMicrophonePermission else {
+            audioInputLog.error("❌ Microphone permission denied")
             throw AppError.microphoneAccessDenied
         }
         
         // Configure session for recording
-        try await sessionManager.configureForPlaybackAndRecording()
-        try await sessionManager.activate()
+        do {
+            try sessionProvider.configureForPlaybackAndRecording()
+            try sessionProvider.activateSession()
+        } catch {
+            audioInputLog.error("❌ Failed to configure session: \(error.localizedDescription)")
+            throw AppError.audioRecordingFailed(reason: "Session configuration failed: \(error.localizedDescription)")
+        }
         
         // Get input format
         let format = inputNode.outputFormat(forBus: 0)
         guard format.sampleRate > 0 else {
+            audioInputLog.error("❌ Invalid input format (sample rate: \(format.sampleRate))")
             throw AppError.audioRecordingFailed(reason: "Invalid input format")
         }
         inputFormat = format
+        
+        audioInputLog.info("📊 Input format: \(format.sampleRate) Hz, \(format.channelCount) ch")
         
         // Install tap on input node
         inputNode.installTap(
@@ -101,8 +127,8 @@ actor AudioInputManager {
             bufferSize: analysisBufferSize,
             format: format
         ) { [weak self] buffer, time in
-            Task {
-                await self?.processBuffer(buffer, time: time)
+            Task { @MainActor in
+                self?.processBuffer(buffer, time: time)
             }
         }
         
@@ -110,8 +136,10 @@ actor AudioInputManager {
         do {
             try audioEngine.start()
             isCapturing = true
+            audioInputLog.info("✅ Audio capture started")
         } catch {
             inputNode.removeTap(onBus: 0)
+            audioInputLog.error("❌ Failed to start engine: \(error.localizedDescription)")
             throw AppError.audioRecordingFailed(reason: error.localizedDescription)
         }
     }
@@ -119,6 +147,8 @@ actor AudioInputManager {
     /// Stops capturing audio
     func stopCapture() {
         guard isCapturing else { return }
+        
+        audioInputLog.info("🛑 Stopping audio capture")
         
         inputNode.removeTap(onBus: 0)
         audioEngine.stop()
@@ -130,22 +160,16 @@ actor AudioInputManager {
     /// Requests microphone permission
     /// - Returns: Whether permission was granted
     func requestPermission() async -> Bool {
-        await sessionManager.requestMicrophonePermission()
+        audioInputLog.info("🎤 Requesting microphone permission")
+        return await sessionProvider.requestMicrophonePermission()
     }
     
     /// Whether microphone permission is granted
     var hasPermission: Bool {
-        get async {
-            await sessionManager.hasMicrophonePermission
-        }
+        sessionProvider.hasMicrophonePermission
     }
     
     // MARK: - Private Methods
-    
-    /// Sets the buffer continuation
-    private func setBufferContinuation(_ continuation: AsyncStream<AudioAnalysisBuffer>.Continuation) {
-        bufferContinuation = continuation
-    }
     
     /// Processes an incoming audio buffer
     private func processBuffer(_ buffer: AVAudioPCMBuffer, time: AVAudioTime) {
@@ -174,6 +198,11 @@ actor AudioInputManager {
             rmsLevel: rms,
             peakLevel: peak
         )
+        
+        // Log periodically (not every buffer to avoid spam)
+        if Int.random(in: 0..<50) == 0 {
+            audioInputLog.debug("📊 Buffer: \(frameLength) frames, RMS: \(String(format: "%.4f", rms)), Speech: \(analysisBuffer.containsSpeech)")
+        }
         
         // Yield to stream
         bufferContinuation?.yield(analysisBuffer)
@@ -236,7 +265,8 @@ struct AudioAnalysisBuffer: Sendable {
 // MARK: - Audio Level Monitor
 
 /// Monitors audio levels for UI visualization
-actor AudioLevelMonitor {
+@MainActor
+final class AudioLevelMonitor {
     
     // MARK: - Properties
     
@@ -258,8 +288,8 @@ actor AudioLevelMonitor {
     /// Stream of audio level updates
     private(set) lazy var levelStream: AsyncStream<AudioLevel> = {
         AsyncStream { [weak self] continuation in
-            Task {
-                await self?.setLevelContinuation(continuation)
+            Task { @MainActor in
+                self?.levelContinuation = continuation
             }
         }
     }()
@@ -291,11 +321,6 @@ actor AudioLevelMonitor {
     func reset() {
         currentLevel = 0
         peakLevel = 0
-    }
-    
-    /// Sets the level continuation
-    private func setLevelContinuation(_ continuation: AsyncStream<AudioLevel>.Continuation) {
-        levelContinuation = continuation
     }
 }
 

@@ -110,6 +110,9 @@
     "Continue" : {
 
     },
+    "Continue in Read-Only Mode" : {
+
+    },
     "Create custom prompts to generate\npersonalized affirmations." : {
 
     },
@@ -141,6 +144,9 @@
 
     },
     "Exit session" : {
+
+    },
+    "Exit Session" : {
 
     },
     "Expand section" : {
@@ -180,6 +186,9 @@
 
     },
     "Listening indicator" : {
+
+    },
+    "Listening Timed Out" : {
 
     },
     "Microphone Access Required" : {
@@ -282,6 +291,9 @@
     "Share affirmation" : {
 
     },
+    "Skip" : {
+
+    },
     "Skip for Now" : {
 
     },
@@ -300,10 +312,16 @@
     "Track your journey" : {
 
     },
+    "Try Again" : {
+
+    },
     "Voice calibrated for personalized scoring" : {
 
     },
     "Voice calibration skipped – you can do this later in Settings" : {
+
+    },
+    "We didn't detect speech matching the affirmation. Would you like to try again?" : {
 
     },
     "What matters to you?" : {

@@ -7,6 +7,11 @@
 
 import AVFoundation
 import Combine
+import os.log
+
+// MARK: - Logger
+
+private let audioServiceLog = Logger(subsystem: "com.imprint.audio", category: "AudioService")
 
 // MARK: - AudioService
 
@@ -16,12 +21,19 @@ import Combine
 /// - AVAudioEngine for low-latency audio processing
 /// - Binaural beat generation for focus/relax/sleep modes
 /// - Cached audio playback for TTS files
-/// - Audio session management for interruptions
+/// - Audio session management via AudioCoordinator
+///
+/// ## SOLID Compliance
+/// - **SRP**: Coordinates audio playback components
+/// - **OCP**: Works with any FullAudioSessionProviding implementation
+/// - **LSP**: Fully implements AudioServiceProtocol
+/// - **ISP**: AudioServiceProtocol is focused on playback
+/// - **DIP**: Depends on protocols, not concrete implementations
 ///
 /// ## Architecture
 /// ```
 /// AudioService
-/// ├── AudioSessionManager (session lifecycle)
+/// ├── AudioCoordinator (session lifecycle via protocol)
 /// ├── BinauralBeatGenerator (tone generation)
 /// ├── AudioPlayerService (file playback)
 /// └── AVAudioEngine (core engine)
@@ -41,8 +53,8 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
     /// The core audio engine
     private let audioEngine: AVAudioEngine
     
-    /// Session manager for audio session lifecycle
-    private let sessionManager: AudioSessionManager
+    /// Session provider (protocol-based dependency)
+    private let sessionProvider: any AudioSessionProviding & AudioInterruptionHandling
     
     /// Binaural beat generator
     private let binauralGenerator: StereoBinauralGenerator
@@ -71,45 +83,60 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
     /// Lock for thread safety
     private let lock = NSLock()
     
-    /// Task for monitoring interruptions
-    private var interruptionTask: Task<Void, Never>?
+    /// Task for monitoring events
+    private var eventMonitorTask: Task<Void, Never>?
     
     // MARK: - Initialization
     
     /// Creates a new AudioService with default components
-    init() {
+    /// - Parameter sessionProvider: Provider for audio session operations (defaults to AudioCoordinator.shared)
+    @MainActor
+    init(sessionProvider: (any AudioSessionProviding & AudioInterruptionHandling)? = nil) {
         self.audioEngine = AVAudioEngine()
-        self.sessionManager = AudioSessionManager.shared
+        self.sessionProvider = sessionProvider ?? AudioCoordinator.shared
         self.binauralGenerator = StereoBinauralGenerator()
         self.audioPlayer = AudioPlayerService()
+        
+        audioServiceLog.info("✅ AudioService initialized")
     }
     
     /// Creates an AudioService with injected dependencies (for testing)
     init(
-        sessionManager: AudioSessionManager,
+        sessionProvider: any AudioSessionProviding & AudioInterruptionHandling,
         binauralGenerator: StereoBinauralGenerator,
         audioPlayer: AudioPlayerService
     ) {
         self.audioEngine = AVAudioEngine()
-        self.sessionManager = sessionManager
+        self.sessionProvider = sessionProvider
         self.binauralGenerator = binauralGenerator
         self.audioPlayer = audioPlayer
     }
     
     deinit {
-        interruptionTask?.cancel()
+        eventMonitorTask?.cancel()
     }
     
     // MARK: - Engine Lifecycle
     
     /// Starts the audio engine
     /// - Throws: `AppError` if engine fails to start
+    @MainActor
     func start() async throws {
-        guard !isRunning else { return }
+        guard !isRunning else {
+            audioServiceLog.debug("Engine already running")
+            return
+        }
         
-        // Configure audio session
-        try await sessionManager.configureForPlayback()
-        try await sessionManager.activate()
+        audioServiceLog.info("🚀 Starting audio engine...")
+        
+        // Configure audio session via provider
+        do {
+            try sessionProvider.configureForPlayback()
+            try sessionProvider.activateSession()
+        } catch {
+            audioServiceLog.error("❌ Session configuration failed: \(error.localizedDescription)")
+            throw AppError.audioSessionConfigurationFailed(reason: error.localizedDescription)
+        }
         
         // Attach components to engine
         try binauralGenerator.attachTo(engine: audioEngine)
@@ -119,17 +146,22 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
         do {
             try audioEngine.start()
             isRunning = true
+            audioServiceLog.info("✅ Audio engine started")
         } catch {
+            audioServiceLog.error("❌ Engine start failed: \(error.localizedDescription)")
             throw AppError.audioEngineInitializationFailed(reason: error.localizedDescription)
         }
         
-        // Start monitoring interruptions
-        startInterruptionMonitoring()
+        // Start monitoring events
+        startEventMonitoring()
     }
     
     /// Stops the audio engine
+    @MainActor
     func stop() async {
         guard isRunning else { return }
+        
+        audioServiceLog.info("🛑 Stopping audio engine...")
         
         // Stop components
         binauralGenerator.stop()
@@ -141,11 +173,13 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
         currentBinauralPreset = nil
         
         // Deactivate session
-        await sessionManager.deactivate(notifyOthers: true)
+        sessionProvider.deactivateSession(notifyOthers: true)
         
-        // Cancel interruption monitoring
-        interruptionTask?.cancel()
-        interruptionTask = nil
+        // Cancel event monitoring
+        eventMonitorTask?.cancel()
+        eventMonitorTask = nil
+        
+        audioServiceLog.info("✅ Audio engine stopped")
     }
     
     // MARK: - Binaural Beats
@@ -153,11 +187,14 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
     /// Starts binaural beats with the specified preset
     /// - Parameter preset: The binaural preset to use
     /// - Throws: `AppError` if engine fails to start
+    @MainActor
     func startBinauralBeats(preset: BinauralPreset) async throws {
         guard preset != .off else {
             await stopBinauralBeats()
             return
         }
+        
+        audioServiceLog.info("🎵 Starting binaural: \(preset.rawValue)")
         
         // Ensure engine is running
         if !isRunning {
@@ -171,6 +208,7 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
     
     /// Stops binaural beats
     func stopBinauralBeats() async {
+        audioServiceLog.info("🔇 Stopping binaural")
         binauralGenerator.stop()
         currentBinauralPreset = nil
     }
@@ -183,6 +221,7 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
             return
         }
         
+        audioServiceLog.info("🎵 Changing binaural to: \(preset.rawValue)")
         binauralGenerator.changePreset(preset)
         currentBinauralPreset = preset
     }
@@ -192,7 +231,10 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
     /// Plays a cached audio file
     /// - Parameter fileName: Name of the cached file
     /// - Throws: `AppError.audioPlaybackFailed` if playback fails
+    @MainActor
     func playAudioFile(named fileName: String) async throws {
+        audioServiceLog.info("▶️ Playing file: \(fileName)")
+        
         // Ensure engine is running
         if !isRunning {
             try await start()
@@ -224,7 +266,10 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
     /// Plays audio data directly
     /// - Parameter data: Audio data to play
     /// - Throws: `AppError.audioPlaybackFailed` if playback fails
+    @MainActor
     func playAudioData(_ data: Data) async throws {
+        audioServiceLog.info("▶️ Playing audio data (\(data.count) bytes)")
+        
         // Ensure engine is running
         if !isRunning {
             try await start()
@@ -254,6 +299,7 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
     
     /// Stops audio playback
     func stopPlayback() async {
+        audioServiceLog.info("⏹️ Stopping playback")
         await audioPlayer.stop()
         
         // Restore binaural volume
@@ -264,11 +310,13 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
     
     /// Pauses audio playback
     func pausePlayback() async {
+        audioServiceLog.info("⏸️ Pausing playback")
         await audioPlayer.pause()
     }
     
     /// Resumes paused playback
     func resumePlayback() async {
+        audioServiceLog.info("▶️ Resuming playback")
         await audioPlayer.resume()
     }
     
@@ -318,30 +366,29 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
     
     // MARK: - Private Methods
     
-    /// Starts monitoring for audio interruptions
-    private func startInterruptionMonitoring() {
-        interruptionTask = Task { [weak self] in
+    /// Starts monitoring for audio events
+    @MainActor
+    private func startEventMonitoring() {
+        eventMonitorTask = Task { [weak self] in
             guard let self = self else { return }
             
-            let stream = await self.sessionManager.interruptionStream
-            
-            for await event in stream {
-                await self.handleInterruption(event)
+            for await event in self.sessionProvider.eventStream {
+                await self.handleEvent(event)
             }
         }
     }
     
-    /// Handles audio interruption events
-    private func handleInterruption(_ event: AudioInterruptionEvent) async {
+    /// Handles audio coordinator events
+    @MainActor
+    private func handleEvent(_ event: AudioCoordinatorEvent) async {
         switch event {
-        case .began:
-            // Pause everything
+        case .interruptionBegan:
+            audioServiceLog.info("⚠️ Handling interruption began")
             await audioPlayer.pause()
             binauralGenerator.stop()
             
-            // Note: Don't stop the engine - we want to resume quickly
-            
-        case .ended(let shouldResume):
+        case .interruptionEnded(let shouldResume):
+            audioServiceLog.info("✅ Handling interruption ended (shouldResume: \(shouldResume))")
             if shouldResume {
                 // Resume binaural beats if they were playing
                 if let preset = currentBinauralPreset {
@@ -351,6 +398,20 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
                 // Resume audio playback if it was paused
                 await audioPlayer.resume()
             }
+            
+        case .routeChanged(let change):
+            audioServiceLog.info("🔀 Route changed: \(String(describing: change))")
+            // Handle route changes if needed
+            
+        case .stateChanged(let newState):
+            audioServiceLog.debug("📊 Audio state: \(String(describing: newState))")
+            
+        case .errorOccurred(let error):
+            audioServiceLog.error("❌ Audio error: \(String(describing: error))")
+            
+        default:
+            // Ignore other events
+            break
         }
     }
 }
@@ -359,6 +420,7 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
 
 extension AudioService {
     /// Creates a no-op audio service for previews
+    @MainActor
     static var preview: AudioService {
         AudioService()
     }

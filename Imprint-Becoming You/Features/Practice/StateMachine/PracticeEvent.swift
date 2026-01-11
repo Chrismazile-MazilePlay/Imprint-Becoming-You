@@ -125,6 +125,26 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     /// Listening was cancelled (user navigation)
     case listeningCancelled
     
+    /// Word detection timed out (no matching words for 10 seconds)
+    case listeningTimedOut
+    
+    /// User chose to retry after timeout
+    case retryListening
+    
+    /// User chose to skip affirmation after timeout
+    case skipAffirmation
+    
+    // MARK: - Permission Events
+    
+    /// Microphone or speech recognition permission was denied
+    case permissionDenied(PermissionType)
+    
+    /// User wants to open Settings to grant permissions
+    case openSettings
+    
+    /// User chose to continue without permission (falls back to read-only)
+    case continueWithoutPermission
+    
     // MARK: - Score Events
     
     /// Score calculation started
@@ -239,6 +259,8 @@ enum PracticeError: Error, Equatable, Sendable {
 
 // MARK: - Event Categorization
 
+// Note: PermissionType is defined in AppError.swift
+
 extension PracticeEvent {
     
     /// Whether this event cancels current activity
@@ -247,6 +269,8 @@ extension PracticeEvent {
         case .userNavigated, .navigateViaButton, .goToIndex, .exitSession:
             return true
         case .ttsCancelled, .listeningCancelled:
+            return true
+        case .listeningTimedOut, .skipAffirmation:
             return true
         default:
             return false
@@ -279,6 +303,8 @@ extension PracticeEvent {
         case .ttsStarted, .ttsProgress, .ttsCompleted, .ttsFailed, .ttsCancelled:
             return true
         case .listeningStarted, .listeningUpdate, .listeningCompleted, .listeningFailed, .listeningCancelled:
+            return true
+        case .listeningTimedOut, .retryListening, .skipAffirmation:
             return true
         case .analysisStarted, .scoreCalculated, .scoreFailed, .scoreDisplayCompleted:
             return true
@@ -357,6 +383,18 @@ extension PracticeEvent: CustomStringConvertible {
             return "listeningFailed(\(err))"
         case .listeningCancelled:
             return "listeningCancelled"
+        case .listeningTimedOut:
+            return "listeningTimedOut"
+        case .retryListening:
+            return "retryListening"
+        case .skipAffirmation:
+            return "skipAffirmation"
+        case .permissionDenied(let type):
+            return "permissionDenied(\(type))"
+        case .openSettings:
+            return "openSettings"
+        case .continueWithoutPermission:
+            return "continueWithoutPermission"
         case .analysisStarted:
             return "analysisStarted"
         case .scoreCalculated(let result):

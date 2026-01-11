@@ -40,7 +40,6 @@ struct ImprintApp: App {
                 UserProfile.self,
                 Affirmation.self,
                 CustomPrompt.self,
-                SessionState.self,
                 ProgressData.self
             ])
             

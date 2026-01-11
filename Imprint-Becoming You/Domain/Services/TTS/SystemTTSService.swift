@@ -103,6 +103,16 @@ final class SystemTTSService: NSObject, @unchecked Sendable {
         // Stop any current speech
         stopSpeaking()
         
+        // CRITICAL: Configure audio session to play through silent mode
+        // AVSpeechSynthesizer respects the ringer switch by default.
+        // Setting .playback category ignores the silent switch.
+        try? AVAudioSession.sharedInstance().setCategory(
+            .playback,
+            mode: .default,
+            options: [.duckOthers]
+        )
+        try? AVAudioSession.sharedInstance().setActive(true)
+        
         // Capture Sendable configuration values BEFORE the closure
         let voice = selectedVoice
         let rate = speechRate

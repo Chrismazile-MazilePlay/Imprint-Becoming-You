@@ -13,7 +13,8 @@ import SwiftData
 /// SwiftData implementation of the affirmation repository.
 ///
 /// Provides data access operations for affirmations including:
-/// - Smart queue fetching with priority ordering
+/// - Smart queue fetching with source-aware priority ordering
+/// - Session queue generation with exclusion support
 /// - Engagement tracking (views, speaks, favorites, etc.)
 /// - Batch operations for content seeding
 /// - Content refresh detection
@@ -25,11 +26,17 @@ import SwiftData
 /// ## Smart Queue Algorithm
 /// ```
 /// Priority Order:
-/// 1. hasBeenSeen == false (unseen first)
-/// 2. viewCount ascending (least viewed)
-/// 3. lastPracticedAt ascending (oldest practiced)
-/// 4. Shuffle within same priority tier
+/// 1. source.priority (generated=0, backend=1, seeded=2)
+/// 2. hasBeenSeen == false (unseen first)
+/// 3. viewCount ascending (least viewed)
+/// 4. lastPracticedAt ascending (oldest practiced)
+/// 5. Shuffle within same priority tier
 /// ```
+///
+/// ## Source-Aware Lifecycle
+/// - `.seeded`: Never deleted, always available offline
+/// - `.backend`: Deleted when expired
+/// - `.generated`: Deleted when expired
 @MainActor
 final class AffirmationRepository: AffirmationRepositoryProtocol {
     
@@ -47,7 +54,7 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
         self.modelContext = modelContext
     }
     
-    // MARK: - Fetching
+    // MARK: - Queue Fetching
     
     func fetchQueue(forCategories categories: [String], limit: Int) throws -> [Affirmation] {
         guard !categories.isEmpty else {
@@ -64,8 +71,8 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
             
             var results = try modelContext.fetch(descriptor)
             
-            // Apply smart queue sorting
-            results = applySmartQueueSorting(results)
+            // Apply source-aware smart queue sorting
+            results = applySmartQueueSorting(results, excluding: [])
             
             // Limit results
             return Array(results.prefix(limit))
@@ -74,6 +81,46 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
             throw AppError.loadFailed(reason: "Failed to fetch affirmation queue: \(error.localizedDescription)")
         }
     }
+    
+    func fetchSessionQueue(
+        forCategories categories: [String],
+        excluding: Set<UUID>,
+        limit: Int
+    ) throws -> [Affirmation] {
+        guard !categories.isEmpty else {
+            return []
+        }
+        
+        do {
+            // Fetch all affirmations matching categories
+            let descriptor = FetchDescriptor<Affirmation>(
+                predicate: #Predicate<Affirmation> { affirmation in
+                    categories.contains(affirmation.category)
+                }
+            )
+            
+            var results = try modelContext.fetch(descriptor)
+            
+            // Apply source-aware smart queue sorting with exclusions
+            results = applySmartQueueSorting(results, excluding: excluding)
+            
+            // Take limited results
+            let sessionQueue = Array(results.prefix(limit))
+            
+            #if DEBUG
+            let excludedCount = excluding.count
+            let resultCount = sessionQueue.count
+            print("📦 AffirmationRepository: Session queue - excluded \(excludedCount), returning \(resultCount)")
+            #endif
+            
+            return sessionQueue
+            
+        } catch {
+            throw AppError.loadFailed(reason: "Failed to fetch session queue: \(error.localizedDescription)")
+        }
+    }
+    
+    // MARK: - Basic Fetching
     
     func fetchFavorites() throws -> [Affirmation] {
         do {
@@ -119,6 +166,8 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
         }
     }
     
+    // MARK: - Counting
+    
     func countTotal() throws -> Int {
         do {
             let descriptor = FetchDescriptor<Affirmation>()
@@ -143,6 +192,23 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
             
         } catch {
             throw AppError.loadFailed(reason: "Failed to count affirmations for categories: \(error.localizedDescription)")
+        }
+    }
+    
+    func countBySource(_ source: AffirmationSource) throws -> Int {
+        do {
+            // SwiftData predicate requires raw value comparison for enums
+            let sourceRawValue = source.rawValue
+            let descriptor = FetchDescriptor<Affirmation>(
+                predicate: #Predicate<Affirmation> { affirmation in
+                    affirmation.source.rawValue == sourceRawValue
+                }
+            )
+            
+            return try modelContext.fetchCount(descriptor)
+            
+        } catch {
+            throw AppError.loadFailed(reason: "Failed to count affirmations by source: \(error.localizedDescription)")
         }
     }
     
@@ -264,7 +330,9 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
             try modelContext.save()
             
             #if DEBUG
-            print("📦 AffirmationRepository: Inserted \(affirmations.count) affirmations")
+            let sources = Dictionary(grouping: affirmations, by: { $0.source })
+            let sourceCounts = sources.map { "\($0.key.rawValue): \($0.value.count)" }.joined(separator: ", ")
+            print("📦 AffirmationRepository: Inserted \(affirmations.count) affirmations (\(sourceCounts))")
             #endif
             
         } catch {
@@ -277,10 +345,12 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
         let now = Date()
         
         do {
-            // Only delete non-offline content that has expired
+            // Only delete non-seeded content that has expired
+            // CRITICAL: source != .seeded ensures offline content is NEVER deleted
+            let seededRawValue = AffirmationSource.seeded.rawValue
             let descriptor = FetchDescriptor<Affirmation>(
                 predicate: #Predicate<Affirmation> { affirmation in
-                    affirmation.expiresAt < now && !affirmation.isOfflineContent
+                    affirmation.expiresAt < now && affirmation.source.rawValue != seededRawValue
                 }
             )
             
@@ -295,7 +365,7 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
             
             #if DEBUG
             if count > 0 {
-                print("🗑️ AffirmationRepository: Deleted \(count) expired affirmations")
+                print("🗑️ AffirmationRepository: Deleted \(count) expired affirmations (seeded content preserved)")
             }
             #endif
             
@@ -341,18 +411,66 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
 
 private extension AffirmationRepository {
     
-    /// Applies the smart queue sorting algorithm.
+    /// Applies the source-aware smart queue sorting algorithm.
     ///
     /// ## Priority Order
-    /// 1. `hasBeenSeen == false` (unseen first)
-    /// 2. `viewCount` ascending (least viewed)
-    /// 3. `lastPracticedAt` ascending (oldest practiced, nil = never practiced)
-    /// 4. Shuffle within same priority tier for variety
+    /// 1. Exclude IDs in `excluding` set
+    /// 2. Source priority: generated (0) > backend (1) > seeded (2)
+    /// 3. `hasBeenSeen == false` (unseen first)
+    /// 4. `speakCount` ascending (least spoken for sessions)
+    /// 5. `viewCount` ascending (least viewed)
+    /// 6. `lastPracticedAt` ascending (oldest practiced, nil = never practiced)
+    /// 7. Shuffle within same priority tier for variety
     ///
-    /// - Parameter affirmations: Unordered affirmations
+    /// - Parameters:
+    ///   - affirmations: Unordered affirmations
+    ///   - excluding: Set of IDs to exclude from results
     /// - Returns: Sorted affirmations according to smart queue algorithm
-    func applySmartQueueSorting(_ affirmations: [Affirmation]) -> [Affirmation] {
-        // Group by priority tier
+    func applySmartQueueSorting(
+        _ affirmations: [Affirmation],
+        excluding: Set<UUID>
+    ) -> [Affirmation] {
+        // Step 1: Filter out excluded IDs
+        var filtered = affirmations
+        if !excluding.isEmpty {
+            filtered = affirmations.filter { !excluding.contains($0.id) }
+        }
+        
+        // Step 2: Group by source priority
+        var generated: [Affirmation] = []
+        var backend: [Affirmation] = []
+        var seeded: [Affirmation] = []
+        
+        for affirmation in filtered {
+            switch affirmation.source {
+            case .generated:
+                generated.append(affirmation)
+            case .backend:
+                backend.append(affirmation)
+            case .seeded:
+                seeded.append(affirmation)
+            }
+        }
+        
+        // Step 3: Sort each tier by engagement metrics
+        generated = sortByEngagement(generated)
+        backend = sortByEngagement(backend)
+        seeded = sortByEngagement(seeded)
+        
+        // Step 4: Combine in priority order
+        return generated + backend + seeded
+    }
+    
+    /// Sorts affirmations within a tier by engagement metrics.
+    ///
+    /// Priority:
+    /// 1. Unseen first
+    /// 2. Least spoken
+    /// 3. Least viewed
+    /// 4. Oldest practiced
+    /// 5. Shuffle within same metrics for variety
+    func sortByEngagement(_ affirmations: [Affirmation]) -> [Affirmation] {
+        // Group by seen status
         var unseen: [Affirmation] = []
         var seen: [Affirmation] = []
         
@@ -364,17 +482,22 @@ private extension AffirmationRepository {
             }
         }
         
-        // Shuffle within tiers for variety
+        // Shuffle unseen for variety
         unseen.shuffle()
         
-        // Sort seen by viewCount, then by lastPracticedAt
+        // Sort seen by engagement metrics
         seen.sort { a, b in
-            // Primary: viewCount ascending
+            // Primary: speakCount ascending (least spoken for session freshness)
+            if a.speakCount != b.speakCount {
+                return a.speakCount < b.speakCount
+            }
+            
+            // Secondary: viewCount ascending (least viewed)
             if a.viewCount != b.viewCount {
                 return a.viewCount < b.viewCount
             }
             
-            // Secondary: lastPracticedAt ascending (nil = earliest)
+            // Tertiary: lastPracticedAt ascending (nil = earliest)
             let aDate = a.lastPracticedAt ?? Date.distantPast
             let bDate = b.lastPracticedAt ?? Date.distantPast
             return aDate < bDate

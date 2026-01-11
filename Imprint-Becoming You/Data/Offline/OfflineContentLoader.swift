@@ -15,6 +15,7 @@ import SwiftData
 /// This loader is responsible for:
 /// - Reading the `OfflineAffirmations.json` file from the app bundle
 /// - Parsing the JSON structure into `Affirmation` models
+/// - Tagging all seeded content with `source = .seeded`
 /// - Inserting affirmations into SwiftData on first launch
 /// - Tracking seeding status via UserDefaults
 ///
@@ -24,6 +25,12 @@ import SwiftData
 /// - Fast subsequent launches (no redundant parsing)
 /// - User engagement data is preserved
 /// - Idempotent behavior (safe to call multiple times)
+///
+/// ## Source Tagging
+/// All seeded affirmations are tagged with `source = .seeded`, which ensures:
+/// - They are NEVER deleted (even when expired)
+/// - They have lowest queue priority (backend/generated content shown first)
+/// - They guarantee offline availability
 ///
 /// ## Thread Safety
 /// The `init` can be called from any context. Methods that interact with
@@ -84,6 +91,10 @@ final class OfflineContentLoader: Sendable {
     /// This method is idempotent - it will only seed once, regardless of
     /// how many times it's called. Subsequent calls return immediately.
     ///
+    /// All seeded affirmations are tagged with `source = .seeded` to:
+    /// - Guarantee offline availability (never deleted)
+    /// - Allow backend/generated content to take priority in queues
+    ///
     /// - Parameter modelContext: SwiftData model context for insertion
     /// - Throws: `AppError.loadFailed` if JSON parsing fails
     /// - Throws: `AppError.saveFailed` if database insertion fails
@@ -105,7 +116,7 @@ final class OfflineContentLoader: Sendable {
         // Load and parse JSON
         let content = try loadJSONFromBundle()
         
-        // Create affirmation models
+        // Create affirmation models with source tagging
         let affirmations = createAffirmations(from: content)
         
         // Insert into SwiftData
@@ -116,7 +127,7 @@ final class OfflineContentLoader: Sendable {
         
         #if DEBUG
         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-        print("📦 OfflineContentLoader: Seeded \(affirmations.count) affirmations in \(String(format: "%.2f", elapsed))s")
+        print("📦 OfflineContentLoader: Seeded \(affirmations.count) affirmations (source: .seeded) in \(String(format: "%.2f", elapsed))s")
         #endif
     }
     
@@ -126,15 +137,16 @@ final class OfflineContentLoader: Sendable {
     /// - App ships with updated content
     /// - Database needs to be reset
     ///
-    /// - Warning: This clears all existing offline affirmations before re-seeding.
+    /// - Warning: This clears all existing seeded affirmations before re-seeding.
+    ///   Backend and generated content is preserved.
     ///
     /// - Parameter modelContext: SwiftData model context
     /// - Throws: `AppError.loadFailed` if JSON parsing fails
     /// - Throws: `AppError.saveFailed` if database operations fail
     @MainActor
     func forceReseed(modelContext: ModelContext) async throws {
-        // Clear existing offline content
-        try clearOfflineContent(from: modelContext)
+        // Clear existing seeded content only
+        try clearSeededContent(from: modelContext)
         
         // Reset seeding flag
         userDefaults.removeObject(forKey: Self.seedingCompletedKey)
@@ -195,6 +207,11 @@ private extension OfflineContentLoader {
     }
     
     /// Creates Affirmation models from parsed JSON content.
+    ///
+    /// All affirmations are tagged with:
+    /// - `source = .seeded` - Marks as bundled content
+    /// - `expiresAt = Date.distantFuture` - Never expires
+    /// - `isOfflineContent = true` - Legacy field sync
     func createAffirmations(from content: OfflineAffirmationsContent) -> [Affirmation] {
         var affirmations: [Affirmation] = []
         var globalIndex = 0
@@ -202,20 +219,19 @@ private extension OfflineContentLoader {
         // Create a single batch ID for all offline content
         let batchId = UUID()
         
-        // Far-future expiration for offline content (effectively never expires)
-        let expiresAt = Date.distantFuture
-        
         for (category, texts) in content.categories {
             for text in texts {
                 let affirmation = Affirmation(
                     text: text,
                     category: category,
+                    source: .seeded,  // CRITICAL: Tag as seeded
+                    backendId: nil,   // No backend ID for seeded content
+                    fetchedAt: nil,   // Not fetched from backend
                     sourcePromptId: nil,
                     generatedAt: Date(),
-                    expiresAt: expiresAt,
+                    expiresAt: Date.distantFuture, // CRITICAL: Never expires
                     batchId: batchId,
-                    batchIndex: globalIndex,
-                    isOfflineContent: true
+                    batchIndex: globalIndex
                 )
                 
                 affirmations.append(affirmation)
@@ -236,11 +252,17 @@ private extension OfflineContentLoader {
         try modelContext.save()
     }
     
-    /// Clears existing offline content from the database.
+    /// Clears existing seeded content from the database.
+    ///
+    /// Only deletes affirmations with `source = .seeded`.
+    /// Backend and generated content is preserved.
     @MainActor
-    func clearOfflineContent(from modelContext: ModelContext) throws {
+    func clearSeededContent(from modelContext: ModelContext) throws {
+        let seededRawValue = AffirmationSource.seeded.rawValue
         let descriptor = FetchDescriptor<Affirmation>(
-            predicate: #Predicate<Affirmation> { $0.isOfflineContent }
+            predicate: #Predicate<Affirmation> { affirmation in
+                affirmation.source.rawValue == seededRawValue
+            }
         )
         
         let existing = try modelContext.fetch(descriptor)
@@ -252,7 +274,7 @@ private extension OfflineContentLoader {
         try modelContext.save()
         
         #if DEBUG
-        print("📦 OfflineContentLoader: Cleared \(existing.count) existing offline affirmations")
+        print("📦 OfflineContentLoader: Cleared \(existing.count) existing seeded affirmations")
         #endif
     }
     

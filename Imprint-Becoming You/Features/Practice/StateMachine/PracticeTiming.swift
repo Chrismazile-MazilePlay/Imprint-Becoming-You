@@ -32,11 +32,19 @@ enum PracticeTiming {
     /// Minimum listening duration before accepting silence as "done"
     static let minimumListeningDuration: TimeInterval = 1.0
     
-    /// Maximum listening duration before auto-stopping
+    /// Maximum listening duration before auto-stopping (absolute cap)
     static let maximumListeningDuration: TimeInterval = 30.0
     
-    /// Duration of silence that triggers listening completion
-    static let silenceThreshold: TimeInterval = 1.5
+    /// Duration of silence that triggers completion for COMPLETE affirmations
+    /// User finished speaking the full affirmation - short pause accepts it
+    static let completedAffirmationSilenceThreshold: TimeInterval = 2.0
+    
+    /// Duration of silence that triggers TIMEOUT for incomplete/no speech
+    /// User said nothing or stopped mid-affirmation - longer silence shows retry
+    static let incompleteSilenceTimeout: TimeInterval = 8.0
+    
+    /// Legacy alias for backward compatibility
+    static let silenceThreshold: TimeInterval = completedAffirmationSilenceThreshold
     
     /// Duration to show the "analyzing" state
     static let analysisDuration: Duration = .milliseconds(500)

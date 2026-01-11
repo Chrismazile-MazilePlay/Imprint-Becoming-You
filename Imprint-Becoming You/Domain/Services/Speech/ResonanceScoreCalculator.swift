@@ -273,17 +273,25 @@ struct TextAccuracyCalculator {
         let expectedWords = normalizeText(expected)
         let recognizedWords = normalizeText(recognized)
         
+        // Guard against empty expected text
         guard !expectedWords.isEmpty else { return 0 }
+        
+        // Guard against empty recognized text (user said nothing meaningful)
+        // This prevents division by zero and returns 0 accuracy
+        guard !recognizedWords.isEmpty else { return 0 }
+        
+        // Also check raw strings aren't effectively empty (just punctuation/whitespace)
+        let cleanExpected = expected.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanRecognized = recognized.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard !cleanExpected.isEmpty, !cleanRecognized.isEmpty else { return 0 }
         
         // Calculate word-level accuracy
         let matchedWords = countMatchedWords(expected: expectedWords, recognized: recognizedWords)
         let wordAccuracy = Float(matchedWords) / Float(expectedWords.count)
         
         // Calculate character-level similarity (Levenshtein-based)
-        let charSimilarity = calculateSimilarity(
-            expected.lowercased(),
-            recognized.lowercased()
-        )
+        let charSimilarity = calculateSimilarity(cleanExpected, cleanRecognized)
         
         // Combine both metrics (word accuracy weighted more)
         return (wordAccuracy * 0.7) + (charSimilarity * 0.3)
@@ -347,6 +355,76 @@ struct TextAccuracyCalculator {
         }
         
         return matrix[m][n]
+    }
+    
+    // MARK: - Completion Evaluation
+    
+    /// Result of evaluating affirmation completion
+    struct CompletionResult: Sendable {
+        /// Did user say enough words to be considered complete?
+        let isComplete: Bool
+        /// How accurate were the words that were said (0.0 - 1.0)
+        let accuracy: Float
+        /// Percentage of expected words that were spoken (0.0 - 1.0)
+        let wordsCovered: Float
+        /// Number of words matched
+        let matchedWordCount: Int
+        /// Total expected words
+        let expectedWordCount: Int
+    }
+    
+    /// Evaluates whether user completed the affirmation and how accurately
+    /// - Parameters:
+    ///   - expected: The affirmation text to speak
+    ///   - recognized: The speech recognition result
+    ///   - completionThreshold: Minimum word coverage to be considered complete (default 75%)
+    /// - Returns: Completion result with accuracy and coverage details
+    static func evaluateCompletion(
+        expected: String,
+        recognized: String,
+        completionThreshold: Float = 0.75
+    ) -> CompletionResult {
+        let expectedWords = normalizeText(expected)
+        let recognizedWords = normalizeText(recognized)
+        
+        // Handle empty cases
+        guard !expectedWords.isEmpty else {
+            return CompletionResult(
+                isComplete: true,
+                accuracy: 1.0,
+                wordsCovered: 1.0,
+                matchedWordCount: 0,
+                expectedWordCount: 0
+            )
+        }
+        
+        guard !recognizedWords.isEmpty else {
+            return CompletionResult(
+                isComplete: false,
+                accuracy: 0.0,
+                wordsCovered: 0.0,
+                matchedWordCount: 0,
+                expectedWordCount: expectedWords.count
+            )
+        }
+        
+        // Count matched words (order-independent for now)
+        let matchedCount = countMatchedWords(expected: expectedWords, recognized: recognizedWords)
+        let wordsCovered = Float(matchedCount) / Float(expectedWords.count)
+        
+        // Calculate full accuracy score
+        let accuracy = calculate(expected: expected, recognized: recognized)
+        
+        // User is "complete" if they covered enough words
+        let isComplete = wordsCovered >= completionThreshold
+        
+        return CompletionResult(
+            isComplete: isComplete,
+            accuracy: accuracy,
+            wordsCovered: wordsCovered,
+            matchedWordCount: matchedCount,
+            expectedWordCount: expectedWords.count
+        )
     }
 }
 

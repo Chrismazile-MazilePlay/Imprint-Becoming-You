@@ -518,11 +518,11 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         
         // Only emit silence if we haven't received speech recently
         // and audio level is low
+        // NOTE: We emit continuously so PracticeStore can track duration.
+        // lastSpeechTime is ONLY reset when actual transcription is received.
         if silenceDuration >= silenceThreshold && smoothedLevel < 0.02 {
             emit(.silenceDetected(duration: silenceDuration))
-            
-            // Reset to avoid repeated emissions
-            lastSpeechTime = Date()
+            // DO NOT reset lastSpeechTime here - let duration accumulate!
         }
     }
     
@@ -578,26 +578,44 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         print("[LOG] SpeechCaptureService: Route change - \(reasonName)")
         #endif
         
-        // CRITICAL FIX: Only restart on actual hardware changes!
-        // Do NOT restart on .categoryChange - this is triggered by our own
-        // setCategory() call and causes an infinite restart loop.
+        // CRITICAL FIX: Let AVAudioEngine handle route changes automatically!
+        // AVAudioEngine is designed to handle device changes seamlessly.
+        // We should only intervene if the engine actually stops or fails.
         switch reason {
-        case .newDeviceAvailable, .oldDeviceUnavailable:
-            // Hardware actually changed - need to handle gracefully
+        case .newDeviceAvailable:
+            // New device connected (e.g., AirPods) - engine handles this automatically
+            #if DEBUG
+            print("[LOG] SpeechCaptureService: Device connected - audio engine handles seamlessly")
+            #endif
+            // Do NOT cancel! Let engine continue with new device.
+            
+        case .oldDeviceUnavailable:
+            // Device disconnected (e.g., AirPods removed) - may need to verify engine
+            #if DEBUG
+            print("[LOG] SpeechCaptureService: Device disconnected - verifying engine state")
+            #endif
+            
             if isCapturing {
-                #if DEBUG
-                print("[LOG] SpeechCaptureService: Hardware change during capture - cancelling (will not auto-restart)")
-                #endif
-                
-                // CHANGED: Instead of restarting, just cancel gracefully.
-                // The PracticeStore will handle the interrupted state via the error callback.
-                // Attempting to restart mid-capture causes state corruption and crashes.
+                // Give the engine a moment to reconfigure, then verify it's still running
                 Task { @MainActor in
-                    // Emit error so PracticeStore knows capture was interrupted
-                    self.streamContinuation?.yield(.error(.audioEngineFailure("Audio route changed")))
+                    try? await Task.sleep(for: .milliseconds(100))
                     
-                    // Cancel capture cleanly
-                    self.cancelCapture()
+                    guard self.isCapturing else { return }
+                    
+                    // Check if engine stopped after route change
+                    let engineRunning = self.audioEngine?.isRunning ?? false
+                    if !engineRunning {
+                        // Engine stopped after device removal - emit error
+                        #if DEBUG
+                        print("[WARN] SpeechCaptureService: Engine stopped after device disconnect")
+                        #endif
+                        self.streamContinuation?.yield(.error(.audioEngineFailure("Audio device disconnected")))
+                        self.cancelCapture()
+                    } else {
+                        #if DEBUG
+                        print("[LOG] SpeechCaptureService: Engine still running after device change")
+                        #endif
+                    }
                 }
             }
             

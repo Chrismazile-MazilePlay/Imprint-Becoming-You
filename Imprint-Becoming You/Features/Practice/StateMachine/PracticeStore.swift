@@ -479,18 +479,11 @@ extension PracticeStore {
             handleListeningCompleted(text: text, duration: duration)
             
         case .listeningFailed(let error):
-            // For route-change interruptions, show the timeout alert (has Retry option)
-            // instead of a generic error, which provides a better UX
-            if case .speechRecognitionError(let msg) = error,
-               msg.contains("route") || msg.contains("Audio") {
-                #if DEBUG
-                print("[LOG] PracticeStore: Treating route change error as timeout")
-                #endif
-                handleListeningTimedOut()
-            } else {
-                self.error = error
-                resetToIdle()
-            }
+            #if DEBUG
+            print("[ERROR] PracticeStore: Listening failed - \(error)")
+            #endif
+            self.error = error
+            resetToIdle()
             
         case .listeningCancelled:
             resetToIdle()
@@ -847,9 +840,11 @@ private extension PracticeStore {
                     vocalEnergy: Double(record.vocalEnergy),
                     pitchStability: Double(record.pitchStability)
                 )
+                #if DEBUG
+                print("[LOG] PracticeStore: Using ResonanceRecord - Score: \(Int(score * 100))%")
+                #endif
             } else {
-                // Fallback: compute basic text accuracy score
-                // Guard: ensure we have valid expected text
+                // Fallback: compute text accuracy score
                 guard let expectedText = currentAffirmation?.text, !expectedText.isEmpty else {
                     #if DEBUG
                     print("[ERROR] PracticeStore: No affirmation text for score calculation")
@@ -860,23 +855,33 @@ private extension PracticeStore {
                     return
                 }
                 
-                let accuracy = TextAccuracyCalculator.calculate(
+                // Use completion evaluation for detailed metrics
+                let result = TextAccuracyCalculator.evaluateCompletion(
                     expected: expectedText,
                     recognized: trimmedText
                 )
-                score = Double(accuracy)
-                components = ScoreComponents(
-                    textAccuracy: Double(accuracy),
-                    vocalEnergy: 0.7,
-                    pitchStability: 0.7
-                )
                 
                 #if DEBUG
-                print("[WARN] PracticeStore: Using fallback score calculation")
+                print("[LOG] PracticeStore: Score calculation:")
+                print("  Expected: \"\(expectedText)\"")
+                print("  Recognized: \"\(trimmedText)\"")
+                print("  Words matched: \(result.matchedWordCount)/\(result.expectedWordCount) (\(String(format: "%.0f", result.wordsCovered * 100))%)")
+                print("  Accuracy: \(String(format: "%.0f", result.accuracy * 100))%")
+                print("  Complete: \(result.isComplete)")
                 #endif
+                
+                // Score is the text accuracy
+                score = Double(result.accuracy)
+                
+                // Components mirror the accuracy since we only measure text
+                components = ScoreComponents(
+                    textAccuracy: Double(result.accuracy),
+                    vocalEnergy: Double(result.accuracy),
+                    pitchStability: Double(result.accuracy)
+                )
             }
             
-            let result = ScoreResult(
+            let scoreResult = ScoreResult(
                 score: score,
                 components: components,
                 duration: duration,
@@ -885,7 +890,7 @@ private extension PracticeStore {
             )
             
             await MainActor.run {
-                send(.scoreCalculated(result))
+                send(.scoreCalculated(scoreResult))
             }
         }
     }
@@ -1627,6 +1632,16 @@ private extension PracticeStore {
                     lastAudioLevel = Double(level)
                     
                     let elapsed = Date().timeIntervalSince(startTime)
+                    
+                    // CRITICAL: Check for absolute max duration timeout (30s safety cap)
+                    // This ensures we exit even if silence detection fails
+                    if elapsed >= PracticeTiming.maximumListeningDuration {
+                        #if DEBUG
+                        print("[LOG] PracticeStore: Max listening duration reached (\(String(format: "%.1f", elapsed))s)")
+                        #endif
+                        break captureLoop
+                    }
+                    
                     let context = ListeningContext(
                         elapsed: elapsed,
                         audioLevel: lastAudioLevel,
@@ -1638,18 +1653,44 @@ private extension PracticeStore {
                         self.send(.listeningUpdate(context))
                     }
                     
-                case .silenceDetected(let duration):
+                case .silenceDetected(let silenceDuration):
                     #if DEBUG
-                    print("[LOG] PracticeStore: Silence detected (\(String(format: "%.1f", duration))s)")
+                    print("[LOG] PracticeStore: Silence detected (\(String(format: "%.1f", silenceDuration))s)")
                     #endif
                     
-                    // Complete on silence if we have some transcription
-                    let elapsed = Date().timeIntervalSince(startTime)
-                    if !lastTranscription.isEmpty && elapsed > 2.0 {
-                        #if DEBUG
-                        print("[LOG] PracticeStore: Completing on silence with transcription")
-                        #endif
-                        break captureLoop  // Exit the for-await loop
+                    // Different timeout logic based on whether affirmation is complete
+                    if lastTranscription.isEmpty {
+                        // No speech at all - check for 8s silence timeout
+                        if silenceDuration >= PracticeTiming.incompleteSilenceTimeout {
+                            #if DEBUG
+                            print("[LOG] PracticeStore: 8s silence with no speech - exiting for timeout")
+                            #endif
+                            break captureLoop
+                        }
+                    } else {
+                        // We have some transcription - check if affirmation is complete
+                        let completion = TextAccuracyCalculator.evaluateCompletion(
+                            expected: affirmationText,
+                            recognized: lastTranscription
+                        )
+                        
+                        if completion.isComplete {
+                            // Affirmation COMPLETE - short silence (2s) triggers score
+                            if silenceDuration >= PracticeTiming.completedAffirmationSilenceThreshold {
+                                #if DEBUG
+                                print("[LOG] PracticeStore: Complete affirmation (\(Int(completion.wordsCovered * 100))%) + silence - exiting for score")
+                                #endif
+                                break captureLoop
+                            }
+                        } else {
+                            // Affirmation INCOMPLETE - 8s silence triggers timeout
+                            if silenceDuration >= PracticeTiming.incompleteSilenceTimeout {
+                                #if DEBUG
+                                print("[LOG] PracticeStore: Incomplete affirmation (\(Int(completion.wordsCovered * 100))%) + 8s silence - exiting for timeout")
+                                #endif
+                                break captureLoop
+                            }
+                        }
                     }
                     
                 case .error(let captureError):
@@ -1716,20 +1757,41 @@ private extension PracticeStore {
         
         let duration = Date().timeIntervalSince(startTime)
         
-        // Check for timeout with no transcription
-        if lastTranscription.isEmpty && duration >= maxDuration - 1 {
+        // Determine outcome based on completion status
+        if lastTranscription.isEmpty {
+            // No speech at all - timeout
             #if DEBUG
-            print("[LOG] PracticeStore: Listening timed out with no transcription")
+            print("[LOG] PracticeStore: Listening timed out - no speech detected")
             #endif
             send(.listeningTimedOut)
             return
         }
         
+        // Check if affirmation was completed
+        let completion = TextAccuracyCalculator.evaluateCompletion(
+            expected: affirmationText,
+            recognized: lastTranscription
+        )
+        
         #if DEBUG
-        print("[LOG] PracticeStore: Listening complete - Duration: \(String(format: "%.1f", duration))s, Text: \"\(lastTranscription.prefix(50))...\"")
+        print("[LOG] PracticeStore: Listening ended - Duration: \(String(format: "%.1f", duration))s")
+        print("  Words: \(completion.matchedWordCount)/\(completion.expectedWordCount) (\(Int(completion.wordsCovered * 100))%)")
+        print("  Complete: \(completion.isComplete)")
         #endif
         
-        send(.listeningCompleted(recognizedText: lastTranscription, duration: duration))
+        if completion.isComplete {
+            // Affirmation complete - send to scoring
+            #if DEBUG
+            print("[LOG] PracticeStore: Affirmation complete - calculating score")
+            #endif
+            send(.listeningCompleted(recognizedText: lastTranscription, duration: duration))
+        } else {
+            // Affirmation incomplete - show timeout/retry
+            #if DEBUG
+            print("[LOG] PracticeStore: Affirmation incomplete - showing timeout alert")
+            #endif
+            send(.listeningTimedOut)
+        }
     }
 }
 

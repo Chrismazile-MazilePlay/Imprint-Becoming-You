@@ -307,15 +307,29 @@ struct TextAccuracyCalculator {
             .filter { !$0.isEmpty }
     }
     
-    /// Counts matched words using longest common subsequence approach
+    /// Counts matched words using a multiset approach.
+    ///
+    /// This properly handles duplicate words in both expected and recognized text.
+    /// For example, if expected contains "to" twice and recognized contains "to" twice,
+    /// both occurrences count as matches.
+    ///
+    /// - Parameters:
+    ///   - expected: Normalized expected words
+    ///   - recognized: Normalized recognized words
+    /// - Returns: Number of words matched (respecting duplicates)
     private static func countMatchedWords(expected: [String], recognized: [String]) -> Int {
-        var matched = 0
-        var recognizedSet = Set(recognized)
+        // Build a multiset (word -> count) from recognized words
+        var recognizedCounts: [String: Int] = [:]
+        for word in recognized {
+            recognizedCounts[word, default: 0] += 1
+        }
         
+        // Count matches, decrementing available count for each match
+        var matched = 0
         for word in expected {
-            if recognizedSet.contains(word) {
+            if let count = recognizedCounts[word], count > 0 {
                 matched += 1
-                recognizedSet.remove(word)
+                recognizedCounts[word] = count - 1
             }
         }
         

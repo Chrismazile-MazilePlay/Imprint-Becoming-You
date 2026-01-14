@@ -27,6 +27,7 @@ import UIKit
 /// - `+Handlers` - Synchronous state mutations
 /// - `+FlowExecution` - Async TTS/listening flows
 /// - `+Session` - Queue and session lifecycle
+/// - `+LoopSession` - Loop, shuffle, and saved session handling
 /// - `+DataLoading` - Repository interactions
 /// - `+Previews` - Development support
 @MainActor
@@ -69,6 +70,10 @@ final class PracticeStore {
     /// Affirmations for current session (10 items).
     private(set) var sessionAffirmations: [Affirmation] = []
     
+    /// Original session affirmation order (before any shuffles).
+    /// Used for saved session reference and de-duplication.
+    private(set) var originalSessionAffirmationIds: [UUID] = []
+    
     /// Current index in session queue (0-9).
     private(set) var sessionIndex: Int = 0
     
@@ -91,12 +96,41 @@ final class PracticeStore {
     /// Timestamp when session started
     var sessionStartTime: Date = Date()
     
+    // MARK: - Loop Configuration State
+    
+    /// Current loop configuration (count, shuffle, iteration)
+    private(set) var loopConfiguration: LoopConfiguration = .default
+    
+    /// ID of the saved session currently being played (if any)
+    private(set) var playingSavedSessionId: UUID? = nil
+    
+    /// Title of the saved session currently being played (if any)
+    private(set) var playingSavedSessionTitle: String? = nil
+    
+    // MARK: - Loop Computed Properties
+    
+    /// Progress text for loop display (e.g., "Loop 2 of 3")
+    /// Returns nil if not looping (single play)
+    var loopProgressText: String? {
+        loopConfiguration.progressText
+    }
+    
+    /// Whether we're currently playing a saved session
+    var isPlayingSavedSession: Bool {
+        playingSavedSessionId != nil
+    }
+    
+    // MARK: - Session Summary Computed Property
+    
     /// Complete session summary for display
     var sessionSummary: SessionSummary {
         SessionSummary(
             mode: sessionMode,
             results: sessionResults,
-            startedAt: sessionStartTime
+            startedAt: sessionStartTime,
+            loopCount: loopConfiguration.loopCount,
+            savedSessionId: playingSavedSessionId,
+            savedSessionTitle: playingSavedSessionTitle
         )
     }
     
@@ -174,6 +208,9 @@ final class PracticeStore {
     
     /// Repository for affirmation data access
     var repository: (any AffirmationRepositoryProtocol)?
+    
+    /// Repository for saved session data access
+    var savedSessionRepository: (any SavedSessionRepositoryProtocol)?
     
     // MARK: - Initialization
     
@@ -320,8 +357,22 @@ final class PracticeStore {
     
     /// Updates session queue state
     func setSessionState(affirmations: [Affirmation]? = nil, index: Int? = nil) {
-        if let affirmations = affirmations { sessionAffirmations = affirmations }
+        if let affirmations = affirmations {
+            sessionAffirmations = affirmations
+            // Capture original order when first setting affirmations
+            if originalSessionAffirmationIds.isEmpty {
+                originalSessionAffirmationIds = affirmations.map(\.id)
+            }
+        }
         if let index = index { sessionIndex = index }
+    }
+    
+    /// Updates session affirmations without capturing original IDs.
+    ///
+    /// Used for shuffle operations where we want to preserve the original
+    /// order for saved session reference.
+    func setSessionAffirmationsForShuffle(_ affirmations: [Affirmation]) {
+        sessionAffirmations = affirmations
     }
     
     /// Updates session results
@@ -336,8 +387,31 @@ final class PracticeStore {
     
     /// Updates a session result at index
     func updateSessionResult(at index: Int, score: Int? = nil, isFavorited: Bool? = nil) {
-        if let score = score { sessionResults[index].score = score }
-        if let isFavorited = isFavorited { sessionResults[index].isFavorited = isFavorited }
+        guard sessionResults.indices.contains(index) else { return }
+        
+        var result = sessionResults[index]
+        if let score = score { result.score = score }
+        if let isFavorited = isFavorited { result.isFavorited = isFavorited }
+        sessionResults[index] = result
+        
+        #if DEBUG
+        if let score = score {
+            print("[OK] PracticeStore: Updated score=\(score) for result at index \(index), loopScores=\(result.loopScores)")
+        }
+        #endif
+    }
+    
+    /// Adds a loop score to a session result at index
+    func addLoopScoreToResult(at index: Int, score: Int) {
+        guard sessionResults.indices.contains(index) else { return }
+        
+        var result = sessionResults[index]
+        result.addLoopScore(score)
+        sessionResults[index] = result
+        
+        #if DEBUG
+        print("[OK] PracticeStore: Added loop score=\(score) for result at index \(index), loopScores=\(result.loopScores)")
+        #endif
     }
     
     /// Updates summary visibility
@@ -369,5 +443,44 @@ final class PracticeStore {
     func setPermissionAlert(showing: Bool, type: PermissionType? = nil) {
         isShowingPermissionAlert = showing
         if let type = type { deniedPermissionType = type }
+    }
+    
+    // MARK: - Loop Configuration Helpers
+    
+    /// Updates loop configuration
+    func setLoopConfiguration(_ config: LoopConfiguration) {
+        loopConfiguration = config
+    }
+    
+    /// Resets loop configuration to defaults
+    func resetLoopConfiguration() {
+        loopConfiguration = .default
+    }
+    
+    /// Resets loop iteration to 1 (for starting a new repeat, keeping loop/shuffle settings)
+    func resetLoopIteration() {
+        loopConfiguration.resetIteration()
+    }
+    
+    /// Advances to the next loop iteration
+    func advanceLoopIteration() {
+        loopConfiguration.advanceLoop()
+    }
+    
+    /// Sets saved session context
+    func setSavedSessionContext(id: UUID?, title: String?) {
+        playingSavedSessionId = id
+        playingSavedSessionTitle = title
+    }
+    
+    /// Clears saved session context
+    func clearSavedSessionContext() {
+        playingSavedSessionId = nil
+        playingSavedSessionTitle = nil
+    }
+    
+    /// Clears original session affirmation IDs (for new session)
+    func clearOriginalSessionAffirmationIds() {
+        originalSessionAffirmationIds = []
     }
 }

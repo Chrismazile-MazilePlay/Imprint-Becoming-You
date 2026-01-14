@@ -16,6 +16,11 @@ extension PracticeStore {
         flowGeneration += 1
         setSegmentProgress(0)
         
+        // Reset loop configuration when starting a new session via mode selector
+        resetLoopConfiguration()
+        clearSavedSessionContext()
+        clearOriginalSessionAffirmationIds()
+        
         withAnimation(AppTheme.Animation.standard) {
             isModeSelectorExpanded = false
             isBinauralSelectorExpanded = false
@@ -126,6 +131,11 @@ extension PracticeStore {
         setShowingTimeoutAlert(false)
         setPermissionAlert(showing: false)
         
+        // Reset loop configuration on exit
+        resetLoopConfiguration()
+        clearSavedSessionContext()
+        clearOriginalSessionAffirmationIds()
+        
         setSessionState(affirmations: [], index: 0)
         setSessionResults([])
         
@@ -134,6 +144,76 @@ extension PracticeStore {
             isModeSelectorExpanded = false
             isBinauralSelectorExpanded = false
         }
+    }
+}
+
+// MARK: - Loop & Shuffle Handlers
+
+extension PracticeStore {
+    
+    /// Cycles loop count: 1 → 3 → 5 → 1
+    func handleCycleLoopCount() {
+        var config = loopConfiguration
+        config.cycleLoopCount()
+        setLoopConfiguration(config)
+        
+        HapticFeedback.selection()
+        
+        #if DEBUG
+        print("[OK] PracticeStore: Loop count cycled to \(config.loopCount)")
+        #endif
+    }
+    
+    /// Toggles shuffle on/off
+    func handleToggleShuffle() {
+        var config = loopConfiguration
+        config.toggleShuffle()
+        setLoopConfiguration(config)
+        
+        HapticFeedback.selection()
+        
+        #if DEBUG
+        print("[OK] PracticeStore: Shuffle toggled to \(config.isShuffleEnabled)")
+        #endif
+    }
+    
+    /// Handles completion of a loop iteration
+    func handleLoopIterationCompleted() {
+        guard loopConfiguration.hasMoreLoops else {
+            // All loops complete, show summary
+            showSessionSummary()
+            return
+        }
+        
+        // Advance to next loop
+        var config = loopConfiguration
+        config.advanceLoop()
+        setLoopConfiguration(config)
+        
+        #if DEBUG
+        print("[OK] PracticeStore: Advanced to loop \(config.currentLoopIteration) of \(config.loopCount)")
+        #endif
+        
+        // Reset session index for new loop
+        setSessionState(index: 0)
+        setSegmentProgress(0)
+        
+        // Shuffle if enabled
+        if config.isShuffleEnabled {
+            shuffleSessionAffirmations()
+        }
+        
+        // Reset to idle state for the mode
+        resetToIdle()
+        
+        // Start the new loop
+        Task { [weak self] in
+            guard let self = self else { return }
+            try? await Task.sleep(for: .milliseconds(300))
+            self.startFlowForCurrentAffirmation()
+        }
+        
+        HapticFeedback.notification(.success)
     }
 }
 
@@ -219,13 +299,17 @@ extension PracticeStore {
                     pitchStability: Double(record.pitchStability)
                 )
             } else {
-                guard let expectedText = self.currentAffirmation?.text, !expectedText.isEmpty else {
+                guard let rawExpectedText = self.currentAffirmation?.text, !rawExpectedText.isEmpty else {
                     #if DEBUG
                     print("[ERROR] PracticeStore: No affirmation text for score calculation")
                     #endif
                     self.handleListeningTimedOut()
                     return
                 }
+                
+                // Strip citation (e.g., "(Philippians 4:13)") from expected text
+                // so verse references don't need to be spoken
+                let expectedText = rawExpectedText.strippingTrailingCitation
                 
                 let result = TextAccuracyCalculator.evaluateCompletion(
                     expected: expectedText,
@@ -314,7 +398,8 @@ extension PracticeStore {
             setSegmentProgress(0)
             startFlowForCurrentAffirmation()
         } else if isSessionActive && sessionIndex >= Constants.Session.sessionSize - 1 {
-            showSessionSummary()
+            // Check for more loops before showing summary
+            send(.loopIterationCompleted)
         } else {
             resetToIdle()
         }
@@ -357,8 +442,22 @@ extension PracticeStore {
             affirmation.speakCount += 1
             affirmation.resonanceScores.append(result.toRecord())
             
+            // Update session result with score (supports loop scores)
             if let index = sessionResults.firstIndex(where: { $0.affirmationId == affirmation.id }) {
-                updateSessionResult(at: index, score: result.percentScore)
+                #if DEBUG
+                print("[DEBUG] handleScoreCalculated: affirmation=\(affirmation.id), loop=\(loopConfiguration.currentLoopIteration), index=\(index)")
+                #endif
+                
+                // For loop support: add score to loopScores array if we're on a subsequent loop
+                if loopConfiguration.currentLoopIteration > 1 {
+                    addLoopScoreToResult(at: index, score: result.percentScore)
+                } else {
+                    updateSessionResult(at: index, score: result.percentScore)
+                }
+            } else {
+                #if DEBUG
+                print("[ERROR] handleScoreCalculated: Could not find result for affirmation \(affirmation.id)")
+                #endif
             }
         }
         
@@ -388,8 +487,9 @@ extension PracticeStore {
     }
     
     func handleScoreDisplayCompleted() {
+        // Check if we've completed the current loop
         if isSessionActive && sessionIndex >= Constants.Session.sessionSize - 1 {
-            showSessionSummary()
+            send(.loopIterationCompleted)
             return
         }
         
@@ -404,18 +504,30 @@ extension PracticeStore {
 extension PracticeStore {
     
     func handleToggleFavorite() {
-        guard let affirmation = currentAffirmation else { return }
+        guard let affirmation = currentAffirmation else {
+            #if DEBUG
+            print("[ERROR] handleToggleFavorite: No current affirmation")
+            #endif
+            return
+        }
         
-        affirmation.isFavorited.toggle()
-        affirmation.favoritedAt = affirmation.isFavorited ? Date() : nil
+        // Toggle the in-memory state directly
+        // NOTE: Do NOT call repository.toggleFavorite() as it would double-toggle
+        let newState = !affirmation.isFavorited
+        affirmation.isFavorited = newState
+        affirmation.favoritedAt = newState ? Date() : nil
         
+        #if DEBUG
+        print("[OK] handleToggleFavorite: affirmation=\(affirmation.id.uuidString.prefix(8)) now=\(newState)")
+        #endif
+        
+        // Update session result if in session
         if let index = sessionResults.firstIndex(where: { $0.affirmationId == affirmation.id }) {
-            updateSessionResult(at: index, isFavorited: affirmation.isFavorited)
+            updateSessionResult(at: index, isFavorited: newState)
         }
         
-        if let repository = repository {
-            _ = try? repository.toggleFavorite(affirmationId: affirmation.id)
-        }
+        // SwiftData will auto-save the change - no need to call repository
+        // The repository.toggleFavorite() was causing a double-toggle bug
         
         HapticFeedback.selection()
     }

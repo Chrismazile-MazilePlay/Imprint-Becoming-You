@@ -41,10 +41,10 @@ enum AppPage: Int, CaseIterable {
 /// goals using the `AffirmationRepository` smart queue algorithm.
 ///
 /// Navigation:
-/// - AI button (top-left) ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ slides to Prompts page (left) [home mode only]
-/// - Profile button (top-right) ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ slides to Profile page (right) [home mode only]
-/// - Categories button ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ full-screen cover (no slide)
-/// - Swipe left/right ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ Only works in home mode
+/// - AI button (top-left) → slides to Prompts page (left) [home mode only]
+/// - Profile button (top-right) → slides to Profile page (right) [home mode only]
+/// - Categories button → full-screen cover (no slide)
+/// - Swipe left/right → Only works in home mode
 struct MainPracticeView: View {
     
     // MARK: - Environment
@@ -59,6 +59,16 @@ struct MainPracticeView: View {
     @State private var store = PracticeStore()
     @State private var currentPage: AppPage = .practice
     @State private var isInitialized = false
+    
+    /// Whether the save session sheet is showing
+    @State private var showingSaveSessionSheet = false
+    
+    /// Current count of saved sessions (for limit display)
+    @State private var savedSessionCount: Int = 0
+    
+    /// Refresh token for TabView to fix gesture recognizer issues after session ends.
+    /// SwiftUI's TabView can have stale gesture recognizers when conditionally rendered.
+    @State private var tabViewRefreshId = UUID()
     
     // MARK: - Body
     
@@ -81,8 +91,11 @@ struct MainPracticeView: View {
         }
         .onChange(of: store.isSessionActive) { wasActive, isActive in
             // When exiting active mode, ensure we're on practice page
+            // and refresh TabView to fix gesture recognizers
             if wasActive && !isActive {
                 currentPage = .practice
+                // Generate new id to force TabView recreation with fresh gesture recognizers
+                tabViewRefreshId = UUID()
             }
         }
         .alert(
@@ -147,17 +160,25 @@ struct MainPracticeView: View {
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .ignoresSafeArea()
                 .transition(.opacity)
+                // Force fresh gesture recognizers when session ends
+                .id(tabViewRefreshId)
             }
             
             // Results Summary overlay with slide-down dismissal
             if store.isShowingSummary {
                 ResultsSummaryView(
                     summary: store.sessionSummary,
-                    onExit: {
-                        dismissSummary(retry: false)
+                    loopConfiguration: store.loopConfiguration,
+                    isPlayingSavedSession: store.isPlayingSavedSession,
+                    onClose: {
+                        dismissSummary()
                     },
-                    onRetry: {
-                        dismissSummary(retry: true)
+                    onRepeat: { mode, loopCount, shuffle in
+                        store.repeatSessionWithConfig(mode: mode, loopCount: loopCount, shuffle: shuffle)
+                    },
+                    onSaveSession: {
+                        refreshSavedSessionCount()
+                        showingSaveSessionSheet = true
                     },
                     onToggleFavorite: { affirmationId in
                         store.send(.toggleFavoriteInSummary(affirmationId))
@@ -165,6 +186,23 @@ struct MainPracticeView: View {
                 )
                 .transition(.move(edge: .bottom))
                 .zIndex(10) // Ensure summary is on top
+                .sheet(isPresented: $showingSaveSessionSheet) {
+                    SaveSessionSheet(
+                        defaultName: PracticeStore.generateDefaultSessionName(),
+                        currentSavedCount: savedSessionCount,
+                        maxSavedSessions: Constants.FreeTier.maxSavedSessions,
+                        onSave: { name in
+                            store.send(.saveSession(name: name))
+                            showingSaveSessionSheet = false
+                        },
+                        onCancel: {
+                            showingSaveSessionSheet = false
+                        }
+                    )
+                    .presentationDetents([.height(320)])
+                    .presentationDragIndicator(.hidden)
+                    .interactiveDismissDisabled()
+                }
             }
             
             // Timeout Alert overlay
@@ -204,16 +242,9 @@ struct MainPracticeView: View {
     
     // MARK: - Summary Dismissal
     
-    /// Dismisses the summary with slide-down animation.
-    ///
-    /// - Parameter retry: If true, restarts session. If false, returns to home.
-    private func dismissSummary(retry: Bool) {
-        // First, update the store state (this prepares the underlying view)
-        if retry {
-            store.send(.retrySession)
-        } else {
-            store.send(.dismissSummary)
-        }
+    /// Dismisses the summary and returns to home.
+    private func dismissSummary() {
+        store.send(.dismissSummary)
     }
     
     // MARK: - Loading View
@@ -236,6 +267,9 @@ struct MainPracticeView: View {
         // Block navigation when in active session mode
         guard !store.isSessionActive else { return }
         
+        // Close any open selectors before navigating
+        store.send(.closeSelectors)
+        
         withAnimation(AppTheme.Animation.standard) {
             currentPage = page
         }
@@ -256,9 +290,31 @@ struct MainPracticeView: View {
             forCategories: categories
         )
         
+        // Initialize saved session repository
+        store.savedSessionRepository = dependencies.makeSavedSessionRepository(modelContext: modelContext)
+        
         // Ensure we're on practice page when starting
         currentPage = .practice
         isInitialized = true
+    }
+    
+    // MARK: - Helpers
+    
+    /// Refreshes the saved session count for limit display
+    private func refreshSavedSessionCount() {
+        guard let repo = store.savedSessionRepository else {
+            savedSessionCount = 0
+            return
+        }
+        
+        do {
+            savedSessionCount = try repo.count()
+        } catch {
+            savedSessionCount = 0
+            #if DEBUG
+            print("[WARN] MainPracticeView: Failed to get saved session count: \(error)")
+            #endif
+        }
     }
 }
 

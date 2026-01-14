@@ -89,11 +89,31 @@ extension PracticeStore {
         case .dismissSummary:
             handleDismissSummary()
             
-        case .retrySession:
-            handleRetrySession()
+        case .repeatSession:
+            handleRepeatSession()
             
         case .toggleFavoriteInSummary(let affirmationId):
             handleToggleFavoriteInSummary(affirmationId: affirmationId)
+            
+        // MARK: Loop & Shuffle Events
+        case .cycleLoopCount:
+            handleCycleLoopCount()
+            
+        case .toggleShuffle:
+            handleToggleShuffle()
+            
+        case .loopIterationCompleted:
+            handleLoopIterationCompleted()
+            
+        // MARK: Saved Session Events
+        case .startSavedSession(let savedSession):
+            handleStartSavedSession(savedSession)
+            
+        case .clearSavedSessionContext:
+            clearSavedSessionContext()
+            
+        case .saveSession(let name):
+            handleSaveSession(name: name)
             
         // MARK: TTS Events
         case .ttsStarted:

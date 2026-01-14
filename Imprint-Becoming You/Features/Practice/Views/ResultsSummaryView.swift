@@ -11,101 +11,194 @@ import SwiftUI
 
 /// Displays the results of a completed practice session.
 ///
+/// Uses NavigationStack with standard nav bar for proper scroll behavior
+/// and `DockGradientContainer` for clean visual separation.
+///
 /// ## Layout
 /// ```
 /// ┌─────────────────────────────────────────────┐
-/// │  [X]                                        │  ← Floating exit button
-/// │                                             │
+/// │  Close        Session Complete        Save  │  ← Nav bar
+/// ├─────────────────────────────────────────────┤
 /// │              ✓                              │  ← SF Symbol
-/// │        Session Complete                     │  ← Title
+/// │        Loop 2 of 3 (if looping)             │  ← Loop progress
 /// │                                             │
 /// │  ┌─────────────────────────────────────┐   │
 /// │  │  Scored Card 1                      │   │
 /// │  └─────────────────────────────────────┘   │
-/// │  ┌─────────────────────────────────────┐   │  ← Scored affirmations first
+/// │  ┌─────────────────────────────────────┐   │  ← Scrollable cards
 /// │  │  Scored Card 2                      │   │
 /// │  └─────────────────────────────────────┘   │
-/// │  ┌─────────────────────────────────────┐   │
-/// │  │  Skipped Card 1                     │   │  ← Skipped affirmations after
-/// │  └─────────────────────────────────────┘   │
 /// │                                             │
-/// │  ┌─────────────────────────────────────┐   │
-/// │  │        Retry Session                │   │  ← Full width button
-/// │  └─────────────────────────────────────┘   │
+/// ├═════════════════════════════════════════════┤  ← Gradient
+/// │  [Mode ▼]       [🔁 3] [🔀]         [▶]    │  ← Dock
+/// │            Repeat Session                   │  ← Label (under dock)
 /// └─────────────────────────────────────────────┘
 /// ```
-///
-/// ## Ordering
-/// Results are displayed with scored affirmations first (in original order),
-/// followed by skipped affirmations (in original order).
-///
-/// ## Dismissal
-/// - **Exit button**: Slide down dismiss → shows home/default mode
-/// - **Retry Session**: Slide down dismiss → shows restarted session
 struct ResultsSummaryView: View {
+    
+    // MARK: - Environment
+    
+    @Environment(\.dismiss) private var dismiss
     
     // MARK: - Properties
     
     /// The session summary to display
     let summary: SessionSummary
     
-    /// Callback when exit is tapped
-    let onExit: () -> Void
+    /// Current loop configuration
+    let loopConfiguration: LoopConfiguration
     
-    /// Callback when retry is tapped
-    let onRetry: () -> Void
+    /// Whether currently playing a saved session
+    let isPlayingSavedSession: Bool
+    
+    /// Callback when close is tapped
+    let onClose: () -> Void
+    
+    /// Callback when repeat is tapped with selected configuration
+    let onRepeat: (_ mode: SessionMode, _ loopCount: Int, _ shuffle: Bool) -> Void
+    
+    /// Callback when save session is tapped
+    let onSaveSession: () -> Void
     
     /// Callback when favorite is toggled for an affirmation
     /// - Parameter affirmationId: The ID of the affirmation to toggle
     let onToggleFavorite: (_ affirmationId: UUID) -> Void
     
+    // MARK: - State
+    
+    /// Selected mode (defaults to the mode that was just played)
+    @State private var selectedMode: SessionMode
+    
+    /// Loop count for repeat
+    @State private var loopCount: Int
+    
+    /// Shuffle enabled for repeat
+    @State private var shuffleEnabled: Bool
+    
+    /// Whether mode selector is expanded
+    @State private var isModeSelectorExpanded: Bool = false
+    
+    // MARK: - Constants
+    
+    /// Height reserved for the dock area at bottom
+    private let dockAreaHeight: CGFloat = 160
+    
+    // MARK: - Initialization
+    
+    init(
+        summary: SessionSummary,
+        loopConfiguration: LoopConfiguration,
+        isPlayingSavedSession: Bool,
+        onClose: @escaping () -> Void,
+        onRepeat: @escaping (_ mode: SessionMode, _ loopCount: Int, _ shuffle: Bool) -> Void,
+        onSaveSession: @escaping () -> Void,
+        onToggleFavorite: @escaping (_ affirmationId: UUID) -> Void
+    ) {
+        self.summary = summary
+        self.loopConfiguration = loopConfiguration
+        self.isPlayingSavedSession = isPlayingSavedSession
+        self.onClose = onClose
+        self.onRepeat = onRepeat
+        self.onSaveSession = onSaveSession
+        self.onToggleFavorite = onToggleFavorite
+        
+        // Initialize state with current session values
+        _selectedMode = State(initialValue: summary.mode)
+        _loopCount = State(initialValue: loopConfiguration.loopCount)
+        _shuffleEnabled = State(initialValue: loopConfiguration.isShuffleEnabled)
+    }
+    
     // MARK: - Body
     
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            // Background
-            AppColors.backgroundPrimary
-                .ignoresSafeArea()
-            
-            // Scrollable content - cards scroll behind the exit button
-            ScrollView {
-                VStack(spacing: AppTheme.Spacing.xl) {
-                    // Header (with top padding to clear exit button)
-                    headerSection
-                        .padding(.top, 60) // Clear the floating exit button area
-                    
-                    // Affirmation cards (sorted: scored first, then skipped)
-                    cardsSection
-                    
-                    // Retry button
-                    retryButton
-                        .padding(.top, AppTheme.Spacing.lg)
-                        .padding(.bottom, AppTheme.Spacing.xxl)
+        NavigationStack {
+            ZStack {
+                // Background
+                AppColors.backgroundPrimary
+                    .ignoresSafeArea()
+                
+                // Scrollable content
+                scrollableContent
+                
+                // Fixed dock area with gradient
+                VStack {
+                    Spacer()
+                    dockArea
                 }
-                .padding(.horizontal, AppTheme.Spacing.lg)
+                .ignoresSafeArea(.keyboard)
             }
-            
-            // Floating exit button - stays fixed, content scrolls behind it
-            exitButton
+            .navigationTitle("Session Complete")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        onClose()
+                    }
+                    .foregroundStyle(AppColors.accent)
+                }
+                
+                // Save button in nav bar (hidden if playing saved session)
+                if !isPlayingSavedSession {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            onSaveSession()
+                        } label: {
+                            Image(systemName: "square.and.arrow.down")
+                                .font(.system(size: 16, weight: .medium))
+                        }
+                        .foregroundStyle(AppColors.accent)
+                        .accessibilityLabel("Save session")
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Scrollable Content
+    
+    private var scrollableContent: some View {
+        ScrollView {
+            VStack(spacing: AppTheme.Spacing.xl) {
+                // Header
+                headerSection
+                
+                // Affirmation cards (sorted: scored first, then skipped)
+                cardsSection
+                
+                // Bottom padding to clear the dock area
+                Spacer()
+                    .frame(height: dockAreaHeight)
+            }
+            .padding(.horizontal, AppTheme.Spacing.lg)
         }
     }
     
     // MARK: - Header Section
     
     private var headerSection: some View {
-        VStack(spacing: AppTheme.Spacing.md) {
+        VStack(spacing: AppTheme.Spacing.sm) {
             // Checkmark icon
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 56, weight: .medium))
                 .foregroundStyle(AppColors.success)
             
-            // Title
-            Text("Session Complete")
-                .font(AppTypography.title1)
-                .foregroundStyle(AppColors.textPrimary)
+            // Loop progress - only show when looping is active
+            if let progressText = loopConfiguration.progressText {
+                Text(progressText)
+                    .font(AppTypography.subheadline)
+                    .foregroundStyle(AppColors.textSecondary)
+            }
+            
+            // Saved session title (if playing saved)
+            if let savedTitle = summary.savedSessionTitle {
+                Text(savedTitle)
+                    .font(AppTypography.caption1)
+                    .foregroundStyle(AppColors.textTertiary)
+                    .padding(.top, loopConfiguration.progressText == nil ? AppTheme.Spacing.xs : 0)
+            }
         }
-        .padding(.top, AppTheme.Spacing.xl)
-        .padding(.bottom, AppTheme.Spacing.lg)
+        .padding(.top, AppTheme.Spacing.lg)
+        .padding(.bottom, AppTheme.Spacing.md)
     }
     
     // MARK: - Cards Section
@@ -115,83 +208,84 @@ struct ResultsSummaryView: View {
             ForEach(summary.sortedResults) { result in
                 SessionAffirmationCard(
                     result: result,
+                    loopCount: summary.loopCount,
                     onToggleFavorite: {
                         onToggleFavorite(result.affirmationId)
                     }
                 )
+                // Use composite id that includes isFavorited to force re-render
+                .id("\(result.id.uuidString)-\(result.isFavorited)")
             }
         }
     }
     
-    // MARK: - Retry Button
+    // MARK: - Dock Area
     
-    private var retryButton: some View {
-        Button {
-            onRetry()
-        } label: {
-            Text("Retry Session")
-                .font(AppTypography.headline)
-                .foregroundStyle(AppColors.textPrimary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, AppTheme.Spacing.md + 4)
-                .background(
-                    Capsule()
-                        .fill(AppColors.accent)
-                )
+    private var dockArea: some View {
+        DockGradientContainer.resultsSummary(
+            isModeSelectorExpanded: $isModeSelectorExpanded,
+            selectedMode: $selectedMode
+        ) {
+            AdaptiveBottomDock(
+                selectedMode: $selectedMode,
+                loopCount: $loopCount,
+                shuffleEnabled: $shuffleEnabled,
+                isModeSelectorExpanded: $isModeSelectorExpanded,
+                onPlay: {
+                    onRepeat(selectedMode, loopCount, shuffleEnabled)
+                }
+            )
         }
-        .accessibilityLabel("Retry this session with the same affirmations")
-    }
-    
-    // MARK: - Exit Button
-    
-    private var exitButton: some View {
-        Button {
-            onExit()
-        } label: {
-            Image(systemName: "xmark")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(AppColors.textSecondary)
-                .frame(width: 44, height: 44)
-                .background(
-                    Circle()
-                        .fill(AppColors.backgroundSecondary)
-                )
-        }
-        .padding(.top, AppTheme.Spacing.xl)
-        .padding(.leading, AppTheme.Spacing.lg)
-        .accessibilityLabel("Exit and return to home")
     }
 }
 
 // MARK: - Previews
 
-#Preview("Results Summary View - Scoring Mode") {
+#Preview("Results Summary") {
     ResultsSummaryView(
         summary: .sample,
-        onExit: {},
-        onRetry: {},
+        loopConfiguration: LoopConfiguration(loopCount: 3, isShuffleEnabled: true),
+        isPlayingSavedSession: false,
+        onClose: {},
+        onRepeat: { mode, loops, shuffle in
+            print("Repeat: \(mode.displayName), \(loops)x, shuffle: \(shuffle)")
+        },
+        onSaveSession: {},
         onToggleFavorite: { _ in }
     )
 }
 
-#Preview("Results Summary - Read Aloud") {
+#Preview("Results Summary - Playing Saved Session") {
     ResultsSummaryView(
         summary: SessionSummary(
-            mode: .readAloud,
-            results: SessionAffirmationResult.samplesReadAloud,
-            startedAt: Date().addingTimeInterval(-300)
+            mode: .readThenSpeak,
+            results: SessionAffirmationResult.samples,
+            startedAt: Date().addingTimeInterval(-300),
+            loopCount: 1,
+            savedSessionId: UUID(),
+            savedSessionTitle: "Morning Confidence"
         ),
-        onExit: {},
-        onRetry: {},
+        loopConfiguration: .default,
+        isPlayingSavedSession: true,
+        onClose: {},
+        onRepeat: { _, _, _ in },
+        onSaveSession: {},
         onToggleFavorite: { _ in }
     )
 }
 
-#Preview("Results Summary - Mixed (Scored + Skipped)") {
+#Preview("Results Summary - Looping Active") {
     ResultsSummaryView(
         summary: .sample,
-        onExit: {},
-        onRetry: {},
+        loopConfiguration: LoopConfiguration(
+            loopCount: 5,
+            isShuffleEnabled: false,
+            currentLoopIteration: 3
+        ),
+        isPlayingSavedSession: false,
+        onClose: {},
+        onRepeat: { _, _, _ in },
+        onSaveSession: {},
         onToggleFavorite: { _ in }
     )
 }

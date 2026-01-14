@@ -9,15 +9,15 @@ import SwiftUI
 
 // MARK: - ModeSelectorExpanded
 
-/// Expanded panel showing all available session modes for selection.
+/// Expanded panel showing available session modes for selection.
 ///
 /// Appears above the dock when the mode button is tapped.
-/// Lists all four session modes with descriptions.
+/// Can show all modes or only playable modes (excludes Read Only).
 ///
 /// ## Layout
 /// ```
 /// ┌─────────────────────────────────────────────┐
-/// │ 👁️  Read Only                              │
+/// │ 👁️  Read Only                              │  ← Only in practice mode
 /// │     Browse affirmations silently           │
 /// ├─────────────────────────────────────────────┤
 /// │ 🔊  Read Aloud                        ✓    │
@@ -37,14 +37,26 @@ struct ModeSelectorExpanded: View {
     /// Currently selected session mode
     let selectedMode: SessionMode
     
+    /// Whether to show only playable modes (excludes Read Only).
+    /// Use `true` for configuration contexts (Results, Favorites, Saved Sessions).
+    /// Use `false` for practice mode (Home, Active Session).
+    var showOnlyPlayableModes: Bool = false
+    
     /// Callback when a mode is selected
     let onSelect: (SessionMode) -> Void
+    
+    // MARK: - Computed Properties
+    
+    /// Modes to display based on `showOnlyPlayableModes` flag
+    private var availableModes: [SessionMode] {
+        showOnlyPlayableModes ? SessionMode.playableCases : SessionMode.allCases
+    }
     
     // MARK: - Body
     
     var body: some View {
         VStack(spacing: AppTheme.Spacing.sm) {
-            ForEach(SessionMode.allCases) { mode in
+            ForEach(availableModes) { mode in
                 ModeOptionRow(
                     mode: mode,
                     isSelected: mode == selectedMode
@@ -64,7 +76,7 @@ struct ModeSelectorExpanded: View {
 
 // MARK: - Previews
 
-#Preview("Mode Selector Expanded") {
+#Preview("Mode Selector - All Modes") {
     ZStack {
         AppColors.backgroundPrimary.ignoresSafeArea()
         
@@ -73,6 +85,27 @@ struct ModeSelectorExpanded: View {
             
             ModeSelectorExpanded(
                 selectedMode: .readThenSpeak,
+                showOnlyPlayableModes: false,
+                onSelect: { mode in
+                    print("Selected: \(mode.displayName)")
+                }
+            )
+            .padding(.horizontal, AppTheme.Spacing.lg)
+            .padding(.bottom, 100)
+        }
+    }
+}
+
+#Preview("Mode Selector - Playable Only") {
+    ZStack {
+        AppColors.backgroundPrimary.ignoresSafeArea()
+        
+        VStack {
+            Spacer()
+            
+            ModeSelectorExpanded(
+                selectedMode: .readAloud,
+                showOnlyPlayableModes: true,
                 onSelect: { mode in
                     print("Selected: \(mode.displayName)")
                 }

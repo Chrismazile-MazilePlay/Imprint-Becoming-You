@@ -17,6 +17,7 @@ import SwiftData
 /// - Stats row (streak, practiced, favorites)
 /// - Progress section (future charts)
 /// - Favorites list
+/// - Saved Sessions section
 /// - Settings section
 ///
 /// Navigation: This page is on the RIGHT. Back navigation goes LEFT to Practice.
@@ -44,6 +45,8 @@ struct ProfilePageView: View {
     @State private var streak: Int = 0
     @State private var totalPracticed: Int = 0
     @State private var showFavorites = false
+    @State private var showSavedSessions = false
+    @State private var savedSessionCount: Int = 0
     
     // MARK: - Body
     
@@ -69,6 +72,9 @@ struct ProfilePageView: View {
                     // Favorites section
                     favoritesSection
                     
+                    // Saved Sessions section
+                    savedSessionsSection
+                    
                     // Settings section
                     settingsSection
                     
@@ -82,13 +88,36 @@ struct ProfilePageView: View {
         .task {
             await loadStats()
         }
+        .onChange(of: showSavedSessions) { _, isShowing in
+            // Reload stats when returning from saved sessions view
+            // in case sessions were deleted
+            if !isShowing {
+                Task { await loadStats() }
+            }
+        }
+        .onChange(of: showFavorites) { _, isShowing in
+            // Reload stats when returning from favorites view
+            if !isShowing {
+                Task { await loadStats() }
+            }
+        }
         .fullScreenCover(isPresented: $showFavorites) {
             // Wrap in NavigationStack so FavoritesFullListView's
             // .navigationTitle and toolbar work correctly
             NavigationStack {
                 FavoritesFullListView(
                     store: store,
-                    dependencies: dependencies
+                    dependencies: dependencies,
+                    onNavigateToCenter: onNavigateToCenter
+                )
+            }
+        }
+        .fullScreenCover(isPresented: $showSavedSessions) {
+            // Wrap in NavigationStack for proper navigation bar
+            NavigationStack {
+                SavedSessionsFullListView(
+                    store: store,
+                    onNavigateToCenter: onNavigateToCenter
                 )
             }
         }
@@ -229,6 +258,62 @@ struct ProfilePageView: View {
         }
     }
     
+    // MARK: - Saved Sessions Section
+    
+    private var savedSessionsSection: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+            ProfileSectionHeader(title: "SAVED SESSIONS")
+            
+            Button {
+                showSavedSessions = true
+            } label: {
+                HStack(spacing: AppTheme.Spacing.md) {
+                    Image(systemName: "bookmark.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(AppColors.accent)
+                        .frame(width: 32, height: 32)
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Saved Sessions")
+                            .font(AppTypography.headline)
+                            .foregroundStyle(AppColors.textPrimary)
+                        
+                        Text("\(savedSessionCount) session\(savedSessionCount == 1 ? "" : "s")")
+                            .font(AppTypography.caption1)
+                            .foregroundStyle(AppColors.textSecondary)
+                    }
+                    
+                    Spacer(minLength: 0)
+                    
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(AppColors.textTertiary)
+                }
+                .padding(AppTheme.Spacing.md)
+                .background(AppColors.surfaceSecondary)
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+    
+    /// Starts playback of a saved session with the specified loop configuration
+    func playSavedSession(_ session: SavedSession, loopCount: Int, shuffleEnabled: Bool) {
+        // Set loop configuration from the card controls
+        let config = LoopConfiguration(
+            loopCount: loopCount,
+            isShuffleEnabled: shuffleEnabled,
+            currentLoopIteration: 1
+        )
+        store.setLoopConfiguration(config)
+        
+        // Start the saved session
+        store.send(.startSavedSession(session))
+        
+        // Navigate back to practice page
+        onNavigateToCenter()
+    }
+    
     // MARK: - Settings Section
     
     private var settingsSection: some View {
@@ -250,116 +335,138 @@ struct ProfilePageView: View {
                 SettingsRow(
                     icon: "target",
                     iconColor: AppColors.accent,
-                    title: "Goals",
-                    subtitle: "\(appState.userProfile?.selectedGoals.count ?? 0) selected"
+                    title: "My Goals",
+                    subtitle: goalsSubtitle
                 ) {
-                    // TODO: Navigate to goals settings
+                    // TODO: Navigate to goals selection
                 }
                 
-                // Notifications
+                // Faith Content
                 SettingsRow(
-                    icon: "bell.fill",
-                    iconColor: .blue,
-                    title: "Notifications",
-                    subtitle: "Manage reminders"
+                    icon: "sparkles",
+                    iconColor: .purple,
+                    title: "Faith Content",
+                    subtitle: appState.userProfile?.includeFaithContent == true ? "Enabled" : "Disabled"
                 ) {
-                    // TODO: Navigate to notification settings
+                    // TODO: Toggle faith content
                 }
                 
                 // Account
                 SettingsRow(
-                    icon: "person.circle",
+                    icon: "person.crop.circle",
                     iconColor: AppColors.textSecondary,
                     title: "Account",
-                    subtitle: "Sign in to sync"
+                    subtitle: appState.isAuthenticated ? "Signed in" : "Not signed in"
                 ) {
-                    // TODO: Navigate to account settings
+                    // TODO: Navigate to account
                 }
                 
-                // Debug: Reset Onboarding
-                #if DEBUG
-                SettingsRow(
-                    icon: "arrow.counterclockwise",
-                    iconColor: AppColors.error,
-                    title: "Reset Onboarding",
-                    subtitle: "Development only"
-                ) {
-                    resetOnboarding()
+                // Premium
+                if !appState.isPremium {
+                    SettingsRow(
+                        icon: "star.fill",
+                        iconColor: .yellow,
+                        title: "Upgrade to Premium",
+                        subtitle: "Unlock all features"
+                    ) {
+                        // TODO: Show premium upsell
+                    }
                 }
-                #endif
             }
         }
     }
     
-    // MARK: - Actions
+    // MARK: - Helpers
+    
+    private var goalsSubtitle: String {
+        let goals = appState.userProfile?.selectedGoals ?? []
+        if goals.isEmpty {
+            return "No goals selected"
+        } else if goals.count == 1 {
+            return "1 goal selected"
+        } else {
+            return "\(goals.count) goals selected"
+        }
+    }
     
     private func loadStats() async {
-        let favDescriptor = FetchDescriptor<Affirmation>(
+        // Load favorites count
+        let favoritesDescriptor = FetchDescriptor<Affirmation>(
             predicate: #Predicate { $0.isFavorited }
         )
-        favoriteCount = (try? modelContext.fetchCount(favDescriptor)) ?? 0
+        favoriteCount = (try? modelContext.fetchCount(favoritesDescriptor)) ?? 0
         
-        let practicedDescriptor = FetchDescriptor<Affirmation>(
-            predicate: #Predicate { $0.speakCount > 0 }
-        )
-        totalPracticed = (try? modelContext.fetchCount(practicedDescriptor)) ?? 0
+        // Load saved sessions count
+        let savedSessionsDescriptor = FetchDescriptor<SavedSession>()
+        savedSessionCount = (try? modelContext.fetchCount(savedSessionsDescriptor)) ?? 0
         
-        // TODO: Calculate actual streak from session history
-        streak = 3
-    }
-    
-    private func resetOnboarding() {
-        let descriptor = FetchDescriptor<UserProfile>()
-        
-        do {
-            let profiles = try modelContext.fetch(descriptor)
-            if let profile = profiles.first {
-                profile.hasCompletedOnboarding = false
-                try modelContext.save()
-                appState.updateProfile(profile)
-            }
-        } catch {
-            appState.presentError(.saveFailed(reason: error.localizedDescription))
+        // Load progress data - aggregate across all days
+        let progressDescriptor = FetchDescriptor<ProgressData>()
+        if let allProgress = try? modelContext.fetch(progressDescriptor) {
+            // Sum total affirmations practiced across all days
+            totalPracticed = allProgress.reduce(0) { $0 + $1.affirmationsPracticed }
+            
+            // Calculate streak from consecutive days with countsTowardStreak
+            streak = calculateStreak(from: allProgress)
         }
     }
-}
-
-// MARK: - ProfileSectionHeader
-
-struct ProfileSectionHeader: View {
     
-    let title: String
-    
-    var body: some View {
-        Text(title)
-            .font(AppTypography.caption1.weight(.semibold))
-            .foregroundStyle(AppColors.textTertiary)
-            .padding(.top, AppTheme.Spacing.sm)
+    /// Calculates current streak from progress data
+    private func calculateStreak(from progressData: [ProgressData]) -> Int {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        
+        // Filter to days that count toward streak and sort by date descending
+        let streakDays = progressData
+            .filter { $0.countsTowardStreak }
+            .sorted { $0.date > $1.date }
+        
+        guard !streakDays.isEmpty else { return 0 }
+        
+        var currentStreak = 0
+        var expectedDate = today
+        
+        for progress in streakDays {
+            let progressDate = calendar.startOfDay(for: progress.date)
+            
+            // Check if this is the expected date or yesterday (if we haven't practiced today yet)
+            if progressDate == expectedDate {
+                currentStreak += 1
+                expectedDate = calendar.date(byAdding: .day, value: -1, to: expectedDate) ?? expectedDate
+            } else if currentStreak == 0 && progressDate == calendar.date(byAdding: .day, value: -1, to: today) {
+                // Allow starting streak from yesterday if no practice today
+                currentStreak = 1
+                expectedDate = calendar.date(byAdding: .day, value: -2, to: today) ?? expectedDate
+            } else {
+                break // Streak broken
+            }
+        }
+        
+        return currentStreak
     }
 }
 
-// MARK: - ProfileStatCard
+// MARK: - Profile Supporting Views
 
 struct ProfileStatCard: View {
-    
     let icon: String
     let value: String
     let label: String
     let color: Color
     
     var body: some View {
-        VStack(spacing: AppTheme.Spacing.xs) {
+        VStack(spacing: AppTheme.Spacing.sm) {
             Image(systemName: icon)
                 .font(.system(size: 24))
                 .foregroundStyle(color)
             
             Text(value)
-                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .font(AppTypography.title2)
                 .foregroundStyle(AppColors.textPrimary)
             
             Text(label)
-                .font(AppTypography.caption2)
-                .foregroundStyle(AppColors.textTertiary)
+                .font(AppTypography.caption1)
+                .foregroundStyle(AppColors.textSecondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, AppTheme.Spacing.md)
@@ -368,10 +475,19 @@ struct ProfileStatCard: View {
     }
 }
 
-// MARK: - ProgressPlaceholderCard
+struct ProfileSectionHeader: View {
+    let title: String
+    
+    var body: some View {
+        Text(title)
+            .font(AppTypography.caption2)
+            .fontWeight(.medium)
+            .tracking(1.2)
+            .foregroundStyle(AppColors.textTertiary)
+    }
+}
 
 struct ProgressPlaceholderCard: View {
-    
     let title: String
     let subtitle: String
     let icon: String
@@ -381,7 +497,9 @@ struct ProgressPlaceholderCard: View {
             Image(systemName: icon)
                 .font(.system(size: 24))
                 .foregroundStyle(AppColors.textTertiary)
-                .frame(width: 40, height: 40)
+                .frame(width: 44, height: 44)
+                .background(AppColors.surfaceTertiary)
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small))
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -455,8 +573,30 @@ struct SettingsRow: View {
 
 /// Full list of favorites accessible from Profile page.
 ///
-/// Note: This view expects to be presented inside a NavigationStack
-/// so that .navigationTitle and toolbar items work correctly.
+/// Uses `AffirmationListCard` for consistent card styling and
+/// `DockGradientContainer` for clean visual separation from the dock.
+///
+/// ## Layout
+/// ```
+/// ┌─────────────────────────────────────────────────────────────────────┐
+/// │  Close                        Favorites                             │
+/// ├─────────────────────────────────────────────────────────────────────┤
+/// │  ┌───────────────────────────────────────────────────────────────┐  │
+/// │  │  [Category]                                                   │  │
+/// │  │  "Affirmation text..."                                        │  │
+/// │  │  Saved 2 days ago                                        ♡   │  │
+/// │  └───────────────────────────────────────────────────────────────┘  │
+/// │  ┌───────────────────────────────────────────────────────────────┐  │
+/// │  │  [Category]                                                   │  │  ← Card list
+/// │  │  "Another affirmation..."                                     │  │
+/// │  │  Saved 1 hour ago                                        ♡   │  │
+/// │  └───────────────────────────────────────────────────────────────┘  │
+/// │                                                                     │
+/// ├═════════════════════════════════════════════════════════════════════┤  ← Gradient
+/// │              Practice 9 affirmations                                │  ← Label
+/// │ [Mode ▼]            [🔁 3] [🔀]              [▶]                   │  ← Dock
+/// └─────────────────────────────────────────────────────────────────────┘
+/// ```
 struct FavoritesFullListView: View {
     
     @Environment(\.modelContext) private var modelContext
@@ -464,17 +604,47 @@ struct FavoritesFullListView: View {
     @Bindable var store: PracticeStore
     let dependencies: DependencyContainer
     
+    /// Callback when navigating to practice (after starting a session)
+    let onNavigateToCenter: () -> Void
+    
     @State private var favorites: [Affirmation] = []
+    
+    // MARK: - Configuration State
+    
+    @State private var selectedMode: SessionMode = .readThenSpeak
+    @State private var loopCount: Int = 1
+    @State private var shuffleEnabled: Bool = false
+    @State private var isModeSelectorExpanded: Bool = false
+    
+    // MARK: - Constants
+    
+    /// Height reserved for the dock area at bottom
+    private let dockAreaHeight: CGFloat = 160
+    
+    // MARK: - Computed Properties
+    
+    private var hasFavorites: Bool {
+        !favorites.isEmpty
+    }
+    
+    // MARK: - Body
     
     var body: some View {
         ZStack {
             AppColors.backgroundPrimary
                 .ignoresSafeArea()
             
+            // Content
             if favorites.isEmpty {
                 emptyState
             } else {
                 favoritesList
+            }
+            
+            // Fixed dock area with gradient
+            VStack {
+                Spacer()
+                dockArea
             }
         }
         .navigationTitle("Favorites")
@@ -492,8 +662,12 @@ struct FavoritesFullListView: View {
         }
     }
     
+    // MARK: - Empty State
+    
     private var emptyState: some View {
         VStack(spacing: AppTheme.Spacing.lg) {
+            Spacer()
+            
             Image(systemName: "heart.slash")
                 .font(.system(size: 48))
                 .foregroundStyle(AppColors.textTertiary)
@@ -506,38 +680,65 @@ struct FavoritesFullListView: View {
                 .font(AppTypography.body)
                 .foregroundStyle(AppColors.textSecondary)
                 .multilineTextAlignment(.center)
+            
+            Spacer()
+            
+            // Padding for dock
+            Spacer()
+                .frame(height: dockAreaHeight)
         }
         .padding(AppTheme.Spacing.xl)
     }
     
+    // MARK: - Favorites List
+    
     private var favoritesList: some View {
-        VStack(spacing: 0) {
-            List {
+        ScrollView {
+            LazyVStack(spacing: AppTheme.Spacing.md) {
                 ForEach(favorites) { affirmation in
-                    FavoriteListRow(
-                        affirmation: affirmation,
-                        onUnfavorite: { unfavorite(affirmation) }
+                    AffirmationListCard(
+                        text: affirmation.text,
+                        category: affirmation.goalCategory,
+                        context: .favorites(savedAt: affirmation.favoritedAt),
+                        isFavorited: true,
+                        onToggleFavorite: {
+                            unfavorite(affirmation)
+                        }
                     )
                 }
-                .onDelete(perform: deleteFavorites)
+                
+                // Bottom padding for dock
+                Color.clear
+                    .frame(height: dockAreaHeight)
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            
-            // Start session button
-            Button {
-                startFavoritesSession()
-            } label: {
-                HStack {
-                    Image(systemName: "play.fill")
-                    Text("Practice Favorites")
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.primary)
-            .padding(AppTheme.Spacing.lg)
+            .padding(.horizontal, AppTheme.Spacing.lg)
+            .padding(.vertical, AppTheme.Spacing.md)
         }
     }
+    
+    // MARK: - Dock Area
+    
+    private var dockArea: some View {
+        DockGradientContainer.favorites(
+            count: favorites.count,
+            isModeSelectorExpanded: $isModeSelectorExpanded,
+            selectedMode: $selectedMode
+        ) {
+            AdaptiveBottomDock(
+                selectedMode: $selectedMode,
+                loopCount: $loopCount,
+                shuffleEnabled: $shuffleEnabled,
+                isModeSelectorExpanded: $isModeSelectorExpanded,
+                isPlayEnabled: hasFavorites,
+                isDisabled: !hasFavorites,
+                onPlay: {
+                    startFavoritesSession()
+                }
+            )
+        }
+    }
+    
+    // MARK: - Actions
     
     private func loadFavorites() async {
         let descriptor = FetchDescriptor<Affirmation>(
@@ -550,9 +751,22 @@ struct FavoritesFullListView: View {
     private func startFavoritesSession() {
         let repository = dependencies.makeAffirmationRepository(modelContext: modelContext)
         
+        // Configure loop settings before starting
+        let config = LoopConfiguration(
+            loopCount: loopCount,
+            isShuffleEnabled: shuffleEnabled,
+            currentLoopIteration: 1
+        )
+        store.setLoopConfiguration(config)
+        
         Task {
-            await store.loadFavorites(using: repository)
+            await store.loadFavoritesAsSession(
+                using: repository,
+                mode: selectedMode,
+                shuffle: shuffleEnabled
+            )
             dismiss()
+            onNavigateToCenter()
         }
     }
     
@@ -560,63 +774,7 @@ struct FavoritesFullListView: View {
         affirmation.isFavorited = false
         affirmation.favoritedAt = nil
         favorites.removeAll { $0.id == affirmation.id }
-    }
-    
-    private func deleteFavorites(at offsets: IndexSet) {
-        for index in offsets {
-            let affirmation = favorites[index]
-            affirmation.isFavorited = false
-            affirmation.favoritedAt = nil
-        }
-        favorites.remove(atOffsets: offsets)
-    }
-}
-
-// MARK: - FavoriteListRow
-
-struct FavoriteListRow: View {
-    
-    let affirmation: Affirmation
-    let onUnfavorite: () -> Void
-    
-    var body: some View {
-        HStack(alignment: .top, spacing: AppTheme.Spacing.md) {
-            if let category = affirmation.goalCategory {
-                Image(systemName: category.iconName)
-                    .font(.system(size: 12))
-                    .foregroundStyle(AppColors.accent)
-                    .frame(width: 28, height: 28)
-                    .background(AppColors.accent.opacity(0.15))
-                    .clipShape(Circle())
-            }
-            
-            VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
-                Text(affirmation.text)
-                    .font(AppTypography.body)
-                    .foregroundStyle(AppColors.textPrimary)
-                    .lineLimit(3)
-                
-                if let date = affirmation.favoritedAt {
-                    Text("Saved \(date.formatted(.relative(presentation: .named)))")
-                        .font(AppTypography.caption2)
-                        .foregroundStyle(AppColors.textTertiary)
-                }
-            }
-            
-            Spacer(minLength: 0)
-            
-            Button {
-                onUnfavorite()
-                HapticFeedback.impact(.light)
-            } label: {
-                Image(systemName: "heart.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(AppColors.accent)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.vertical, AppTheme.Spacing.sm)
-        .listRowBackground(AppColors.backgroundPrimary)
+        HapticFeedback.impact(.light)
     }
 }
 

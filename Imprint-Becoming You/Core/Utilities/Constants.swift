@@ -127,6 +127,10 @@ enum Constants {
         
         /// Number of free voice clones allowed
         static let freeVoiceClones = 1
+        
+        /// Maximum number of saved sessions for free users.
+        /// Premium users have unlimited saved sessions.
+        static let maxSavedSessions = 3
     }
     
     // MARK: - Voice Clone Configuration
@@ -192,6 +196,10 @@ enum Constants {
         static let binauralPreset = "binauralPreset"
         static let lastSessionAffirmationIndex = "lastSessionAffirmationIndex"
         static let lastSessionBatchId = "lastSessionBatchId"
+        
+        /// Counter for auto-generating saved session names ("Session 1", "Session 2", etc.)
+        /// Persists across app launches and saved session deletions.
+        static let savedSessionCounter = "savedSessionCounter"
     }
     
     // MARK: - Keychain Keys

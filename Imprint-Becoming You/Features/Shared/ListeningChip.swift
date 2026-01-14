@@ -7,6 +7,17 @@
 
 import SwiftUI
 
+// MARK: - Chip Constants
+
+/// Shared dimensions for HUD chips to ensure perfect symmetry
+private enum ChipConstants {
+    /// Standard height for all HUD chips (matches Exit button)
+    static let height: CGFloat = 36
+    
+    /// Font for chip text (matches Exit button text)
+    static let font = AppTypography.caption1.weight(.medium)
+}
+
 // MARK: - ListeningChip
 
 /// A non-interactive indicator chip showing when the app is listening.
@@ -14,10 +25,7 @@ import SwiftUI
 /// Displayed centered at the top of the screen during listening phases.
 /// This is an **indicator only**, not a tappable button.
 ///
-/// ## Usage
-/// ```swift
-/// ListeningChip(isVisible: isListening)
-/// ```
+/// Height matches the Exit button (36pt) for visual symmetry.
 struct ListeningChip: View {
     
     // MARK: - Properties
@@ -42,11 +50,11 @@ struct ListeningChip: View {
                     .opacity(isPulsing ? 1.0 : 0.6)
                 
                 Text("Listening")
-                    .font(AppTypography.caption1.weight(.medium))
+                    .font(ChipConstants.font)
                     .foregroundStyle(AppColors.textSecondary)
             }
             .padding(.horizontal, AppTheme.Spacing.md)
-            .padding(.vertical, AppTheme.Spacing.sm)
+            .frame(height: ChipConstants.height)
             .background(AppColors.surfaceTertiary.opacity(0.9))
             .clipShape(Capsule())
             .transition(.opacity.combined(with: .scale(scale: 0.9)))
@@ -56,7 +64,7 @@ struct ListeningChip: View {
             .onDisappear {
                 isPulsing = false
             }
-            .allowsHitTesting(false) // Not tappable - indicator only
+            .allowsHitTesting(false)
             .accessibilityLabel("Listening indicator")
             .accessibilityAddTraits(.isStaticText)
         }
@@ -77,6 +85,8 @@ struct ListeningChip: View {
 ///
 /// Displayed centered at the top of the screen when score is shown.
 /// Shows "Resonance • Good" (or Excellent/Needs Work based on score).
+///
+/// Height matches the Exit button (36pt) for visual symmetry.
 struct ResonanceChip: View {
     
     // MARK: - Properties
@@ -113,11 +123,11 @@ struct ResonanceChip: View {
     var body: some View {
         HStack(spacing: AppTheme.Spacing.xs) {
             Text("Resonance")
-                .font(AppTypography.caption1.weight(.medium))
+                .font(ChipConstants.font)
                 .foregroundStyle(AppColors.textSecondary)
             
             Text("•")
-                .font(AppTypography.caption1)
+                .font(ChipConstants.font)
                 .foregroundStyle(AppColors.textTertiary)
             
             Text(qualityLabel)
@@ -125,11 +135,11 @@ struct ResonanceChip: View {
                 .foregroundStyle(qualityColor)
         }
         .padding(.horizontal, AppTheme.Spacing.md)
-        .padding(.vertical, AppTheme.Spacing.sm)
+        .frame(height: ChipConstants.height)
         .background(AppColors.surfaceTertiary.opacity(0.9))
         .clipShape(Capsule())
         .transition(.opacity.combined(with: .scale(scale: 0.9)))
-        .allowsHitTesting(false) // Not tappable - indicator only
+        .allowsHitTesting(false)
         .accessibilityLabel("Resonance score: \(qualityLabel)")
         .accessibilityAddTraits(.isStaticText)
     }
@@ -169,11 +179,11 @@ struct StatusChip: View {
             }
             
             Text(text)
-                .font(AppTypography.caption1.weight(.medium))
+                .font(ChipConstants.font)
                 .foregroundStyle(color)
         }
         .padding(.horizontal, AppTheme.Spacing.md)
-        .padding(.vertical, AppTheme.Spacing.sm)
+        .frame(height: ChipConstants.height)
         .background(AppColors.surfaceTertiary.opacity(0.9))
         .clipShape(Capsule())
         .onAppear {
@@ -195,9 +205,7 @@ struct StatusChip: View {
 
 #Preview("Listening Chip") {
     ZStack {
-        AppColors.backgroundPrimary
-            .ignoresSafeArea()
-        
+        AppColors.backgroundPrimary.ignoresSafeArea()
         VStack {
             ListeningChip(isVisible: true)
             Spacer()
@@ -208,9 +216,7 @@ struct StatusChip: View {
 
 #Preview("Resonance Chip - Excellent") {
     ZStack {
-        AppColors.backgroundPrimary
-            .ignoresSafeArea()
-        
+        AppColors.backgroundPrimary.ignoresSafeArea()
         VStack {
             ResonanceChip(score: 0.85)
             Spacer()
@@ -221,9 +227,7 @@ struct StatusChip: View {
 
 #Preview("Resonance Chip - Good") {
     ZStack {
-        AppColors.backgroundPrimary
-            .ignoresSafeArea()
-        
+        AppColors.backgroundPrimary.ignoresSafeArea()
         VStack {
             ResonanceChip(score: 0.72)
             Spacer()
@@ -234,9 +238,7 @@ struct StatusChip: View {
 
 #Preview("Resonance Chip - Needs Work") {
     ZStack {
-        AppColors.backgroundPrimary
-            .ignoresSafeArea()
-        
+        AppColors.backgroundPrimary.ignoresSafeArea()
         VStack {
             ResonanceChip(score: 0.45)
             Spacer()
@@ -257,58 +259,38 @@ struct StatusChip: View {
     .background(AppColors.backgroundPrimary)
 }
 
-#Preview("Chips - In Context") {
-    ZStack {
-        AppColors.backgroundPrimary
-            .ignoresSafeArea()
-        
-        VStack {
-            // Top bar simulation
-            HStack {
-                // Exit button
-                HStack(spacing: AppTheme.Spacing.xs) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .semibold))
-                    Text("Exit")
-                        .font(AppTypography.caption1.weight(.medium))
-                }
-                .foregroundStyle(AppColors.textSecondary)
-                .padding(.horizontal, AppTheme.Spacing.md)
-                .padding(.vertical, AppTheme.Spacing.sm)
-                .background(AppColors.surfaceTertiary.opacity(0.8))
-                .clipShape(Capsule())
-                
-                Spacer()
-                
-                // Centered resonance chip
-                ResonanceChip(score: 0.78)
-                
-                Spacer()
-                
-                // Invisible spacer for centering
-                Color.clear
-                    .frame(width: 70)
-            }
-            .padding(.horizontal, AppTheme.Spacing.lg)
-            .padding(.top, AppTheme.Spacing.md)
-            
-            Spacer()
-            
-            // Affirmation text placeholder
-            Text("I am confident and capable of achieving my goals.")
-                .font(AppTypography.title2)
-                .foregroundStyle(AppColors.textPrimary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, AppTheme.Spacing.xl)
-            
-            Spacer()
-            
-            // Dock placeholder
-            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.extraLarge)
-                .fill(AppColors.backgroundSecondary)
-                .frame(height: 120)
-                .padding(.horizontal, AppTheme.Spacing.lg)
-                .padding(.bottom, AppTheme.Spacing.lg)
+#Preview("Chips - Height Comparison") {
+    VStack(spacing: 20) {
+        // Exit button reference
+        HStack(spacing: AppTheme.Spacing.xs) {
+            Image(systemName: "xmark")
+                .font(.system(size: 14, weight: .semibold))
+            Text("Exit")
+                .font(AppTypography.caption1.weight(.medium))
         }
+        .foregroundStyle(AppColors.textSecondary)
+        .frame(width: 78, height: 36)
+        .background(AppColors.surfaceTertiary.opacity(0.8))
+        .clipShape(Capsule())
+        
+        // Listening chip
+        ListeningChip(isVisible: true)
+        
+        // Resonance chip
+        ResonanceChip(score: 0.85)
+        
+        // Loop chip reference
+        HStack(spacing: AppTheme.Spacing.xs) {
+            Image(systemName: "repeat")
+                .font(.system(size: 14, weight: .semibold))
+            Text("1 of 3")
+                .font(AppTypography.caption1.weight(.medium))
+        }
+        .foregroundStyle(AppColors.textSecondary)
+        .frame(width: 78, height: 36)
+        .background(AppColors.surfaceTertiary.opacity(0.8))
+        .clipShape(Capsule())
     }
+    .padding()
+    .background(AppColors.backgroundPrimary)
 }

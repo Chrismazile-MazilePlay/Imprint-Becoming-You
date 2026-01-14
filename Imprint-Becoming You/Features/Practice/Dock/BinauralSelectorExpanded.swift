@@ -14,6 +14,11 @@ import SwiftUI
 /// Appears above the dock when the binaural button is tapped.
 /// Lists all four presets with descriptions.
 ///
+/// ## Stable Layout
+/// The panel uses fixed-dimension rows and disables implicit animations
+/// to prevent any bouncing or layout shifts when the menu opens or
+/// when selection changes.
+///
 /// ## Layout
 /// ```
 /// ┌─────────────────────────────────────────────┐
@@ -57,7 +62,8 @@ struct BinauralSelectorExpanded: View {
         .background(AppColors.backgroundSecondary)
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large))
         .shadow(color: .black.opacity(0.3), radius: 20, y: -5)
-        // No horizontal padding - inherits from parent to match dock width
+        // Disable animations on the container to prevent bounce
+        .animation(nil, value: selectedPreset)
     }
 }
 
@@ -75,6 +81,23 @@ struct BinauralSelectorExpanded: View {
                 onSelect: { preset in
                     print("Selected: \(preset.displayName)")
                 }
+            )
+            .padding(.horizontal, AppTheme.Spacing.lg)
+            .padding(.bottom, 100)
+        }
+    }
+}
+
+#Preview("Binaural Selector - Off Selected") {
+    ZStack {
+        AppColors.backgroundPrimary.ignoresSafeArea()
+        
+        VStack {
+            Spacer()
+            
+            BinauralSelectorExpanded(
+                selectedPreset: .off,
+                onSelect: { _ in }
             )
             .padding(.horizontal, AppTheme.Spacing.lg)
             .padding(.bottom, 100)

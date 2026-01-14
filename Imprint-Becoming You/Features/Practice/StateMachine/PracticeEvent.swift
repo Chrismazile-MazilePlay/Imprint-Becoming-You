@@ -84,12 +84,34 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     /// User dismissed the summary, return to home
     case dismissSummary
     
-    /// User tapped retry, restart session with same affirmations
-    case retrySession
+    /// User tapped repeat session (with current loop/shuffle config)
+    case repeatSession
     
     /// User toggled favorite on an affirmation in the summary
     /// - Parameter affirmationId: The ID of the affirmation to toggle
     case toggleFavoriteInSummary(UUID)
+    
+    // MARK: - Loop & Shuffle Events
+    
+    /// User cycled the loop count (1 → 3 → 5 → 1)
+    case cycleLoopCount
+    
+    /// User toggled shuffle on/off
+    case toggleShuffle
+    
+    /// Current loop iteration completed, check for more loops
+    case loopIterationCompleted
+    
+    // MARK: - Saved Session Events
+    
+    /// User tapped play on a saved session
+    case startSavedSession(SavedSession)
+    
+    /// Clear saved session context (when session ends)
+    case clearSavedSessionContext
+    
+    /// User wants to save current session
+    case saveSession(name: String)
     
     // MARK: - TTS Events
     
@@ -188,6 +210,11 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     
     /// Affirmation loading failed
     case affirmationsLoadFailed(PracticeError)
+    
+    // MARK: - Legacy Aliases
+    
+    /// @deprecated Use `repeatSession` instead. Kept for compatibility.
+    static var retrySession: PracticeEvent { .repeatSession }
 }
 
 // MARK: - Practice Error
@@ -272,6 +299,8 @@ extension PracticeEvent {
             return true
         case .listeningTimedOut, .skipAffirmation:
             return true
+        case .repeatSession, .startSavedSession:
+            return true
         default:
             return false
         }
@@ -289,6 +318,10 @@ extension PracticeEvent {
         case .exitSession:
             return true
         case .toggleFavorite, .shareAffirmation:
+            return true
+        case .cycleLoopCount, .toggleShuffle:
+            return true
+        case .repeatSession, .startSavedSession, .saveSession:
             return true
         default:
             return false
@@ -308,7 +341,7 @@ extension PracticeEvent {
             return true
         case .analysisStarted, .scoreCalculated, .scoreFailed, .scoreDisplayCompleted:
             return true
-        case .autoAdvanceCompleted:
+        case .autoAdvanceCompleted, .loopIterationCompleted:
             return true
         default:
             return false
@@ -319,6 +352,28 @@ extension PracticeEvent {
     var affectsNavigation: Bool {
         switch self {
         case .userNavigated, .navigateViaButton, .goToIndex, .autoAdvanceCompleted:
+            return true
+        case .loopIterationCompleted:
+            return true
+        default:
+            return false
+        }
+    }
+    
+    /// Whether this event is related to loop/shuffle functionality
+    var isLoopEvent: Bool {
+        switch self {
+        case .cycleLoopCount, .toggleShuffle, .loopIterationCompleted, .repeatSession:
+            return true
+        default:
+            return false
+        }
+    }
+    
+    /// Whether this event is related to saved sessions
+    var isSavedSessionEvent: Bool {
+        switch self {
+        case .startSavedSession, .clearSavedSessionContext, .saveSession:
             return true
         default:
             return false
@@ -353,10 +408,22 @@ extension PracticeEvent: CustomStringConvertible {
             return "exitSession"
         case .dismissSummary:
             return "dismissSummary"
-        case .retrySession:
-            return "retrySession"
+        case .repeatSession:
+            return "repeatSession"
         case .toggleFavoriteInSummary(let id):
             return "toggleFavoriteInSummary(\(id.uuidString.prefix(8)))"
+        case .cycleLoopCount:
+            return "cycleLoopCount"
+        case .toggleShuffle:
+            return "toggleShuffle"
+        case .loopIterationCompleted:
+            return "loopIterationCompleted"
+        case .startSavedSession(let session):
+            return "startSavedSession(\(session.name))"
+        case .clearSavedSessionContext:
+            return "clearSavedSessionContext"
+        case .saveSession(let name):
+            return "saveSession(\(name))"
         case .startFlow:
             return "startFlow"
         case .pauseFlow:

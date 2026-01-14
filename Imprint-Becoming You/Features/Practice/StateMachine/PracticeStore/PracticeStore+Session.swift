@@ -16,6 +16,7 @@ extension PracticeStore {
             #if DEBUG
             print("[WARN] PracticeStore: No repository for session queue generation")
             #endif
+            clearOriginalSessionAffirmationIds()
             setSessionState(affirmations: Array(browseAffirmations.prefix(Constants.Session.sessionSize)))
             startSession(mode: mode)
             return
@@ -34,6 +35,7 @@ extension PracticeStore {
                 ? Array(browseAffirmations.prefix(Constants.Session.sessionSize))
                 : freshQueue
             
+            clearOriginalSessionAffirmationIds()
             setSessionState(affirmations: queue)
             
             #if DEBUG
@@ -44,6 +46,7 @@ extension PracticeStore {
             #if DEBUG
             print("[WARN] PracticeStore: Session queue generation failed: \(error)")
             #endif
+            clearOriginalSessionAffirmationIds()
             setSessionState(affirmations: Array(browseAffirmations.prefix(Constants.Session.sessionSize)))
         }
         
@@ -55,6 +58,11 @@ extension PracticeStore {
         setSessionResults([])
         sessionMode = mode
         sessionStartTime = Date()
+        
+        // Reset loop iteration to 1 when starting fresh
+        var config = loopConfiguration
+        config.resetIteration()
+        setLoopConfiguration(config)
         
         withAnimation(AppTheme.Animation.standard) {
             switch mode {
@@ -139,6 +147,13 @@ extension PracticeStore {
     func showSessionSummary() {
         cancelCurrentActivity()
         
+        #if DEBUG
+        print("[DEBUG] showSessionSummary: \(sessionResults.count) results")
+        for (i, result) in sessionResults.enumerated() {
+            print("  [\(i)] affirmation=\(result.affirmationId), loopScores=\(result.loopScores)")
+        }
+        #endif
+        
         Task { [weak self] in
             guard let self = self else { return }
             
@@ -161,7 +176,15 @@ extension PracticeStore {
         }
     }
     
+    /// Handles dismissing the summary and returning to home.
+    ///
+    /// Resets loop configuration when closing via this method.
     func handleDismissSummary() {
+        // Reset loop configuration when dismissing (Close button)
+        resetLoopConfiguration()
+        clearSavedSessionContext()
+        clearOriginalSessionAffirmationIds()
+        
         setSessionResults([])
         setSessionState(affirmations: [], index: 0)
         
@@ -174,10 +197,25 @@ extension PracticeStore {
         isBinauralSelectorExpanded = false
     }
     
-    func handleRetrySession() {
+    /// Handles repeat session with current loop/shuffle configuration.
+    ///
+    /// Called when user taps "Repeat Session" button. Preserves loop count
+    /// and shuffle settings from the summary controls.
+    func handleRepeatSession() {
+        // Reset loop iteration counter for new repeat
+        var config = loopConfiguration
+        config.resetIteration()
+        setLoopConfiguration(config)
+        
         setSessionState(index: 0)
         setSessionResults([])
         setSegmentProgress(0)
+        sessionStartTime = Date()
+        
+        // Shuffle if enabled for the repeat
+        if config.isShuffleEnabled {
+            shuffleSessionAffirmations()
+        }
         
         switch sessionMode {
         case .readAloud:
@@ -205,17 +243,28 @@ extension PracticeStore {
         let affirmation = sessionAffirmations.first { $0.id == affirmationId }
             ?? browseAffirmations.first { $0.id == affirmationId }
         
-        guard let affirmation = affirmation else { return }
+        guard let affirmation = affirmation else {
+            #if DEBUG
+            print("[ERROR] handleToggleFavoriteInSummary: Could not find affirmation \(affirmationId)")
+            #endif
+            return
+        }
         
-        affirmation.isFavorited.toggle()
-        affirmation.favoritedAt = affirmation.isFavorited ? Date() : nil
+        // Toggle the in-memory state directly
+        // NOTE: Do NOT call repository.toggleFavorite() as it would double-toggle
+        let newState = !affirmation.isFavorited
+        affirmation.isFavorited = newState
+        affirmation.favoritedAt = newState ? Date() : nil
         
+        #if DEBUG
+        print("[OK] handleToggleFavoriteInSummary: affirmation=\(affirmationId.uuidString.prefix(8)) now=\(newState)")
+        #endif
+        
+        // Update session result
         if let index = sessionResults.firstIndex(where: { $0.affirmationId == affirmationId }) {
-            updateSessionResult(at: index, isFavorited: affirmation.isFavorited)
+            updateSessionResult(at: index, isFavorited: newState)
         }
         
-        if let repository = repository {
-            _ = try? repository.toggleFavorite(affirmationId: affirmationId)
-        }
+        // SwiftData will auto-save the change - no need to call repository
     }
 }

@@ -61,6 +61,77 @@ extension PracticeStore {
         }
     }
     
+    /// Loads user's favorited affirmations as a practice session.
+    ///
+    /// Unlike `loadFavorites`, this starts a proper session with the selected
+    /// mode, allowing scoring, loop tracking, and results summary.
+    ///
+    /// - Parameters:
+    ///   - repository: The repository to load from
+    ///   - mode: The practice mode to use
+    ///   - shuffle: Whether to shuffle the affirmations
+    func loadFavoritesAsSession(
+        using repository: any AffirmationRepositoryProtocol,
+        mode: SessionMode,
+        shuffle: Bool
+    ) async {
+        self.repository = repository
+        
+        do {
+            let favorites = try repository.fetchFavorites()
+            
+            guard !favorites.isEmpty else {
+                setError(.dataLoadError("No favorites yet. Heart some affirmations first!"))
+                return
+            }
+            
+            // Cancel any current activity
+            cancelCurrentActivity()
+            flowGeneration += 1
+            
+            // Clear any saved session context (this is not a saved session playback)
+            clearSavedSessionContext()
+            
+            // Clear original IDs so setSessionState captures fresh ones
+            clearOriginalSessionAffirmationIds()
+            
+            // Set up session state - this captures originalSessionAffirmationIds
+            setSessionState(affirmations: favorites, index: 0)
+            setSessionResults([])
+            setSegmentProgress(0)
+            sessionStartTime = Date()
+            sessionMode = mode
+            
+            // Shuffle AFTER setting session state (preserves original order in originalSessionAffirmationIds)
+            if shuffle {
+                shuffleSessionAffirmations()
+            }
+            
+            // Set initial flow state based on mode
+            switch mode {
+            case .readAloud:
+                setFlow(.readAloud(.idle))
+            case .readThenSpeak:
+                setFlow(.readAndSpeak(.idle))
+            case .speakOnly:
+                setFlow(.speakOnly(.idle))
+            default:
+                setFlow(.home)
+                return
+            }
+            
+            // Start the session
+            startFlowForCurrentAffirmation()
+            
+            #if DEBUG
+            print("[OK] PracticeStore: Started favorites session with \(favorites.count) affirmations, mode: \(mode.displayName)")
+            #endif
+            
+        } catch {
+            send(.affirmationsLoadFailed(.dataLoadError(error.localizedDescription)))
+        }
+    }
+    
     /// Updates the current index in the active queue.
     ///
     /// Used by VerticalPager when user swipes to a new position.

@@ -40,7 +40,8 @@ struct ImprintApp: App {
                 UserProfile.self,
                 Affirmation.self,
                 CustomPrompt.self,
-                ProgressData.self
+                ProgressData.self,
+                SavedSession.self
             ])
             
             let modelConfiguration = ModelConfiguration(

@@ -322,42 +322,45 @@ struct PracticePageView: View {
     
     /// Action buttons for share and favorite.
     ///
-    /// The Share button is implemented inline. The Favorite button uses the
-    /// `FavoriteButton` component which maintains local state for guaranteed
-    /// immediate UI feedback. This is necessary because SwiftUI observation
-    /// breaks when views are created inside nested closures (VerticalPager content).
+    /// These buttons are part of the affirmation content VStack and move
+    /// together with the text during scroll. No `.id()` is needed because
+    /// VerticalPager already provides unique identity per page index.
     ///
     /// The `isCurrentPage` parameter enables/disables interactivity
     /// without affecting appearance during transitions.
     private func actionButtons(for affirmation: Affirmation, isCurrentPage: Bool) -> some View {
         HStack(spacing: AppTheme.Spacing.xxl + 8) {
             // Share button
-            Button {
-                store.send(.shareAffirmation)
-                HapticFeedback.impact(.light)
-            } label: {
-                VStack(spacing: AppTheme.Spacing.sm) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 28, weight: .medium))
-                        .foregroundStyle(AppColors.textSecondary)
-                        .frame(width: 56, height: 56)
-                    
-                    Text("Share")
-                        .font(AppTypography.caption1.weight(.medium))
-                        .foregroundStyle(AppColors.textSecondary)
-                }
-            }
-            .accessibilityLabel("Share affirmation")
-            .disabled(!isCurrentPage)
+            shareButton(isEnabled: isCurrentPage)
             
-            // Favorite button - uses dedicated component with local state
-            // for guaranteed immediate UI feedback
+            // Favorite button
             FavoriteButton(
                 isFavorited: affirmation.isFavorited,
                 isEnabled: isCurrentPage,
                 onToggle: { store.send(.toggleFavorite) }
             )
         }
+    }
+    
+    /// Share button with consistent styling to match FavoriteButton.
+    private func shareButton(isEnabled: Bool) -> some View {
+        Button {
+            store.send(.shareAffirmation)
+            HapticFeedback.impact(.light)
+        } label: {
+            VStack(spacing: AppTheme.Spacing.sm) {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundStyle(AppColors.textSecondary)
+                    .frame(width: 56, height: 56)
+                
+                Text("Share")
+                    .font(AppTypography.caption1.weight(.medium))
+                    .foregroundStyle(AppColors.textSecondary)
+            }
+        }
+        .accessibilityLabel("Share affirmation")
+        .disabled(!isEnabled)
     }
     
     // MARK: - Overlay Layers

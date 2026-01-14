@@ -177,8 +177,8 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol {
             throw AppError.speechRecognitionDenied
         }
         
-        // Setup state
-        currentAffirmation = affirmationText
+        // Setup state - strip citation for comparison (user doesn't speak verse references)
+        currentAffirmation = affirmationText.strippingTrailingCitation
         scoreCalculator = ResonanceScoreCalculator(calibrationData: calibrationData)
         scoreCalculator?.startSession()
         silenceStartTime = nil

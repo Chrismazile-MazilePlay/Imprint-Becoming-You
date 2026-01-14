@@ -66,6 +66,11 @@ struct FloatingHUDLayer: View {
         store.flow.scoreResult?.score
     }
     
+    /// Whether to show the loop progress chip
+    private var showLoopChip: Bool {
+        isActiveMode && store.loopConfiguration.loopCount > 1
+    }
+    
     // MARK: - Body
     
     var body: some View {
@@ -89,34 +94,68 @@ struct FloatingHUDLayer: View {
         }
     }
     
+    // MARK: - Chip Dimensions
+    
+    /// Standard height for all HUD chips to ensure visual consistency
+    private let chipHeight: CGFloat = 36
+    
+    /// Fixed width for Exit and Loop chips for perfect symmetry
+    private let symmetricChipWidth: CGFloat = 78
+    
     // MARK: - Top Buttons
     
     private var topButtons: some View {
         HStack {
-            if isActiveMode {
-                exitButton
-            } else {
-                HStack(spacing: AppTheme.Spacing.sm) {
-                    aiPromptsButton
-                    categoriesButton
-                }
-            }
+            // LEFT: Exit button (active mode) or AI/Categories buttons (home mode)
+            leftButtons
             
             Spacer()
             
+            // CENTER: Listening chip (overlaid, doesn't push other elements)
+            // Using ZStack so it floats over the Spacers without affecting layout
+            
+            Spacer()
+            
+            // RIGHT: Loop chip (active + looping) or Profile (home mode)
+            rightButtons
+        }
+        .overlay {
+            // Center chip overlaid so it doesn't affect left/right positioning
             centerChip
-            
-            Spacer()
-            
-            if !isActiveMode {
-                profileButton
-            } else {
-                Color.clear.frame(width: 70, height: 44)
+        }
+    }
+    
+    // MARK: - Left Buttons
+    
+    @ViewBuilder
+    private var leftButtons: some View {
+        if isActiveMode {
+            exitButton
+        } else {
+            HStack(spacing: AppTheme.Spacing.sm) {
+                aiPromptsButton
+                categoriesButton
             }
         }
     }
     
-    // MARK: - Center Chip
+    // MARK: - Right Buttons
+    
+    @ViewBuilder
+    private var rightButtons: some View {
+        if isActiveMode {
+            if showLoopChip {
+                loopProgressChip
+            } else {
+                // Invisible spacer to maintain layout - same size as Exit chip
+                Color.clear.frame(width: symmetricChipWidth, height: chipHeight)
+            }
+        } else {
+            profileButton
+        }
+    }
+    
+    // MARK: - Center Chip (Listening/Score)
     
     @ViewBuilder
     private var centerChip: some View {
@@ -124,9 +163,28 @@ struct FloatingHUDLayer: View {
             ResonanceChip(score: score)
         } else if isListening {
             ListeningChip(isVisible: true)
-        } else {
-            Color.clear.frame(width: 100, height: 32)
         }
+    }
+    
+    /// Chip showing current loop iteration (e.g., "🔁 1 of 3")
+    /// Uses icon instead of text to match Exit chip width
+    private var loopProgressChip: some View {
+        HStack(spacing: AppTheme.Spacing.xs) {
+            Image(systemName: "repeat")
+                .font(.system(size: 14, weight: .semibold))
+            
+            Text(loopChipNumbers)
+                .font(AppTypography.caption1.weight(.medium))
+        }
+        .foregroundStyle(AppColors.textSecondary)
+        .frame(width: symmetricChipWidth, height: chipHeight)
+        .background(AppColors.surfaceTertiary.opacity(0.8))
+        .clipShape(Capsule())
+    }
+    
+    /// Just the numbers for the loop chip (e.g., "1 of 3")
+    private var loopChipNumbers: String {
+        "\(store.loopConfiguration.currentLoopIteration) of \(store.loopConfiguration.loopCount)"
     }
     
     // MARK: - Buttons
@@ -188,8 +246,7 @@ struct FloatingHUDLayer: View {
                     .font(AppTypography.caption1.weight(.medium))
             }
             .foregroundStyle(AppColors.textSecondary)
-            .padding(.horizontal, AppTheme.Spacing.md)
-            .padding(.vertical, AppTheme.Spacing.sm)
+            .frame(width: symmetricChipWidth, height: chipHeight)
             .background(AppColors.surfaceTertiary.opacity(0.8))
             .clipShape(Capsule())
         }

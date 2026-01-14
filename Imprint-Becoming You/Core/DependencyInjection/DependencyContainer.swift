@@ -38,6 +38,7 @@ import SwiftData
 /// @Environment(\.modelContext) private var modelContext
 ///
 /// let repository = dependencies.makeAffirmationRepository(modelContext: modelContext)
+/// let savedSessionRepo = dependencies.makeSavedSessionRepository(modelContext: modelContext)
 /// ```
 @MainActor
 final class DependencyContainer: Sendable {
@@ -160,6 +161,20 @@ final class DependencyContainer: Sendable {
         return AffirmationRepository(modelContext: modelContext)
     }
     
+    /// Creates a saved session repository for the given model context.
+    ///
+    /// For production, returns a real `SavedSessionRepository`.
+    /// For previews, returns a `MockSavedSessionRepository`.
+    ///
+    /// - Parameter modelContext: SwiftData model context
+    /// - Returns: Repository conforming to `SavedSessionRepositoryProtocol`
+    func makeSavedSessionRepository(modelContext: ModelContext) -> any SavedSessionRepositoryProtocol {
+        if isPreview {
+            return MockSavedSessionRepository()
+        }
+        return SavedSessionRepository(modelContext: modelContext)
+    }
+    
     /// Creates an offline content loader.
     ///
     /// Note: The loader should be created ad-hoc when needed since its methods
@@ -246,7 +261,8 @@ func previewModelContainer() -> ModelContainer {
         UserProfile.self,
         Affirmation.self,
         CustomPrompt.self,
-        ProgressData.self
+        ProgressData.self,
+        SavedSession.self
     ])
     
     let configuration = ModelConfiguration(

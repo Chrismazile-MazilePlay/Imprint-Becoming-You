@@ -116,4 +116,17 @@ enum SessionMode: String, CaseIterable, Identifiable, Codable, Sendable {
     var producesResonanceScore: Bool {
         usesAudioInput
     }
+    
+    // MARK: - Static Collections
+    
+    /// Modes available for practice sessions (excludes Read Only).
+    ///
+    /// Read Only is for browsing affirmations, not for structured practice.
+    /// Use this collection when presenting mode options for:
+    /// - Practice Favorites
+    /// - Saved Sessions
+    /// - Results Summary repeat configuration
+    static var playableCases: [SessionMode] {
+        [.readAloud, .readThenSpeak, .speakOnly]
+    }
 }

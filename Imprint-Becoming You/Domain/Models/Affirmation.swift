@@ -75,14 +75,20 @@ enum AffirmationSource: String, Codable, Sendable, CaseIterable {
 /// ## Source-Based Lifecycle
 /// | Source | Expires | Deleted | Offline |
 /// |--------|---------|---------|---------|
-/// | .seeded | Never | Never | Always âœ“ |
+/// | .seeded | Never | Never | Always ✓ |
 /// | .backend | Yes | When expired | Cached |
 /// | .generated | Yes | When expired | Cached |
+///
+/// ## Protection Rules
+/// Affirmations cannot be deleted if they are:
+/// - Seeded content (always protected)
+/// - Part of any saved session (reference counting)
 ///
 /// ## Related Types
 /// - `AffirmationSource` - Enum defining content origin
 /// - `ResonanceRecord` - Defined in Domain/Models/ResonanceRecord.swift
 /// - `GoalCategory` - Defined in Constants.swift
+/// - `SavedSession` - Sessions that reference this affirmation
 @Model
 final class Affirmation {
     
@@ -178,6 +184,15 @@ final class Affirmation {
     
     /// Date of last interaction with this affirmation
     var lastInteractedAt: Date?
+    
+    // MARK: - Saved Session Relationship
+    
+    /// Saved sessions that include this affirmation.
+    ///
+    /// This relationship enables reference counting - affirmations
+    /// cannot be deleted while they belong to any saved session.
+    @Relationship
+    var savedSessions: [SavedSession] = []
     
     // MARK: - Legacy Properties (Migration Support)
     
@@ -322,6 +337,15 @@ extension Affirmation {
     /// Whether this is AI-generated content
     var isGenerated: Bool {
         source == .generated
+    }
+    
+    /// Whether this affirmation is protected from deletion.
+    ///
+    /// An affirmation is protected if:
+    /// - It is seeded content (always protected)
+    /// - It belongs to any saved session (reference counting)
+    var isProtected: Bool {
+        isSeeded || !savedSessions.isEmpty
     }
     
     /// The most recent resonance score

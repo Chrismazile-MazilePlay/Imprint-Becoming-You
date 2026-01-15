@@ -20,15 +20,20 @@ import SwiftUI
 /// |-------|-----------------|-------------|--------|
 /// | Normal | ✏️ ⓘ | ✏️ ⓘ | Standard |
 /// | Selected | ✏️ ⓘ | ✏️ ⓘ | Accent |
-/// | Editing | ✏️ 🗑️ | (none) | Standard |
+/// | Editing | ✏️ 🗑️ | (hidden) | Standard |
 ///
 /// ## Layout
+/// Icons are aligned with the title row (top of card):
 /// ```
 /// ┌────────────────────────────────────────────────────────────┐
 /// │  Morning Confidence                           ✏️     ⓘ    │
 /// │  5 affirmations • Last played today                       │
 /// └────────────────────────────────────────────────────────────┘
 /// ```
+///
+/// ## Layout Locking
+/// When icons are hidden (during edit mode on other cards), space is reserved
+/// using `.opacity(0)` to prevent text reflow.
 struct SavedSessionCard: View {
     
     // MARK: - Properties
@@ -110,9 +115,9 @@ struct SavedSessionCard: View {
     // MARK: - Card Content
     
     private var cardContent: some View {
-        HStack(spacing: AppTheme.Spacing.md) {
-            // Main content
-            VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
+            // Title row with icons overlaid
+            HStack(spacing: AppTheme.Spacing.sm) {
                 // Title (text or text field)
                 if isEditing {
                     TextField("Session name", text: $editingTitle)
@@ -136,18 +141,22 @@ struct SavedSessionCard: View {
                         .lineLimit(1)
                 }
                 
-                // Subtitle
-                Text(subtitleText)
-                    .font(AppTypography.caption1)
-                    .foregroundStyle(AppColors.textSecondary)
+                Spacer(minLength: 0)
+                
+                // Invisible spacer to reserve width for icons (prevents text reflow)
+                Color.clear
+                    .frame(width: iconAreaWidth, height: 1)
             }
-            
-            Spacer(minLength: 0)
-            
-            // Action icons
-            if showIcons {
+            .overlay(alignment: .trailing) {
+                // Action icons overlaid, vertically centered with title
                 actionIcons
+                    .opacity(showIcons ? 1 : 0)
             }
+            
+            // Subtitle row
+            Text(subtitleText)
+                .font(AppTypography.caption1)
+                .foregroundStyle(AppColors.textSecondary)
         }
         .padding(AppTheme.Spacing.md)
         .background(
@@ -160,6 +169,11 @@ struct SavedSessionCard: View {
         )
         .contentShape(Rectangle())
     }
+    
+    // MARK: - Constants
+    
+    /// Width reserved for the icon area (2 icons with compact spacing)
+    private let iconAreaWidth: CGFloat = 72
     
     // MARK: - Subtitle
     
@@ -177,16 +191,18 @@ struct SavedSessionCard: View {
     
     // MARK: - Action Icons
     
+    /// Action icons with 44pt tap targets (Apple HIG minimum).
+    /// Overlaid on title row and vertically centered with title text.
     private var actionIcons: some View {
-        HStack(spacing: AppTheme.Spacing.sm) {
+        HStack(spacing: -8) {
             // Edit button (always visible when icons show)
             Button {
                 onEdit()
             } label: {
                 Image(systemName: "pencil")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(AppColors.textSecondary)
-                    .frame(width: 36, height: 36)
+                    .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel("Edit session name")
@@ -197,9 +213,9 @@ struct SavedSessionCard: View {
                     onDelete()
                 } label: {
                     Image(systemName: "trash")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(AppColors.destructive)
-                        .frame(width: 36, height: 36)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel("Delete session")
@@ -209,9 +225,9 @@ struct SavedSessionCard: View {
                     onInfo()
                 } label: {
                     Image(systemName: "info.circle")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(isInfoEnabled ? AppColors.textSecondary : AppColors.textTertiary)
-                        .frame(width: 36, height: 36)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .disabled(!isInfoEnabled)
@@ -316,7 +332,7 @@ struct SavedSessionCard: View {
             onTitleCommit: {}
         )
         
-        // This card is NOT editing - no icons
+        // This card is NOT editing - icons hidden but layout preserved
         SavedSessionCard(
             session: SavedSession(
                 name: "Other Session",

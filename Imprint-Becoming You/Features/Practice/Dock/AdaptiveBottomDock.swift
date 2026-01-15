@@ -11,28 +11,31 @@ import SwiftUI
 
 /// The unified morphing bottom dock that adapts its content based on context.
 ///
+/// This component is a **pure dock row** - it renders only the dock content (chips, buttons)
+/// and has **no knowledge of menus**. Menu handling (Mode selector, Binaural selector) is
+/// delegated to `AdaptiveDockContainer`.
+///
 /// ## Supported Contexts
 ///
 /// ### Practice Mode (via `init(store:)`)
-/// - **Home**: Mode selector + Binaural selector (compact)
-/// - **Active Session**: Progress bars + Waveform/Score + Navigation + Mode/Binaural controls
+/// - **Home**: Mode button + Binaural button (compact)
+/// - **Active Session**: Progress bars + Waveform/Score + Navigation + Mode/Binaural buttons
 ///
-/// ### Configuration Mode (via `init(label:selectedMode:...)`)
-/// - **Results/Favorites/Saved Sessions**: Label + Mode + Loops + Shuffle + Play
+/// ### Configuration Mode (via `init(selectedMode:...)`)
+/// - **Results/Favorites/Saved Sessions**: Mode + Loops + Shuffle + Play
 ///
 /// ## Layout (Configuration Mode)
 /// ```
-///              Practice 9 affirmations              ← Label
-/// ┌─────────────────────┐      ┌────────┐  ┌────────┐      ┌────┐
+/// ┌─────────────────────────┐      ┌────────┐  ┌────────┐      ┌────┐
 /// │ 📖 Read Aloud    ▼  │      │ 🔁 3   │  │  🔀    │      │ ▶  │
-/// └─────────────────────┘      └────────┘  └────────┘      └────┘
+/// └─────────────────────────┘      └────────┘  └────────┘      └────┘
 ///       Left-aligned              Centered chips          Right-aligned
 /// ```
 ///
-/// ## Animation
-/// The mode selector always slides up/down with consistent spring animation
-/// regardless of context. The menu expands INTO the space above the dock,
-/// never pushing parent content down.
+/// ## Menu Handling
+/// This component does NOT render expanded menus. When mode/binaural buttons are tapped,
+/// they toggle state in the store or binding. The parent `AdaptiveDockContainer` is
+/// responsible for rendering the actual menu panels.
 struct AdaptiveBottomDock: View {
     
     // MARK: - Dock Mode
@@ -96,7 +99,6 @@ struct AdaptiveBottomDock: View {
     /// Creates a dock for configuration mode (Results, Favorites, Saved Sessions).
     ///
     /// - Parameters:
-    ///   - label: Unused - kept for backwards compatibility, labels handled by `DockGradientContainer`
     ///   - selectedMode: Binding to the selected session mode
     ///   - loopCount: Binding to the loop count (1, 3, or 5)
     ///   - shuffleEnabled: Binding to shuffle toggle state
@@ -105,7 +107,6 @@ struct AdaptiveBottomDock: View {
     ///   - isDisabled: Whether all controls are disabled (empty state)
     ///   - onPlay: Action when play button is tapped
     init(
-        label: String = "",
         selectedMode: Binding<SessionMode>,
         loopCount: Binding<Int>,
         shuffleEnabled: Binding<Bool>,
@@ -129,14 +130,8 @@ struct AdaptiveBottomDock: View {
     // MARK: - Body
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Expanded selectors (mode selector slides up here)
-            expandedSelectors
-            
-            // Main dock content
-            mainDockContent
-        }
-        .animation(AppTheme.Animation.standard, value: animationTriggers)
+        mainDockContent
+            .animation(AppTheme.Animation.standard, value: animationTriggers)
     }
     
     /// Combined animation triggers for smooth transitions
@@ -147,25 +142,19 @@ struct AdaptiveBottomDock: View {
                 return AnimationTriggers(
                     mode: .readThenSpeak,
                     binaural: .off,
-                    isActive: false,
-                    isModeExpanded: false,
-                    isBinauralExpanded: false
+                    isActive: false
                 )
             }
             return AnimationTriggers(
                 mode: store.currentMode,
                 binaural: store.binauralPreset,
-                isActive: store.isSessionActive,
-                isModeExpanded: store.isModeSelectorExpanded,
-                isBinauralExpanded: store.isBinauralSelectorExpanded
+                isActive: store.isSessionActive
             )
         case .configuration:
             return AnimationTriggers(
                 mode: configSelectedMode,
                 binaural: .off,
-                isActive: false,
-                isModeExpanded: configIsModeSelectorExpanded,
-                isBinauralExpanded: false
+                isActive: false
             )
         }
     }
@@ -189,20 +178,6 @@ struct AdaptiveBottomDock: View {
             configurationModeContent
         }
     }
-    
-    // MARK: - Expanded Selectors
-    
-    @ViewBuilder
-    private var expandedSelectors: some View {
-        switch dockMode {
-        case .practice:
-            practiceExpandedSelectors
-            
-        case .configuration:
-            // Mode selector is handled by DockGradientContainer
-            EmptyView()
-        }
-    }
 }
 
 // MARK: - Animation Triggers
@@ -212,40 +187,11 @@ private struct AnimationTriggers: Equatable {
     let mode: SessionMode
     let binaural: BinauralPreset
     let isActive: Bool
-    let isModeExpanded: Bool
-    let isBinauralExpanded: Bool
 }
 
 // MARK: - Practice Mode Content
 
 extension AdaptiveBottomDock {
-    
-    @ViewBuilder
-    private var practiceExpandedSelectors: some View {
-        if let store = store {
-            if store.isModeSelectorExpanded {
-                ModeSelectorExpanded(
-                    selectedMode: store.currentMode,
-                    onSelect: { mode in
-                        store.send(.selectMode(mode))
-                    }
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .padding(.bottom, AppTheme.Spacing.sm)
-            }
-            
-            if store.isBinauralSelectorExpanded {
-                BinauralSelectorExpanded(
-                    selectedPreset: store.binauralPreset,
-                    onSelect: { preset in
-                        store.send(.selectBinaural(preset))
-                    }
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .padding(.bottom, AppTheme.Spacing.sm)
-            }
-        }
-    }
     
     @ViewBuilder
     private var practiceModeContent: some View {
@@ -626,8 +572,8 @@ extension AdaptiveBottomDock {
                 VStack {
                     Spacer()
                     
-                    // Use DockGradientContainer with AdaptiveBottomDock
-                    DockGradientContainer.favorites(
+                    // Use AdaptiveDockContainer with AdaptiveBottomDock
+                    AdaptiveDockContainer.favorites(
                         count: 9,
                         isModeSelectorExpanded: $expanded,
                         selectedMode: $mode
@@ -663,7 +609,7 @@ extension AdaptiveBottomDock {
                 VStack {
                     Spacer()
                     
-                    DockGradientContainer.favorites(
+                    AdaptiveDockContainer.favorites(
                         count: 0,
                         isModeSelectorExpanded: $expanded,
                         selectedMode: $mode

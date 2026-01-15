@@ -142,11 +142,27 @@ struct SavedSessionsFullListView: View {
             }
             
             // Fixed dock at bottom
-            VStack {
-                Spacer()
-                dockArea
+            // AdaptiveDockContainer handles:
+            // - Dismiss overlay for menus
+            // - Menu expansion (Mode selector)
+            // - Gradient fade
+            // - Dock positioning
+            AdaptiveDockContainer.savedSessions(
+                isModeSelectorExpanded: $isModeSelectorExpanded,
+                selectedMode: $selectedMode
+            ) {
+                AdaptiveBottomDock(
+                    selectedMode: $selectedMode,
+                    loopCount: $loopCount,
+                    shuffleEnabled: $shuffleEnabled,
+                    isModeSelectorExpanded: $isModeSelectorExpanded,
+                    isPlayEnabled: isPlayEnabled,
+                    isDisabled: isEmpty,
+                    onPlay: {
+                        playSelectedSession()
+                    }
+                )
             }
-            .ignoresSafeArea(.keyboard)
         }
         .navigationTitle("Saved Sessions")
         .navigationBarTitleDisplayMode(.inline)
@@ -271,27 +287,6 @@ struct SavedSessionsFullListView: View {
             }
             .padding(.horizontal, AppTheme.Spacing.lg)
             .padding(.vertical, AppTheme.Spacing.md)
-        }
-    }
-    
-    // MARK: - Dock Area
-    
-    private var dockArea: some View {
-        DockGradientContainer.savedSessions(
-            isModeSelectorExpanded: $isModeSelectorExpanded,
-            selectedMode: $selectedMode
-        ) {
-            AdaptiveBottomDock(
-                selectedMode: $selectedMode,
-                loopCount: $loopCount,
-                shuffleEnabled: $shuffleEnabled,
-                isModeSelectorExpanded: $isModeSelectorExpanded,
-                isPlayEnabled: isPlayEnabled,
-                isDisabled: isEmpty,
-                onPlay: {
-                    playSelectedSession()
-                }
-            )
         }
     }
     

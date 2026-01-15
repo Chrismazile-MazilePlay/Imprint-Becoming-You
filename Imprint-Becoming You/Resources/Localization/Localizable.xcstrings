@@ -84,6 +84,9 @@
     "AI Prompts" : {
 
     },
+    "All loops complete!" : {
+
+    },
     "Already at first affirmation" : {
 
     },
@@ -151,6 +154,9 @@
 
     },
     "Continue in Read-Only Mode" : {
+
+    },
+    "Continue to next loop?" : {
 
     },
     "Create custom prompts to generate\npersonalized affirmations." : {
@@ -354,6 +360,9 @@
 
     },
     "Session Complete" : {
+
+    },
+    "Session completed" : {
 
     },
     "Session info" : {

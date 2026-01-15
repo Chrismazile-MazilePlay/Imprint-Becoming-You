@@ -574,7 +574,7 @@ struct SettingsRow: View {
 /// Full list of favorites accessible from Profile page.
 ///
 /// Uses `AffirmationListCard` for consistent card styling and
-/// `DockGradientContainer` for clean visual separation from the dock.
+/// `AdaptiveDockContainer` for unified dock/menu handling.
 ///
 /// ## Layout
 /// ```
@@ -641,10 +641,28 @@ struct FavoritesFullListView: View {
                 favoritesList
             }
             
-            // Fixed dock area with gradient
-            VStack {
-                Spacer()
-                dockArea
+            // Fixed dock area
+            // AdaptiveDockContainer handles:
+            // - Dismiss overlay for menus
+            // - Menu expansion (Mode selector)
+            // - Gradient fade
+            // - Dock positioning
+            AdaptiveDockContainer.favorites(
+                count: favorites.count,
+                isModeSelectorExpanded: $isModeSelectorExpanded,
+                selectedMode: $selectedMode
+            ) {
+                AdaptiveBottomDock(
+                    selectedMode: $selectedMode,
+                    loopCount: $loopCount,
+                    shuffleEnabled: $shuffleEnabled,
+                    isModeSelectorExpanded: $isModeSelectorExpanded,
+                    isPlayEnabled: hasFavorites,
+                    isDisabled: !hasFavorites,
+                    onPlay: {
+                        startFavoritesSession()
+                    }
+                )
             }
         }
         .navigationTitle("Favorites")
@@ -713,28 +731,6 @@ struct FavoritesFullListView: View {
             }
             .padding(.horizontal, AppTheme.Spacing.lg)
             .padding(.vertical, AppTheme.Spacing.md)
-        }
-    }
-    
-    // MARK: - Dock Area
-    
-    private var dockArea: some View {
-        DockGradientContainer.favorites(
-            count: favorites.count,
-            isModeSelectorExpanded: $isModeSelectorExpanded,
-            selectedMode: $selectedMode
-        ) {
-            AdaptiveBottomDock(
-                selectedMode: $selectedMode,
-                loopCount: $loopCount,
-                shuffleEnabled: $shuffleEnabled,
-                isModeSelectorExpanded: $isModeSelectorExpanded,
-                isPlayEnabled: hasFavorites,
-                isDisabled: !hasFavorites,
-                onPlay: {
-                    startFavoritesSession()
-                }
-            )
         }
     }
     

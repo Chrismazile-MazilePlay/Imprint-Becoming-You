@@ -12,7 +12,14 @@ import SwiftUI
 /// Displays the results of a completed practice session.
 ///
 /// Uses NavigationStack with standard nav bar for proper scroll behavior
-/// and `DockGradientContainer` for clean visual separation.
+/// and `AdaptiveDockContainer` for unified dock/menu handling.
+///
+/// ## Architecture
+/// The dock is embedded within the view hierarchy (not overlaid) to ensure
+/// it animates together with the sheet during presentation. The structure:
+/// 1. NavigationStack provides nav bar and scroll behavior
+/// 2. ZStack layers: background → content → dock container
+/// 3. AdaptiveDockContainer handles menu expansion and dismiss overlay
 ///
 /// ## Layout
 /// ```
@@ -112,44 +119,66 @@ struct ResultsSummaryView: View {
     
     var body: some View {
         NavigationStack {
-            ZStack {
-                // Background
-                AppColors.backgroundPrimary
-                    .ignoresSafeArea()
-                
-                // Scrollable content
-                scrollableContent
-                
-                // Fixed dock area with gradient
-                VStack {
-                    Spacer()
-                    dockArea
-                }
-                .ignoresSafeArea(.keyboard)
-            }
-            .navigationTitle("Session Complete")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
-                        onClose()
-                    }
-                    .foregroundStyle(AppColors.accent)
-                }
-                
-                // Save button in nav bar (hidden if playing saved session)
-                if !isPlayingSavedSession {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            onSaveSession()
-                        } label: {
-                            Image(systemName: "square.and.arrow.down")
-                                .font(.system(size: 16, weight: .medium))
+            mainContent
+                .navigationTitle("Session Complete")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Close") {
+                            onClose()
                         }
                         .foregroundStyle(AppColors.accent)
-                        .accessibilityLabel("Save session")
+                    }
+                    
+                    // Save button in nav bar (hidden if playing saved session)
+                    if !isPlayingSavedSession {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button {
+                                onSaveSession()
+                            } label: {
+                                Image(systemName: "square.and.arrow.down")
+                                    .font(.system(size: 16, weight: .medium))
+                            }
+                            .foregroundStyle(AppColors.accent)
+                            .accessibilityLabel("Save session")
+                        }
                     }
                 }
+        }
+    }
+    
+    // MARK: - Main Content
+    
+    /// Main content structure with dock embedded (not overlaid)
+    /// This ensures the dock animates with the sheet during presentation
+    private var mainContent: some View {
+        ZStack {
+            // Background
+            AppColors.backgroundPrimary
+                .ignoresSafeArea()
+            
+            // Scrollable content
+            scrollableContent
+            
+            // Fixed dock container
+            // AdaptiveDockContainer handles:
+            // - Dismiss overlay for menus
+            // - Menu expansion (Mode selector)
+            // - Gradient fade
+            // - Dock positioning
+            AdaptiveDockContainer.resultsSummary(
+                isModeSelectorExpanded: $isModeSelectorExpanded,
+                selectedMode: $selectedMode
+            ) {
+                AdaptiveBottomDock(
+                    selectedMode: $selectedMode,
+                    loopCount: $loopCount,
+                    shuffleEnabled: $shuffleEnabled,
+                    isModeSelectorExpanded: $isModeSelectorExpanded,
+                    onPlay: {
+                        onRepeat(selectedMode, loopCount, shuffleEnabled)
+                    }
+                )
             }
         }
     }
@@ -216,25 +245,6 @@ struct ResultsSummaryView: View {
                 // Use composite id that includes isFavorited to force re-render
                 .id("\(result.id.uuidString)-\(result.isFavorited)")
             }
-        }
-    }
-    
-    // MARK: - Dock Area
-    
-    private var dockArea: some View {
-        DockGradientContainer.resultsSummary(
-            isModeSelectorExpanded: $isModeSelectorExpanded,
-            selectedMode: $selectedMode
-        ) {
-            AdaptiveBottomDock(
-                selectedMode: $selectedMode,
-                loopCount: $loopCount,
-                shuffleEnabled: $shuffleEnabled,
-                isModeSelectorExpanded: $isModeSelectorExpanded,
-                onPlay: {
-                    onRepeat(selectedMode, loopCount, shuffleEnabled)
-                }
-            )
         }
     }
 }

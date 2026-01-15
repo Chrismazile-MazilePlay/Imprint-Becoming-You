@@ -30,11 +30,17 @@ import SwiftData
 /// ## Color Morphing
 /// Background colors use true RGB interpolation (not opacity crossfade) for smooth
 /// transitions. The system has two modes:
-/// - **Active navigation** (progress Ã¢â€°Â  0): Uses `interpolatedBackground` for real-time color blending
-/// - **At rest** (progress Ã¢â€°Ë† 0): Uses `staticBackground` with `displayedBackgroundCategory`
+/// - **Active navigation** (progress ≠ 0): Uses `interpolatedBackground` for real-time color blending
+/// - **At rest** (progress ≈ 0): Uses `staticBackground` with `displayedBackgroundCategory`
 ///
 /// When navigation completes, `displayedBackgroundCategory` is immediately updated
 /// to match the new index, ensuring seamless handoff between modes.
+///
+/// ## Dock Architecture
+/// Uses `AdaptiveDockContainer` which handles:
+/// - Dismiss overlay (tap anywhere to close expanded menus)
+/// - Mode and Binaural selector expansion
+/// - Dock positioning (anchored to bottom, grows upward)
 ///
 /// ## Auto-Advance Integration
 /// - Store sets `pendingAutoAdvance` to trigger animated transition
@@ -65,7 +71,7 @@ struct PracticePageView: View {
     
     @State private var showCategories = false
     
-    /// Tracks the background category to display when at rest (progress Ã¢â€°Ë† 0).
+    /// Tracks the background category to display when at rest (progress ≈ 0).
     /// Updated immediately (no animation) when index changes, because the
     /// progress-based interpolation already handles the visual transition.
     @State private var displayedBackgroundCategory: GoalCategory?
@@ -74,17 +80,6 @@ struct PracticePageView: View {
     
     var body: some View {
         ZStack {
-            // Dismiss overlay - appears when selectors are expanded
-            // This must be BELOW the dock but ABOVE the pager content
-            if store.isModeSelectorExpanded || store.isBinauralSelectorExpanded {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        store.send(.closeSelectors)
-                    }
-                    .zIndex(1)
-            }
-            
             // Vertical pager with auto-advance support
             VerticalPager(
                 currentIndex: currentIndexBinding,
@@ -105,7 +100,6 @@ struct PracticePageView: View {
             
             // Fixed overlay layers (don't move with gesture)
             overlayLayers
-                .zIndex(2) // Dock is above the dismiss overlay
         }
         .gesture(horizontalBlockingGesture)
         .fullScreenCover(isPresented: $showCategories) {
@@ -185,7 +179,7 @@ struct PracticePageView: View {
     ///
     /// Uses two rendering modes:
     /// - **At rest** (|progress| < 0.01): Shows static gradient for `displayedBackgroundCategory`
-    /// - **During navigation** (|progress| Ã¢â€°Â¥ 0.01): Interpolates between current and target colors
+    /// - **During navigation** (|progress| ≥ 0.01): Interpolates between current and target colors
     ///
     /// The handoff between modes is seamless because `displayedBackgroundCategory`
     /// is updated immediately when the index changes.
@@ -375,15 +369,14 @@ struct PracticePageView: View {
             onCategoriesTap: { showCategories = true }
         )
         
-        // Bottom dock - anchored to bottom edge, grows upward
-        VStack(spacing: 0) {
-            Spacer(minLength: 0)
-            
+        // Bottom dock with unified container
+        // AdaptiveDockContainer handles:
+        // - Dismiss overlay (tap anywhere to close menus)
+        // - Menu expansion (Mode selector, Binaural selector)
+        // - Dock positioning (anchored to bottom, grows upward)
+        AdaptiveDockContainer(store: store) {
             AdaptiveBottomDock(store: store)
-                .padding(.horizontal, AppTheme.Spacing.lg)
         }
-        .padding(.bottom, AppTheme.Layout.dockBottomPadding)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }
     
     // MARK: - Horizontal Blocking Gesture

@@ -15,6 +15,10 @@ import SwiftData
 /// Uses the unified `AdaptiveBottomDock` in configuration mode.
 /// The dock is fixed at the bottom with the mode selector sliding up.
 ///
+/// ## Scroll Indicator
+/// Uses `safeAreaInset(edge: .bottom)` to ensure the scroll indicator
+/// remains visible above the gradient/dock overlay.
+///
 /// ## Layout
 /// ```
 /// ┌─────────────────────────────────────────────────────────────────────┐
@@ -101,8 +105,8 @@ struct SavedSessionsFullListView: View {
     
     // MARK: - Constants
     
-    /// Height reserved for the dock area at bottom
-    private let dockAreaHeight: CGFloat = 140
+    /// Height reserved for the dock area at bottom (for safeAreaInset)
+    private let dockAreaHeight: CGFloat = 110
     
     // MARK: - Computed Properties
     
@@ -241,12 +245,11 @@ struct SavedSessionsFullListView: View {
                 .multilineTextAlignment(.center)
             
             Spacer()
-            
-            // Padding for dock
-            Spacer()
-                .frame(height: dockAreaHeight)
         }
         .padding(.horizontal, AppTheme.Spacing.xl)
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: dockAreaHeight)
+        }
     }
     
     // MARK: - Sessions List
@@ -264,7 +267,7 @@ struct SavedSessionsFullListView: View {
                             handleCardTap(session)
                         },
                         onEdit: {
-                            startEditing(session)
+                            toggleEditing(session)
                         },
                         onInfo: {
                             showInfo(for: session)
@@ -280,13 +283,12 @@ struct SavedSessionsFullListView: View {
                         }
                     )
                 }
-                
-                // Bottom padding for dock
-                Color.clear
-                    .frame(height: dockAreaHeight + AppTheme.Spacing.xl)
             }
             .padding(.horizontal, AppTheme.Spacing.lg)
             .padding(.vertical, AppTheme.Spacing.md)
+        }
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: dockAreaHeight)
         }
     }
     
@@ -307,6 +309,19 @@ struct SavedSessionsFullListView: View {
     }
     
     // MARK: - Edit Mode Handling
+    
+    /// Toggles edit mode for a session.
+    /// If already editing this session, saves and exits.
+    /// If not editing, starts editing this session.
+    private func toggleEditing(_ session: SavedSession) {
+        if editingSessionId == session.id {
+            // Already editing this session - save and exit
+            saveAndExitEditing()
+        } else {
+            // Not editing this session - start editing
+            startEditing(session)
+        }
+    }
     
     private func startEditing(_ session: SavedSession) {
         // Store original title for cancel/revert

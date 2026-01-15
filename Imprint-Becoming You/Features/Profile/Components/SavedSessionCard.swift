@@ -149,7 +149,10 @@ struct SavedSessionCard: View {
             }
             .overlay(alignment: .trailing) {
                 // Action icons overlaid, vertically centered with title
+                // Offset to align icon glyph with card's internal padding
+                // (compensates for the 44pt tap target frame centering)
                 actionIcons
+                    .padding(.trailing, -14)
                     .opacity(showIcons ? 1 : 0)
             }
             
@@ -172,8 +175,8 @@ struct SavedSessionCard: View {
     
     // MARK: - Constants
     
-    /// Width reserved for the icon area (2 icons with compact spacing)
-    private let iconAreaWidth: CGFloat = 72
+    /// Width reserved for the icon area (accounts for offset positioning)
+    private let iconAreaWidth: CGFloat = 60
     
     // MARK: - Subtitle
     
@@ -193,6 +196,7 @@ struct SavedSessionCard: View {
     
     /// Action icons with 44pt tap targets (Apple HIG minimum).
     /// Overlaid on title row and vertically centered with title text.
+    /// Uses ZStack for the second icon position to lock layout during edit mode transition.
     private var actionIcons: some View {
         HStack(spacing: -8) {
             // Edit button (always visible when icons show)
@@ -207,19 +211,8 @@ struct SavedSessionCard: View {
             }
             .accessibilityLabel("Edit session name")
             
-            if isEditing {
-                // Delete button (only in edit mode)
-                Button {
-                    onDelete()
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(AppColors.destructive)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("Delete session")
-            } else {
+            // Second icon position - ZStack locks layout during transition
+            ZStack {
                 // Info button (normal mode)
                 Button {
                     onInfo()
@@ -231,8 +224,25 @@ struct SavedSessionCard: View {
                         .contentShape(Rectangle())
                 }
                 .disabled(!isInfoEnabled)
+                .opacity(isEditing ? 0 : 1)
                 .accessibilityLabel("Session info")
+                .accessibilityHidden(isEditing)
+                
+                // Delete button (edit mode)
+                Button {
+                    onDelete()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(AppColors.destructive)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .opacity(isEditing ? 1 : 0)
+                .accessibilityLabel("Delete session")
+                .accessibilityHidden(!isEditing)
             }
+            .frame(width: 44, height: 44)
         }
     }
 }

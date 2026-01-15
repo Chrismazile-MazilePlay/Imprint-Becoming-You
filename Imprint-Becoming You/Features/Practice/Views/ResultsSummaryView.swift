@@ -14,6 +14,10 @@ import SwiftUI
 /// Uses NavigationStack with standard nav bar for proper scroll behavior
 /// and `AdaptiveDockContainer` for unified dock/menu handling.
 ///
+/// ## Scroll Indicator
+/// Uses `safeAreaInset(edge: .bottom)` to ensure the scroll indicator
+/// remains visible above the gradient/dock overlay.
+///
 /// ## Architecture
 /// The dock is embedded within the view hierarchy (not overlaid) to ensure
 /// it animates together with the sheet during presentation. The structure:
@@ -87,8 +91,8 @@ struct ResultsSummaryView: View {
     
     // MARK: - Constants
     
-    /// Height reserved for the dock area at bottom
-    private let dockAreaHeight: CGFloat = 160
+    /// Height reserved for the dock area at bottom (for safeAreaInset)
+    private let dockAreaHeight: CGFloat = 110
     
     // MARK: - Initialization
     
@@ -193,12 +197,11 @@ struct ResultsSummaryView: View {
                 
                 // Affirmation cards (sorted: scored first, then skipped)
                 cardsSection
-                
-                // Bottom padding to clear the dock area
-                Spacer()
-                    .frame(height: dockAreaHeight)
             }
             .padding(.horizontal, AppTheme.Spacing.lg)
+        }
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: dockAreaHeight)
         }
     }
     

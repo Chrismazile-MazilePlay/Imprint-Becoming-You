@@ -101,7 +101,7 @@ struct AdaptiveDockContainer<DockContent: View>: View {
     private let configDockBaseHeight: CGFloat = 72
     
     /// Dock height for practice active mode (progress + waveform + buttons)
-    private let practiceActiveDockHeight: CGFloat = 150
+    private let practiceActiveDockHeight: CGFloat = 180
     
     /// Extra spacing between menu bottom and dock top
     private let menuDockSpacing: CGFloat = 12

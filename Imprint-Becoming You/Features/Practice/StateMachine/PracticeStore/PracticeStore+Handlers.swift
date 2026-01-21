@@ -16,25 +16,79 @@ extension PracticeStore {
         flowGeneration += 1
         setSegmentProgress(0)
         
-        // Reset loop configuration when starting a new session via mode selector
-        resetLoopConfiguration()
-        clearSavedSessionContext()
-        clearOriginalSessionAffirmationIds()
-        
         withAnimation(AppTheme.Animation.standard) {
             isModeSelectorExpanded = false
             isBinauralSelectorExpanded = false
         }
         
         if mode == .readOnly {
+            // Exiting to home - clear session
+            resetLoopConfiguration()
+            clearSavedSessionContext()
+            clearOriginalSessionAffirmationIds()
+            
+            // CRITICAL: Reset session mode to default browse mode
+            sessionMode = .readOnly
+            
             withAnimation(AppTheme.Animation.standard) {
                 setFlow(.home)
             }
             setSessionState(affirmations: [], index: 0)
             setSessionResults([])
+        } else if isSessionActive {
+            // Mid-session mode switch: restart same session with new mode
+            // Preserves current affirmations (favorites, saved session, or random)
+            restartSessionWithMode(mode)
         } else {
+            // From home screen: start fresh session
+            resetLoopConfiguration()
+            clearSavedSessionContext()
+            clearOriginalSessionAffirmationIds()
             generateSessionQueue(forMode: mode)
         }
+    }
+    
+    /// Restarts the current session with a new mode.
+    ///
+    /// This preserves the current affirmations array (whether from favorites,
+    /// a saved session, or a random session) and simply restarts from index 0
+    /// with the new mode. All segment progress is reset.
+    ///
+    /// Use case: User is mid-session and wants to switch from Read & Speak
+    /// to Read Aloud without losing their current session context.
+    private func restartSessionWithMode(_ mode: SessionMode) {
+        #if DEBUG
+        print("[DEBUG] Restarting session with mode: \(mode)")
+        print("[DEBUG] Preserving \(affirmations.count) affirmations")
+        #endif
+        
+        // Reset position and progress, but keep same affirmations
+        setSessionState(index: 0)
+        setSessionResults([])
+        sessionMode = mode
+        sessionStartTime = Date()
+        
+        // Reset loop iteration for fresh restart
+        var config = loopConfiguration
+        config.resetIteration()
+        setLoopConfiguration(config)
+        
+        // Transition to new mode's initial state
+        withAnimation(AppTheme.Animation.standard) {
+            switch mode {
+            case .readOnly:
+                setFlow(.home)
+            case .readAloud:
+                setFlow(.readAloud(.idle))
+            case .readThenSpeak:
+                setFlow(.readAndSpeak(.idle))
+            case .speakOnly:
+                setFlow(.speakOnly(.idle))
+            }
+        }
+        
+        // Start the flow for the first affirmation
+        startFlowForCurrentAffirmation()
     }
     
     func handleSelectBinaural(_ preset: BinauralPreset) {

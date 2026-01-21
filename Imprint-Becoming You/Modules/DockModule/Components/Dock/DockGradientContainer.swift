@@ -69,7 +69,7 @@ public struct DockGradientContainer: View {
     ///   - gradientHeight: Height of the gradient fade. Default is 80pt.
     public init(
         dockHeight: CGFloat = 110,
-        gradientHeight: CGFloat = 80
+        gradientHeight: CGFloat = 70
     ) {
         self.dockHeight = dockHeight
         self.gradientHeight = gradientHeight

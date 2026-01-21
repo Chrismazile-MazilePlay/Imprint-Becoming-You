@@ -181,6 +181,15 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     /// Score display timer expired, ready to advance
     case scoreDisplayCompleted
     
+    // MARK: - Segment Timer Events
+    
+    /// Dock's segment animation timer completed (triggers auto-advance)
+    ///
+    /// This event is fired by the DockModule when a progress segment fills
+    /// from 0% to 100% over its configured duration WITHOUT user interruption.
+    /// The host should trigger auto-advance to the next affirmation.
+    case segmentTimerCompleted
+    
     // MARK: - Affirmation Events
     
     /// User toggled favorite on current affirmation
@@ -341,7 +350,7 @@ extension PracticeEvent {
             return true
         case .analysisStarted, .scoreCalculated, .scoreFailed, .scoreDisplayCompleted:
             return true
-        case .autoAdvanceCompleted, .loopIterationCompleted:
+        case .autoAdvanceCompleted, .loopIterationCompleted, .segmentTimerCompleted:
             return true
         default:
             return false
@@ -353,7 +362,7 @@ extension PracticeEvent {
         switch self {
         case .userNavigated, .navigateViaButton, .goToIndex, .autoAdvanceCompleted:
             return true
-        case .loopIterationCompleted:
+        case .loopIterationCompleted, .segmentTimerCompleted:
             return true
         default:
             return false
@@ -470,6 +479,8 @@ extension PracticeEvent: CustomStringConvertible {
             return "scoreFailed(\(err))"
         case .scoreDisplayCompleted:
             return "scoreDisplayCompleted"
+        case .segmentTimerCompleted:
+            return "segmentTimerCompleted"
         case .toggleFavorite:
             return "toggleFavorite"
         case .shareAffirmation:

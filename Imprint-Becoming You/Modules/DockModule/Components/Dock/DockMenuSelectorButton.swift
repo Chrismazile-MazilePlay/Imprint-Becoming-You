@@ -1,0 +1,202 @@
+//
+//  DockMenuSelectorButton.swift
+//  Imprint-Becoming You
+//
+//  Created by Christopher Mazile on 1/20/26.
+//
+
+import SwiftUI
+
+// MARK: - DockMenuSelectorButton
+
+/// A reusable chip-style button for menu selection (mode, binaural).
+///
+/// Always displays icon + label + chevron. Supports active state highlighting
+/// for options like binaural presets.
+///
+/// ## Usage
+///
+/// ```swift
+/// // Mode selector
+/// DockMenuSelectorButton(
+///     icon: adapter.currentMode.iconName,
+///     label: adapter.currentMode.displayName,
+///     isExpanded: adapter.isModeSelectorExpanded,
+///     isActive: false,
+///     action: { toggleModeSelector() }
+/// )
+///
+/// // Binaural selector (with active highlighting)
+/// DockMenuSelectorButton(
+///     icon: adapter.binauralPreset.iconName,
+///     label: adapter.binauralPreset.displayName,
+///     isExpanded: adapter.isBinauralSelectorExpanded,
+///     isActive: adapter.binauralPreset.isActive,
+///     action: { toggleBinauralSelector() }
+/// )
+/// ```
+public struct DockMenuSelectorButton: View {
+    
+    // MARK: - Environment
+    
+    @Environment(\.dockDesignTokens) private var tokens
+    @Environment(\.dockHapticsProvider) private var haptics
+    
+    // MARK: - Properties
+    
+    /// SF Symbol name for the icon
+    public let icon: String
+    
+    /// Display label for the button
+    public let label: String
+    
+    /// Whether the associated menu is expanded (affects chevron direction)
+    public let isExpanded: Bool
+    
+    /// Whether the button should show active/highlighted state
+    public let isActive: Bool
+    
+    /// Action to perform on tap
+    public let action: () -> Void
+    
+    // MARK: - Initialization
+    
+    public init(
+        icon: String,
+        label: String,
+        isExpanded: Bool,
+        isActive: Bool = false,
+        action: @escaping () -> Void
+    ) {
+        self.icon = icon
+        self.label = label
+        self.isExpanded = isExpanded
+        self.isActive = isActive
+        self.action = action
+    }
+    
+    // MARK: - Body
+    
+    public var body: some View {
+        Button {
+            haptics.lightImpact()
+            action()
+        } label: {
+            HStack(spacing: tokens.spacingXS) {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .medium))
+                
+                Text(label)
+                    .font(tokens.caption1.weight(.medium))
+                
+                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .foregroundStyle(foregroundColor)
+            .padding(.horizontal, tokens.spacingSM)
+            .frame(height: tokens.chipHeight)
+            .background(
+                Capsule()
+                    .fill(backgroundColor)
+            )
+        }
+        .accessibilityLabel("\(label)")
+        .accessibilityHint("Tap to \(isExpanded ? "close" : "open") selector")
+    }
+    
+    // MARK: - Computed Properties
+    
+    private var foregroundColor: Color {
+        isActive ? tokens.accent : tokens.textSecondary
+    }
+    
+    private var backgroundColor: Color {
+        isActive ? tokens.accent.opacity(0.15) : tokens.backgroundTertiary
+    }
+}
+
+// MARK: - Previews
+
+#Preview("Menu Selector - Mode (Inactive)") {
+    ZStack {
+        Color.black.ignoresSafeArea()
+        VStack(spacing: 12) {
+            DockMenuSelectorButton(
+                icon: "book.fill",
+                label: "Read Only",
+                isExpanded: false,
+                isActive: false,
+                action: {}
+            )
+            DockMenuSelectorButton(
+                icon: "speaker.wave.2.fill",
+                label: "Read Aloud",
+                isExpanded: true,
+                isActive: false,
+                action: {}
+            )
+        }
+    }
+}
+
+#Preview("Menu Selector - Binaural (Active)") {
+    ZStack {
+        Color.black.ignoresSafeArea()
+        VStack(spacing: 12) {
+            DockMenuSelectorButton(
+                icon: "moon.zzz.fill",
+                label: "Off",
+                isExpanded: false,
+                isActive: false,
+                action: {}
+            )
+            DockMenuSelectorButton(
+                icon: "brain.head.profile",
+                label: "Focus",
+                isExpanded: false,
+                isActive: true,
+                action: {}
+            )
+        }
+    }
+}
+
+#Preview("Menu Selector - All States") {
+    ZStack {
+        Color.black.ignoresSafeArea()
+        VStack(spacing: 16) {
+            HStack(spacing: 12) {
+                DockMenuSelectorButton(
+                    icon: "waveform",
+                    label: "Speak Only",
+                    isExpanded: false,
+                    isActive: false,
+                    action: {}
+                )
+                DockMenuSelectorButton(
+                    icon: "ear",
+                    label: "Calm",
+                    isExpanded: false,
+                    isActive: true,
+                    action: {}
+                )
+            }
+            HStack(spacing: 12) {
+                DockMenuSelectorButton(
+                    icon: "book.fill",
+                    label: "Read Only",
+                    isExpanded: true,
+                    isActive: false,
+                    action: {}
+                )
+                DockMenuSelectorButton(
+                    icon: "moon.zzz.fill",
+                    label: "Off",
+                    isExpanded: true,
+                    isActive: false,
+                    action: {}
+                )
+            }
+        }
+    }
+}

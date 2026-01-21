@@ -178,7 +178,7 @@ extension PracticeStore {
     
     /// Handles dismissing the summary and returning to home.
     ///
-    /// Resets loop configuration when closing via this method.
+    /// Resets loop configuration and session mode when closing via this method.
     func handleDismissSummary() {
         // Reset loop configuration when dismissing (Close button)
         resetLoopConfiguration()
@@ -191,6 +191,11 @@ extension PracticeStore {
         withAnimation(.easeInOut(duration: PracticeTiming.summaryDismissDuration)) {
             setShowingSummary(false)
         }
+        
+        // CRITICAL: Reset session mode to default browse mode
+        // Without this, the dock's mode selector retains the previous session mode
+        // when returning to home (e.g., showing "Read & Speak" instead of "Read Only")
+        sessionMode = .readOnly
         
         setFlow(.home)
         isModeSelectorExpanded = false

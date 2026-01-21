@@ -34,7 +34,7 @@ import SwiftUI
 /// │     Theta waves (6 Hz) for rest            │
 /// └─────────────────────────────────────────────┘
 /// ```
-struct BinauralSelectorExpanded: View {
+struct BinauralSelectorExpanded1: View {
     
     // MARK: - Properties
     
@@ -49,7 +49,7 @@ struct BinauralSelectorExpanded: View {
     var body: some View {
         VStack(spacing: AppTheme.Spacing.sm) {
             ForEach(BinauralPreset.allCases) { preset in
-                BinauralOptionRow(
+                BinauralOptionRow1(
                     preset: preset,
                     isSelected: preset == selectedPreset
                 ) {
@@ -76,7 +76,7 @@ struct BinauralSelectorExpanded: View {
         VStack {
             Spacer()
             
-            BinauralSelectorExpanded(
+            BinauralSelectorExpanded1(
                 selectedPreset: .focus,
                 onSelect: { preset in
                     print("Selected: \(preset.displayName)")
@@ -95,7 +95,7 @@ struct BinauralSelectorExpanded: View {
         VStack {
             Spacer()
             
-            BinauralSelectorExpanded(
+            BinauralSelectorExpanded1(
                 selectedPreset: .off,
                 onSelect: { _ in }
             )

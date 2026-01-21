@@ -30,7 +30,7 @@ import SwiftUI
 /// │     Speak affirmations yourself            │
 /// └─────────────────────────────────────────────┘
 /// ```
-struct ModeSelectorExpanded: View {
+struct ModeSelectorExpanded1: View {
     
     // MARK: - Properties
     
@@ -57,7 +57,7 @@ struct ModeSelectorExpanded: View {
     var body: some View {
         VStack(spacing: AppTheme.Spacing.sm) {
             ForEach(availableModes) { mode in
-                ModeOptionRow(
+                ModeOptionRow1(
                     mode: mode,
                     isSelected: mode == selectedMode
                 ) {
@@ -83,7 +83,7 @@ struct ModeSelectorExpanded: View {
         VStack {
             Spacer()
             
-            ModeSelectorExpanded(
+            ModeSelectorExpanded1(
                 selectedMode: .readThenSpeak,
                 showOnlyPlayableModes: false,
                 onSelect: { mode in
@@ -103,7 +103,7 @@ struct ModeSelectorExpanded: View {
         VStack {
             Spacer()
             
-            ModeSelectorExpanded(
+            ModeSelectorExpanded1(
                 selectedMode: .readAloud,
                 showOnlyPlayableModes: true,
                 onSelect: { mode in

@@ -36,7 +36,7 @@ import SwiftUI
 /// This component does NOT render expanded menus. When mode/binaural buttons are tapped,
 /// they toggle state in the store or binding. The parent `AdaptiveDockContainer` is
 /// responsible for rendering the actual menu panels.
-struct AdaptiveBottomDock: View {
+struct AdaptiveBottomDock1: View {
     
     // MARK: - Dock Mode
     
@@ -191,7 +191,7 @@ private struct AnimationTriggers: Equatable {
 
 // MARK: - Practice Mode Content
 
-extension AdaptiveBottomDock {
+extension AdaptiveBottomDock1 {
     
     @ViewBuilder
     private var practiceModeContent: some View {
@@ -213,7 +213,7 @@ extension AdaptiveBottomDock {
     
     private func homeModeContent(store: PracticeStore) -> some View {
         HStack(spacing: AppTheme.Spacing.md) {
-            DockModeButton(
+            DockModeButton1(
                 mode: store.currentMode,
                 isExpanded: store.isModeSelectorExpanded
             ) {
@@ -222,7 +222,7 @@ extension AdaptiveBottomDock {
             
             Spacer(minLength: 0)
             
-            DockBinauralButton(
+            DockBinauralButton1(
                 preset: store.binauralPreset,
                 isExpanded: store.isBinauralSelectorExpanded
             ) {
@@ -236,7 +236,7 @@ extension AdaptiveBottomDock {
     private func activeModeContent(store: PracticeStore) -> some View {
         VStack(spacing: AppTheme.Spacing.md) {
             // Progress bars (Stories style)
-            DockProgressBars(
+            DockProgressBars1(
                 current: store.displayCurrentIndex,
                 total: store.displayTotalCount,
                 progress: store.segmentProgress,
@@ -249,7 +249,7 @@ extension AdaptiveBottomDock {
             
             // Mode and binaural buttons
             HStack(spacing: AppTheme.Spacing.md) {
-                DockModeButton(
+                DockModeButton1(
                     mode: store.currentMode,
                     isExpanded: store.isModeSelectorExpanded,
                     showLabel: true
@@ -259,7 +259,7 @@ extension AdaptiveBottomDock {
                 
                 Spacer(minLength: 0)
                 
-                DockBinauralButton(
+                DockBinauralButton1(
                     preset: store.binauralPreset,
                     isExpanded: store.isBinauralSelectorExpanded
                 ) {
@@ -324,39 +324,41 @@ extension AdaptiveBottomDock {
         case .readAloud(let phase):
             switch phase {
             case .idle:
-                DockWaveformView(state: .idle)
+                DockWaveformView1(state: .idle)
             case .playing:
-                DockWaveformView(state: .playing, audioLevel: CGFloat(store.flow.currentAudioLevel ?? 0))
+                DockWaveformView1(state: .playing, audioLevel: CGFloat(store.flow.currentAudioLevel ?? 0))
             case .complete:
-                DockWaveformView(state: .idle)
+                DockWaveformView1(state: .idle)
             }
             
         case .readAndSpeak(let phase):
             switch phase {
             case .idle:
-                DockWaveformView(state: .idle)
+                DockWaveformView1(state: .idle)
             case .ttsPlaying:
-                DockWaveformView(state: .playing, audioLevel: CGFloat(store.flow.currentAudioLevel ?? 0))
-            case .waitingForUser:
-                DockWaveformView(state: .waiting)
+                DockWaveformView1(state: .playing, audioLevel: CGFloat(store.flow.currentAudioLevel ?? 0))
+            case .preparingToListen:
+                DockWaveformView1(state: .waiting)
             case .listening(let context):
-                DockWaveformView(state: .listening, audioLevel: CGFloat(context.audioLevel))
+                DockWaveformView1(state: .listening, audioLevel: CGFloat(context.audioLevel))
             case .analyzing:
-                DockWaveformView(state: .settling)
+                DockWaveformView1(state: .settling)
             case .showingScore(let result):
-                DockScoreDisplay(score: result.percentScore)
+                DockScoreDisplay1(score: result.percentScore)
             }
             
         case .speakOnly(let phase):
             switch phase {
             case .idle:
-                DockWaveformView(state: .idle)
+                DockWaveformView1(state: .idle)
             case .listening(let context):
-                DockWaveformView(state: .listening, audioLevel: CGFloat(context.audioLevel))
+                DockWaveformView1(state: .listening, audioLevel: CGFloat(context.audioLevel))
             case .analyzing:
-                DockWaveformView(state: .settling)
+                DockWaveformView1(state: .settling)
             case .showingScore(let result):
-                DockScoreDisplay(score: result.percentScore)
+                DockScoreDisplay1(score: result.percentScore)
+            case .preparingToListen:
+                DockWaveformView1(state: .waiting)
             }
         }
     }
@@ -394,7 +396,7 @@ extension AdaptiveBottomDock {
 
 // MARK: - Configuration Mode Content
 
-extension AdaptiveBottomDock {
+extension AdaptiveBottomDock1 {
     
     private var configurationModeContent: some View {
         VStack(spacing: AppTheme.Spacing.md) {
@@ -423,7 +425,7 @@ extension AdaptiveBottomDock {
     private var configurationControls: some View {
         HStack(spacing: 0) {
             // Mode chip (left-aligned, variable width)
-            DockModeButton(
+            DockModeButton1(
                 mode: configSelectedMode,
                 isExpanded: configIsModeSelectorExpanded,
                 showLabel: true
@@ -550,7 +552,7 @@ extension AdaptiveBottomDock {
         VStack {
             Spacer()
             
-            AdaptiveBottomDock(store: .preview)
+            AdaptiveBottomDock1(store: .preview)
                 .padding(.horizontal, AppTheme.Spacing.lg)
                 .padding(.bottom, AppTheme.Spacing.lg)
         }
@@ -573,12 +575,12 @@ extension AdaptiveBottomDock {
                     Spacer()
                     
                     // Use AdaptiveDockContainer with AdaptiveBottomDock
-                    AdaptiveDockContainer.favorites(
+                    AdaptiveDockContainer1.favorites(
                         count: 9,
                         isModeSelectorExpanded: $expanded,
                         selectedMode: $mode
                     ) {
-                        AdaptiveBottomDock(
+                        AdaptiveBottomDock1(
                             selectedMode: $mode,
                             loopCount: $loops,
                             shuffleEnabled: $shuffle,
@@ -609,12 +611,12 @@ extension AdaptiveBottomDock {
                 VStack {
                     Spacer()
                     
-                    AdaptiveDockContainer.favorites(
+                    AdaptiveDockContainer1.favorites(
                         count: 0,
                         isModeSelectorExpanded: $expanded,
                         selectedMode: $mode
                     ) {
-                        AdaptiveBottomDock(
+                        AdaptiveBottomDock1(
                             selectedMode: $mode,
                             loopCount: $loops,
                             shuffleEnabled: $shuffle,

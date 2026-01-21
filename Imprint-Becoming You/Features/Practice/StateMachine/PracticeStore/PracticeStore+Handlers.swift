@@ -139,6 +139,11 @@ extension PracticeStore {
         setSessionState(affirmations: [], index: 0)
         setSessionResults([])
         
+        // CRITICAL: Reset session mode to default browse mode on exit
+        // Without this, the dock's mode selector retains the previous session mode
+        // when returning to home (e.g., showing "Read & Speak" instead of "Read Only")
+        sessionMode = .readOnly
+        
         withAnimation(AppTheme.Animation.standard) {
             setFlow(.home)
             isModeSelectorExpanded = false
@@ -243,7 +248,7 @@ extension PracticeStore {
                 setFlow(.readAloud(.complete))
                 setSegmentProgress(1.0)
             }
-            scheduleAutoAdvance()
+            // FIX: Removed scheduleAutoAdvance() - dock segment timer handles auto-advance
             
         default:
             break
@@ -280,53 +285,41 @@ extension PracticeStore {
             return
         }
         
+        // Cancel capture and transition to analyzing
+        speechCaptureService.cancelCapture()
         transitionToAnalyzing()
         
+        // Calculate score
         Task { [weak self] in
             guard let self = self else { return }
             
-            try? await Task.sleep(for: PracticeTiming.analysisDuration)
-            guard !Task.isCancelled else { return }
+            var score: Double = 0.0
+            var components = ScoreComponents(textAccuracy: 0, vocalEnergy: 0, pitchStability: 0)
             
-            let score: Double
-            let components: ScoreComponents
-            
-            if let record = self.lastResonanceRecord {
-                score = Double(record.overallScore)
-                components = ScoreComponents(
-                    textAccuracy: Double(record.textAccuracy),
-                    vocalEnergy: Double(record.vocalEnergy),
-                    pitchStability: Double(record.pitchStability)
-                )
-            } else {
-                guard let rawExpectedText = self.currentAffirmation?.text, !rawExpectedText.isEmpty else {
-                    #if DEBUG
-                    print("[ERROR] PracticeStore: No affirmation text for score calculation")
-                    #endif
-                    self.handleListeningTimedOut()
-                    return
-                }
-                
-                // Strip citation (e.g., "(Philippians 4:13)") from expected text
-                // so verse references don't need to be spoken
-                let expectedText = rawExpectedText.strippingTrailingCitation
-                
-                let result = TextAccuracyCalculator.evaluateCompletion(
-                    expected: expectedText,
-                    recognized: trimmedText
-                )
-                
-                #if DEBUG
-                print("[LOG] PracticeStore: Score: \(Int(result.accuracy * 100))%")
-                #endif
-                
-                score = Double(result.accuracy)
-                components = ScoreComponents(
-                    textAccuracy: Double(result.accuracy),
-                    vocalEnergy: Double(result.accuracy),
-                    pitchStability: Double(result.accuracy)
-                )
+            guard let rawExpectedText = self.currentAffirmation?.text else {
+                self.send(.scoreFailed(.scoreCalculationError("No affirmation text")))
+                return
             }
+            
+            // Strip citation (e.g., "(Philippians 4:13)") from expected text
+            // so verse references don't need to be spoken
+            let expectedText = rawExpectedText.strippingTrailingCitation
+            
+            let result = TextAccuracyCalculator.evaluateCompletion(
+                expected: expectedText,
+                recognized: trimmedText
+            )
+            
+            #if DEBUG
+            print("[LOG] PracticeStore: Score: \(Int(result.accuracy * 100))%")
+            #endif
+            
+            score = Double(result.accuracy)
+            components = ScoreComponents(
+                textAccuracy: Double(result.accuracy),
+                vocalEnergy: Double(result.accuracy),
+                pitchStability: Double(result.accuracy)
+            )
             
             let scoreResult = ScoreResult(
                 score: score,
@@ -565,6 +558,30 @@ extension PracticeStore {
         if let firstSample = Affirmation.samples.first {
             viewedBrowseAffirmationIds.insert(firstSample.id)
             setBrowseState(consumed: 1)
+        }
+    }
+}
+
+// MARK: - Segment Timer Handler
+
+extension PracticeStore {
+    
+    /// Handles the dock's segment timer completion.
+    ///
+    /// Called when the DockModule's segment animation reaches 100%.
+    /// This replaces the old scheduleAutoAdvance() mechanism.
+    func handleSegmentTimerCompleted() {
+        guard isSessionActive else { return }
+        
+        // Check if we've completed the current loop
+        if sessionIndex >= Constants.Session.sessionSize - 1 {
+            send(.loopIterationCompleted)
+            return
+        }
+        
+        // Trigger auto-advance to next affirmation
+        if canGoNext {
+            pendingAutoAdvance = .next
         }
     }
 }

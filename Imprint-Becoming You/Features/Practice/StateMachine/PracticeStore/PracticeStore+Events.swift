@@ -186,6 +186,10 @@ extension PracticeStore {
         case .scoreDisplayCompleted:
             handleScoreDisplayCompleted()
             
+        // MARK: Segment Timer Events
+        case .segmentTimerCompleted:
+            handleSegmentTimerCompleted()
+            
         // MARK: Affirmation Events
         case .toggleFavorite:
             handleToggleFavorite()

@@ -37,7 +37,8 @@ import SwiftData
 /// to match the new index, ensuring seamless handoff between modes.
 ///
 /// ## Dock Architecture
-/// Uses `AdaptiveDockContainer` which handles:
+/// Uses `AdaptiveDockContainer` with `PracticeDockAdapter` which handles:
+/// - Mapping PracticeStore state to dock protocol
 /// - Dismiss overlay (tap anywhere to close expanded menus)
 /// - Mode and Binaural selector expansion
 /// - Dock positioning (anchored to bottom, grows upward)
@@ -76,6 +77,22 @@ struct PracticePageView: View {
     /// progress-based interpolation already handles the visual transition.
     @State private var displayedBackgroundCategory: GoalCategory?
     
+    /// Dock adapter that bridges PracticeStore to DockModule
+    @State private var dockAdapter: PracticeDockAdapter
+    
+    // MARK: - Initialization
+    
+    init(
+        store: PracticeStore,
+        onNavigateToProfile: @escaping () -> Void,
+        onNavigateToPrompts: @escaping () -> Void
+    ) {
+        self.store = store
+        self.onNavigateToProfile = onNavigateToProfile
+        self.onNavigateToPrompts = onNavigateToPrompts
+        self._dockAdapter = State(initialValue: PracticeDockAdapter(store: store))
+    }
+    
     // MARK: - Body
     
     var body: some View {
@@ -98,8 +115,24 @@ struct PracticePageView: View {
                 morphingBackground(currentIndex: currentIndex, progress: progress)
             }
             
-            // Fixed overlay layers (don't move with gesture)
-            overlayLayers
+            // Top HUD (doesn't move with gesture)
+            FloatingHUDLayer(
+                store: store,
+                onProfileTap: onNavigateToProfile,
+                onPromptsTap: onNavigateToPrompts,
+                onCategoriesTap: { showCategories = true }
+            )
+        }
+        .dismissesDockMenuOnTouch(adapter: dockAdapter)
+        .overlay {
+            VStack {
+                Spacer()
+                AdaptiveDockContainer(adapter: dockAdapter) {
+                    AdaptiveBottomDock(adapter: dockAdapter)
+                }
+                .imprintDockEnvironment()
+            }
+            .ignoresSafeArea(edges: .bottom)
         }
         .gesture(horizontalBlockingGesture)
         .fullScreenCover(isPresented: $showCategories) {
@@ -152,8 +185,8 @@ struct PracticePageView: View {
     
     private var canNavigate: Bool {
         // Block if selectors are expanded
-        guard !store.isModeSelectorExpanded else { return false }
-        guard !store.isBinauralSelectorExpanded else { return false }
+        guard !dockAdapter.isModeSelectorExpanded else { return false }
+        guard !dockAdapter.isBinauralSelectorExpanded else { return false }
         
         // Allow navigation even during active phases - swipe will interrupt
         // The navigate() method handles cancelling current activity
@@ -359,26 +392,6 @@ struct PracticePageView: View {
     
     // MARK: - Overlay Layers
     
-    @ViewBuilder
-    private var overlayLayers: some View {
-        // Top HUD
-        FloatingHUDLayer(
-            store: store,
-            onProfileTap: onNavigateToProfile,
-            onPromptsTap: onNavigateToPrompts,
-            onCategoriesTap: { showCategories = true }
-        )
-        
-        // Bottom dock with unified container
-        // AdaptiveDockContainer handles:
-        // - Dismiss overlay (tap anywhere to close menus)
-        // - Menu expansion (Mode selector, Binaural selector)
-        // - Dock positioning (anchored to bottom, grows upward)
-        AdaptiveDockContainer(store: store) {
-            AdaptiveBottomDock(store: store)
-        }
-    }
-    
     // MARK: - Horizontal Blocking Gesture
     
     /// Blocks horizontal swipes from reaching parent TabView when in active mode
@@ -409,7 +422,7 @@ struct PracticePageView: View {
             switch phase {
             case .idle: return .displaying
             case .ttsPlaying: return .playing
-            case .waitingForUser: return .waitingToSpeak
+            case .preparingToListen: return .waitingToSpeak
             case .listening: return .listening
             case .analyzing: return .analyzing
             case .showingScore: return .showingScore
@@ -417,6 +430,7 @@ struct PracticePageView: View {
         case .speakOnly(let phase):
             switch phase {
             case .idle: return .displaying
+            case .preparingToListen: return .waitingToSpeak
             case .listening: return .listening
             case .analyzing: return .analyzing
             case .showingScore: return .showingScore

@@ -166,7 +166,7 @@ struct CardListSheetWithDock<
             }
             
             // Fixed dock layer
-            AdaptiveDockContainer(
+            AdaptiveDockContainer1(
                 isModeSelectorExpanded: $isModeSelectorExpanded,
                 selectedMode: $selectedMode,
                 onModeSelected: onModeSelected,

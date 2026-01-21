@@ -25,12 +25,13 @@ import Foundation
 /// ├── readAndSpeak
 /// │   ├── idle
 /// │   ├── ttsPlaying(progress)
-/// │   ├── waitingForUser
+/// │   ├── preparingToListen
 /// │   ├── listening(context)
 /// │   ├── analyzing
 /// │   └── showingScore(result)
 /// └── speakOnly
 ///     ├── idle
+///     ├── preparingToListen
 ///     ├── listening(context)
 ///     ├── analyzing
 ///     └── showingScore(result)
@@ -78,6 +79,11 @@ enum ReadAloudFlowPhase: Equatable, Sendable {
 /// Phases within Read & Speak mode.
 ///
 /// Full interaction cycle with TTS prompt followed by user speech.
+///
+/// ## Flow
+/// ```
+/// idle → ttsPlaying → preparingToListen → listening → analyzing → showingScore
+/// ```
 enum ReadAndSpeakFlowPhase: Equatable, Sendable {
     
     /// Waiting to start the cycle
@@ -87,8 +93,15 @@ enum ReadAndSpeakFlowPhase: Equatable, Sendable {
     /// - Parameter progress: Playback progress (0.0 - 1.0)
     case ttsPlaying(progress: Double)
     
-    /// TTS finished, waiting for user to begin speaking
-    case waitingForUser
+    /// TTS finished, speech recognition engine initializing
+    ///
+    /// During this phase:
+    /// - UI shows green breathing animation
+    /// - Listening chip is NOT shown
+    /// - Audio session and speech recognizer are being configured
+    ///
+    /// This prevents the UI from freezing during heavy initialization.
+    case preparingToListen
     
     /// Actively listening to user's speech
     /// - Parameter context: Live listening metrics
@@ -107,10 +120,25 @@ enum ReadAndSpeakFlowPhase: Equatable, Sendable {
 /// Phases within Speak Only mode.
 ///
 /// Direct user speech without TTS prompt.
+///
+/// ## Flow
+/// ```
+/// idle → preparingToListen → listening → analyzing → showingScore
+/// ```
 enum SpeakOnlyFlowPhase: Equatable, Sendable {
     
     /// Waiting for user to start speaking
     case idle
+    
+    /// Speech recognition engine initializing
+    ///
+    /// During this phase:
+    /// - UI shows green breathing animation
+    /// - Listening chip is NOT shown
+    /// - Audio session and speech recognizer are being configured
+    ///
+    /// This prevents the UI from freezing during heavy initialization.
+    case preparingToListen
     
     /// Actively listening to user's speech
     /// - Parameter context: Live listening metrics
@@ -287,6 +315,18 @@ extension PracticeFlow {
         }
     }
     
+    /// Whether we're preparing to listen (speech engine initializing)
+    var isPreparingToListen: Bool {
+        switch self {
+        case .readAndSpeak(.preparingToListen):
+            return true
+        case .speakOnly(.preparingToListen):
+            return true
+        default:
+            return false
+        }
+    }
+    
     /// Whether we're actively listening to user speech
     var isListening: Bool {
         switch self {
@@ -431,7 +471,7 @@ extension ReadAndSpeakFlowPhase: CustomStringConvertible {
         switch self {
         case .idle: return "idle"
         case .ttsPlaying(let progress): return "ttsPlaying(\(Int(progress * 100))%)"
-        case .waitingForUser: return "waitingForUser"
+        case .preparingToListen: return "preparingToListen"
         case .listening(let ctx): return "listening(\(String(format: "%.1f", ctx.elapsed))s)"
         case .analyzing: return "analyzing"
         case .showingScore(let result): return "showingScore(\(result.percentScore)%)"
@@ -443,6 +483,7 @@ extension SpeakOnlyFlowPhase: CustomStringConvertible {
     var description: String {
         switch self {
         case .idle: return "idle"
+        case .preparingToListen: return "preparingToListen"
         case .listening(let ctx): return "listening(\(String(format: "%.1f", ctx.elapsed))s)"
         case .analyzing: return "analyzing"
         case .showingScore(let result): return "showingScore(\(result.percentScore)%)"

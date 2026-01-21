@@ -26,7 +26,7 @@ import SwiftUI
 /// │     Beta waves (14 Hz) for concentration   │
 /// └─────────────────────────────────────────────┘
 /// ```
-struct BinauralOptionRow: View {
+struct BinauralOptionRow1: View {
     
     // MARK: - Properties
     
@@ -107,7 +107,7 @@ struct BinauralOptionRow: View {
     ZStack {
         AppColors.backgroundSecondary.ignoresSafeArea()
         VStack {
-            BinauralOptionRow(
+            BinauralOptionRow1(
                 preset: .focus,
                 isSelected: true,
                 onTap: {}
@@ -121,7 +121,7 @@ struct BinauralOptionRow: View {
     ZStack {
         AppColors.backgroundSecondary.ignoresSafeArea()
         VStack {
-            BinauralOptionRow(
+            BinauralOptionRow1(
                 preset: .off,
                 isSelected: false,
                 onTap: {}
@@ -136,7 +136,7 @@ struct BinauralOptionRow: View {
         AppColors.backgroundSecondary.ignoresSafeArea()
         VStack(spacing: AppTheme.Spacing.sm) {
             ForEach(BinauralPreset.allCases) { preset in
-                BinauralOptionRow(
+                BinauralOptionRow1(
                     preset: preset,
                     isSelected: preset == .focus,
                     onTap: {}
@@ -156,7 +156,7 @@ struct BinauralOptionRow: View {
                 AppColors.backgroundSecondary.ignoresSafeArea()
                 VStack(spacing: AppTheme.Spacing.sm) {
                     ForEach(BinauralPreset.allCases) { preset in
-                        BinauralOptionRow(
+                        BinauralOptionRow1(
                             preset: preset,
                             isSelected: preset == selected,
                             onTap: { selected = preset }

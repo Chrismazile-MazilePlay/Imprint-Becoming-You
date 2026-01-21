@@ -94,9 +94,12 @@ extension PracticeStore {
             guard !Task.isCancelled else { return }
             guard generation == flowGeneration else { return }
             
-            // Note: setSegmentProgress(1.0) is handled in handleTTSCompleted()
-            // to avoid duplicate animation conflicts
-            send(.ttsCompleted)
+            // NOTE: For Read Aloud mode, we do NOT call scheduleAutoAdvance() here.
+            // The dock's segment timer handles auto-advance via segmentTimerCompleted event.
+            
+            withAnimation(AppTheme.Animation.quick) {
+                setFlow(.readAloud(.complete))
+            }
             
         } catch {
             guard generation == flowGeneration else { return }
@@ -145,7 +148,7 @@ extension PracticeStore {
             return
         }
         
-        // Phase 1: TTS Playback
+        // Phase 1: TTS Playback (orange waveform)
         withAnimation(AppTheme.Animation.quick) {
             setFlow(.readAndSpeak(.ttsPlaying(progress: 0)))
         }
@@ -179,23 +182,15 @@ extension PracticeStore {
             return
         }
         
-        // Phase 2: Wait for user
+        // Phase 2: Preparing to Listen (green breathing animation)
+        // UI shows preparing state while speech engine initializes off main thread
         withAnimation(AppTheme.Animation.quick) {
-            setFlow(.readAndSpeak(.waitingForUser))
-            setSegmentProgress(0.5)
+            setFlow(.readAndSpeak(.preparingToListen))
         }
         
-        try? await Task.sleep(for: PracticeTiming.waitForUserDuration)
-        guard !Task.isCancelled else { return }
-        guard generation == flowGeneration else { return }
-        
-        // Phase 3: Listening
+        // Execute listening phase (handles initialization and actual listening)
         listeningStartTime = Date()
-        withAnimation(AppTheme.Animation.quick) {
-            setFlow(.readAndSpeak(.listening(.initial)))
-        }
-        
-        await executeListeningPhase(generation: generation, affirmationText: textForListening)
+        await executeListeningPhase(generation: generation, affirmationText: textForListening, mode: .readAndSpeak)
     }
 }
 
@@ -237,12 +232,15 @@ extension PracticeStore {
             return
         }
         
-        listeningStartTime = Date()
+        // Show preparing state (green breathing animation)
+        // UI shows this while speech engine initializes off main thread
         withAnimation(AppTheme.Animation.quick) {
-            setFlow(.speakOnly(.listening(.initial)))
+            setFlow(.speakOnly(.preparingToListen))
         }
         
-        await executeListeningPhase(generation: generation, affirmationText: textForListening)
+        // Execute listening phase (handles initialization and actual listening)
+        listeningStartTime = Date()
+        await executeListeningPhase(generation: generation, affirmationText: textForListening, mode: .speakOnly)
     }
 }
 
@@ -250,10 +248,25 @@ extension PracticeStore {
 
 extension PracticeStore {
     
-    func executeListeningPhase(generation: Int, affirmationText: String) async {
+    /// Mode for the listening phase (determines which flow state to update)
+    enum ListeningMode {
+        case readAndSpeak
+        case speakOnly
+    }
+    
+    /// Executes the listening phase with proper initialization sequence.
+    ///
+    /// Flow:
+    /// 1. Currently in `.preparingToListen` state (green breathing)
+    /// 2. Initialize speech capture (may involve heavy audio setup)
+    /// 3. Transition to `.listening` only after capture is ready
+    /// 4. Process audio and transcription
+    /// 5. Complete with result
+    func executeListeningPhase(generation: Int, affirmationText: String, mode: ListeningMode) async {
         #if DEBUG
         print("═══════════════════════════════════════════════════════")
         print("[DEBUG] executeListeningPhase STARTED")
+        print("[DEBUG] Mode: \(mode)")
         print("[DEBUG] Expected text: '\(affirmationText)'")
         print("[DEBUG] Word count: \(affirmationText.split(separator: " ").count)")
         print("[DEBUG] Ends with ')': \(affirmationText.hasSuffix(")"))")
@@ -273,8 +286,12 @@ extension PracticeStore {
             guard let self = self else { return }
             
             let stream = captureService.captureStream
+            
+            // Small delay to allow UI to settle
             try? await Task.sleep(for: .milliseconds(50))
             
+            // PHASE: Initialize capture (while still in .preparingToListen state)
+            // The UI shows green breathing animation during this
             do {
                 try await captureService.startCapture()
             } catch {
@@ -295,9 +312,23 @@ extension PracticeStore {
                 return
             }
             
+            // PHASE: Capture initialized successfully
+            // NOW transition to .listening state (green active waveform + chip)
+            await MainActor.run {
+                withAnimation(AppTheme.Animation.quick) {
+                    switch mode {
+                    case .readAndSpeak:
+                        self.setFlow(.readAndSpeak(.listening(.initial)))
+                    case .speakOnly:
+                        self.setFlow(.speakOnly(.listening(.initial)))
+                    }
+                }
+            }
+            
             self.send(.listeningStarted)
             hasStarted = true
             
+            // PHASE: Active listening loop
             captureLoop: for await update in stream {
                 guard !Task.isCancelled else { break captureLoop }
                 guard generation == self.flowGeneration else { break captureLoop }

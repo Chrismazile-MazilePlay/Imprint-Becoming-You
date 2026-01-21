@@ -1,0 +1,553 @@
+//
+//  MockDockAdapter.swift
+//  Imprint-Becoming You
+//
+//  Created by Christopher Mazile on 1/19/26.
+//
+
+import SwiftUI
+
+// MARK: - MockDockAdapter
+
+/// A mock implementation of `DockAdapterProtocol` for SwiftUI previews and testing.
+///
+/// This class provides a fully functional adapter that can be configured for
+/// different preview scenarios. It uses the `@Observable` macro for automatic
+/// SwiftUI updates.
+///
+/// ## Factory Methods
+///
+/// The class provides static factory methods for common preview scenarios:
+///
+/// | Factory             | Configuration   | Description                        |
+/// |---------------------|-----------------|-------------------------------------|
+/// | `.home`             | `.home`         | Browse mode                         |
+/// | `.sessionIdle`      | `.session`      | Session, idle waveform              |
+/// | `.sessionPlaying`   | `.session`      | Session, TTS playing                |
+/// | `.sessionPreparing` | `.session`      | Session, preparing to listen        |
+/// | `.sessionListening` | `.session`      | Session, user speaking              |
+/// | `.sessionScore`     | `.session`      | Session, showing score              |
+/// | `.favorites`        | `.configuration`| Favorites with label                |
+/// | `.favoritesEmpty`   | `.configuration`| Favorites disabled (empty)          |
+/// | `.resultsSummary`   | `.configuration`| Results with "Repeat Session"       |
+/// | `.savedSessions`    | `.configuration`| Saved sessions, no label            |
+///
+/// ## Usage
+///
+/// ```swift
+/// #Preview("Home Mode") {
+///     AdaptiveBottomDock(adapter: MockDockAdapter.home)
+/// }
+///
+/// #Preview("Session Playing") {
+///     AdaptiveBottomDock(adapter: MockDockAdapter.sessionPlaying)
+/// }
+/// ```
+///
+/// ## Interactive Previews
+///
+/// The mock adapter is fully interactive — buttons work, selectors expand,
+/// and state changes propagate to the UI:
+///
+/// ```swift
+/// #Preview("Interactive") {
+///     struct PreviewWrapper: View {
+///         @State private var adapter = MockDockAdapter.home
+///
+///         var body: some View {
+///             AdaptiveDockContainer(adapter: adapter) {
+///                 AdaptiveBottomDock(adapter: adapter)
+///             }
+///         }
+///     }
+///     return PreviewWrapper()
+/// }
+/// ```
+@Observable
+@MainActor
+public final class MockDockAdapter: DockAdapterProtocol {
+    
+    // MARK: - Configuration
+    
+    /// The current dock configuration.
+    public var configuration: DockConfiguration = .home
+    
+    // MARK: - Mode State
+    
+    /// The currently selected mode.
+    public var currentMode: DockMode = .readAndSpeak
+    
+    /// All available modes.
+    public var availableModes: [DockMode] = DockMode.allCases
+    
+    /// Whether the mode selector is expanded.
+    public var isModeSelectorExpanded: Bool = false
+    
+    // MARK: - Binaural State
+    
+    /// The currently selected binaural preset.
+    public var binauralPreset: DockBinauralPreset = .off
+    
+    /// Whether the binaural selector is expanded.
+    public var isBinauralSelectorExpanded: Bool = false
+    
+    // MARK: - Session State
+    
+    /// The center content visualization state.
+    public var centerContentState: DockCenterContentState = .idle
+    
+    /// Session segments for Stories-style progress display.
+    public var sessionSegments: DockSessionSegments?
+    
+    /// Legacy progress information (deprecated).
+    public var progress: DockProgress?
+    
+    /// Whether backward navigation is available.
+    public var canNavigatePrevious: Bool = false
+    
+    /// Whether forward navigation is available.
+    public var canNavigateNext: Bool = true
+    
+    // MARK: - Configuration Mode State
+    
+    /// The current loop count.
+    public var loopCount: Int = 1
+    
+    /// Whether shuffle is enabled.
+    public var isShuffleEnabled: Bool = false
+    
+    /// Whether the play button is enabled.
+    public var isPlayEnabled: Bool = true
+    
+    /// Label text displayed below the dock.
+    public var labelText: String = ""
+    
+    // MARK: - Initialization
+    
+    /// Creates a new mock adapter with default values.
+    public init() {}
+    
+    // MARK: - Mode Actions
+    
+    /// Handles mode selection.
+    public func selectMode(_ mode: DockMode) {
+        currentMode = mode
+        isModeSelectorExpanded = false
+        print("[MockDockAdapter] Selected mode: \(mode.displayName)")
+    }
+    
+    // MARK: - Binaural Actions
+    
+    /// Handles binaural preset selection.
+    public func selectBinaural(_ preset: DockBinauralPreset) {
+        binauralPreset = preset
+        isBinauralSelectorExpanded = false
+        print("[MockDockAdapter] Selected binaural: \(preset.displayName)")
+    }
+    
+    // MARK: - Navigation Actions
+    
+    /// Handles previous navigation.
+    public func navigatePrevious() {
+        guard let segments = sessionSegments, canNavigatePrevious else { return }
+        
+        let newIndex = max(0, segments.currentIndex - 1)
+        sessionSegments = DockSessionSegments(
+            configs: segments.configs,
+            currentIndex: newIndex,
+            isAnimating: segments.isAnimating,
+            usesTimedProgress: segments.usesTimedProgress
+        )
+        
+        updateNavigationStateForSegments()
+        print("[MockDockAdapter] Navigated to previous: \(newIndex + 1) of \(segments.totalCount)")
+    }
+    
+    /// Handles next navigation.
+    public func navigateNext() {
+        guard let segments = sessionSegments, canNavigateNext else { return }
+        
+        let newIndex = min(segments.totalCount - 1, segments.currentIndex + 1)
+        sessionSegments = DockSessionSegments(
+            configs: segments.configs,
+            currentIndex: newIndex,
+            isAnimating: segments.isAnimating,
+            usesTimedProgress: segments.usesTimedProgress
+        )
+        
+        updateNavigationStateForSegments()
+        print("[MockDockAdapter] Navigated to next: \(newIndex + 1) of \(segments.totalCount)")
+    }
+    
+    /// Closes all selector menus.
+    public func closeAllSelectors() {
+        isModeSelectorExpanded = false
+        isBinauralSelectorExpanded = false
+    }
+    
+    // MARK: - Segment Animation Callback
+    
+    /// Handles segment animation completion.
+    public func segmentAnimationCompleted() {
+        guard let segments = sessionSegments else { return }
+        
+        // Move to next segment if available
+        let newIndex = segments.currentIndex + 1
+        if newIndex < segments.totalCount {
+            sessionSegments = DockSessionSegments(
+                configs: segments.configs,
+                currentIndex: newIndex,
+                isAnimating: true,
+                usesTimedProgress: segments.usesTimedProgress
+            )
+            updateNavigationStateForSegments()
+        }
+        
+        print("[MockDockAdapter] Segment animation completed, moved to index \(newIndex)")
+    }
+    
+    // MARK: - Configuration Mode Actions
+    
+    /// Cycles through loop count values.
+    public func cycleLoopCount() {
+        switch loopCount {
+        case 1: loopCount = 3
+        case 3: loopCount = 5
+        default: loopCount = 1
+        }
+        print("[MockDockAdapter] Loop count: \(loopCount)")
+    }
+    
+    /// Toggles shuffle state.
+    public func toggleShuffle() {
+        isShuffleEnabled.toggle()
+        print("[MockDockAdapter] Shuffle: \(isShuffleEnabled)")
+    }
+    
+    /// Handles play button tap.
+    public func play() {
+        print("[MockDockAdapter] Play tapped - Mode: \(currentMode.displayName), Loops: \(loopCount), Shuffle: \(isShuffleEnabled)")
+    }
+    
+    // MARK: - Private Helpers
+    
+    private func updateNavigationStateForSegments() {
+        guard let segments = sessionSegments else { return }
+        canNavigatePrevious = segments.currentIndex > 0
+        canNavigateNext = segments.currentIndex < segments.totalCount - 1
+    }
+}
+
+// MARK: - Factory Methods
+
+public extension MockDockAdapter {
+    
+    // MARK: - Home Configuration
+    
+    /// Creates a mock adapter for home/browse mode.
+    ///
+    /// - Configuration: `.home`
+    /// - Shows: Mode selector + Binaural selector
+    /// - Use case: PracticePageView when not in session
+    static var home: MockDockAdapter {
+        let adapter = MockDockAdapter()
+        adapter.configuration = .home
+        adapter.currentMode = .readAndSpeak
+        adapter.binauralPreset = .off
+        return adapter
+    }
+    
+    // MARK: - Session Configurations
+    
+    /// Creates a mock adapter for session idle state.
+    ///
+    /// - Configuration: `.session`
+    /// - Center content: Idle waveform (small dots)
+    /// - Use case: Session active, waiting to start
+    static var sessionIdle: MockDockAdapter {
+        let adapter = MockDockAdapter()
+        adapter.configuration = .session
+        adapter.currentMode = .readAndSpeak
+        adapter.binauralPreset = .focus
+        adapter.centerContentState = .idle
+        adapter.sessionSegments = DockSessionSegments(
+            configs: Array(repeating: .default, count: 5),
+            currentIndex: 0,
+            isAnimating: false,
+            usesTimedProgress: false  // Read & Speak uses toggle mode
+        )
+        adapter.canNavigatePrevious = false
+        adapter.canNavigateNext = true
+        return adapter
+    }
+    
+    /// Creates a mock adapter for TTS playing state.
+    ///
+    /// - Configuration: `.session`
+    /// - Center content: Playing waveform (animated bars, accent color)
+    /// - Use case: TTS is reading an affirmation
+    static var sessionPlaying: MockDockAdapter {
+        let adapter = MockDockAdapter()
+        adapter.configuration = .session
+        adapter.currentMode = .readAloud
+        adapter.binauralPreset = .relax
+        adapter.centerContentState = .playing(audioLevel: 0.7)
+        adapter.sessionSegments = DockSessionSegments(
+            configs: Array(repeating: .default, count: 8),
+            currentIndex: 2,
+            isAnimating: true,
+            usesTimedProgress: true  // Read Aloud uses timer mode
+        )
+        adapter.canNavigatePrevious = true
+        adapter.canNavigateNext = true
+        return adapter
+    }
+    
+    /// Creates a mock adapter for waiting state.
+    ///
+    /// - Configuration: `.session`
+    /// - Center content: Waiting (pulsing dots) - legacy state
+    /// - Use case: Speech engine initializing before listening
+    static var sessionPreparing: MockDockAdapter {
+        let adapter = MockDockAdapter()
+        adapter.configuration = .session
+        adapter.currentMode = .readAndSpeak
+        adapter.binauralPreset = .focus
+        adapter.centerContentState = .preparing
+        adapter.sessionSegments = DockSessionSegments(
+            configs: Array(repeating: .default, count: 5),
+            currentIndex: 1,
+            isAnimating: false,
+            usesTimedProgress: false  // Read & Speak uses toggle mode
+        )
+        adapter.canNavigatePrevious = true
+        adapter.canNavigateNext = true
+        return adapter
+    }
+    
+    /// Creates a mock adapter for listening state.
+    ///
+    /// - Configuration: `.session`
+    /// - Center content: Listening waveform (animated bars, green color)
+    /// - Use case: User is speaking
+    static var sessionListening: MockDockAdapter {
+        let adapter = MockDockAdapter()
+        adapter.configuration = .session
+        adapter.currentMode = .speakOnly
+        adapter.binauralPreset = .off
+        adapter.centerContentState = .listening(audioLevel: 0.6)
+        adapter.sessionSegments = DockSessionSegments(
+            configs: Array(repeating: .default, count: 10),
+            currentIndex: 3,
+            isAnimating: true,
+            usesTimedProgress: false  // Speak Only uses toggle mode
+        )
+        adapter.canNavigatePrevious = true
+        adapter.canNavigateNext = true
+        return adapter
+    }
+    
+    /// Creates a mock adapter for score display state.
+    ///
+    /// - Configuration: `.session`
+    /// - Center content: Score display (animated percentage)
+    /// - Use case: Showing resonance score after speech
+    static var sessionScore: MockDockAdapter {
+        let adapter = MockDockAdapter()
+        adapter.configuration = .session
+        adapter.currentMode = .readAndSpeak
+        adapter.binauralPreset = .focus
+        adapter.centerContentState = .showingScore(percentScore: 85)
+        adapter.sessionSegments = DockSessionSegments(
+            configs: Array(repeating: .default, count: 5),
+            currentIndex: 4,
+            isAnimating: false,
+            usesTimedProgress: false  // Read & Speak uses toggle mode
+        )
+        adapter.canNavigatePrevious = true
+        adapter.canNavigateNext = false
+        return adapter
+    }
+    
+    // MARK: - Configuration Mode
+    
+    /// Creates a mock adapter for favorites list.
+    ///
+    /// - Configuration: `.configuration`
+    /// - Label: "Practice X affirmations"
+    /// - Use case: FavoritesFullListView
+    static var favorites: MockDockAdapter {
+        let adapter = MockDockAdapter()
+        adapter.configuration = .configuration
+        adapter.currentMode = .readAndSpeak
+        adapter.loopCount = 1
+        adapter.isShuffleEnabled = false
+        adapter.isPlayEnabled = true
+        adapter.labelText = "Practice 9 affirmations"
+        return adapter
+    }
+    
+    /// Creates a mock adapter for empty favorites.
+    ///
+    /// - Configuration: `.configuration`
+    /// - Play button: Disabled
+    /// - Use case: FavoritesFullListView with no favorites
+    static var favoritesEmpty: MockDockAdapter {
+        let adapter = MockDockAdapter()
+        adapter.configuration = .configuration
+        adapter.currentMode = .readAndSpeak
+        adapter.loopCount = 1
+        adapter.isShuffleEnabled = false
+        adapter.isPlayEnabled = false
+        adapter.labelText = "No favorites yet"
+        return adapter
+    }
+    
+    /// Creates a mock adapter for results summary.
+    ///
+    /// - Configuration: `.configuration`
+    /// - Label: "Repeat Session"
+    /// - Use case: ResultsSummaryView
+    static var resultsSummary: MockDockAdapter {
+        let adapter = MockDockAdapter()
+        adapter.configuration = .configuration
+        adapter.currentMode = .readAndSpeak
+        adapter.loopCount = 1
+        adapter.isShuffleEnabled = false
+        adapter.isPlayEnabled = true
+        adapter.labelText = "Repeat Session"
+        return adapter
+    }
+    
+    /// Creates a mock adapter for saved sessions.
+    ///
+    /// - Configuration: `.configuration`
+    /// - Label: None
+    /// - Use case: SavedSessionsFullListView
+    static var savedSessions: MockDockAdapter {
+        let adapter = MockDockAdapter()
+        adapter.configuration = .configuration
+        adapter.currentMode = .readAloud
+        adapter.loopCount = 3
+        adapter.isShuffleEnabled = true
+        adapter.isPlayEnabled = true
+        adapter.labelText = ""
+        return adapter
+    }
+}
+
+// MARK: - Preview Helpers
+
+public extension MockDockAdapter {
+    
+    /// Simulates TTS playback by animating audio level.
+    ///
+    /// This is useful for interactive previews that want to show
+    /// the waveform animation in action.
+    ///
+    /// - Parameter duration: How long to simulate playback
+    func simulatePlayback(duration: TimeInterval = 3.0) {
+        centerContentState = .playing(audioLevel: 0.5)
+        
+        // In a real implementation, this would use a timer
+        // to animate the audio level. For mock purposes,
+        // we just set a static level.
+    }
+    
+    /// Simulates listening by animating audio level.
+    ///
+    /// - Parameter duration: How long to simulate listening
+    func simulateListening(duration: TimeInterval = 2.0) {
+        centerContentState = .listening(audioLevel: 0.6)
+    }
+    
+    /// Simulates showing a score with animation.
+    ///
+    /// - Parameter score: The score to display (0-100)
+    func simulateScore(_ score: Int) {
+        centerContentState = .settling
+        
+        // Delay before showing score (simulating analysis)
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            centerContentState = .showingScore(percentScore: score)
+        }
+    }
+}
+
+// MARK: - Previews
+
+#Preview("Mock Adapter - Home") {
+    ZStack {
+        Color.black.ignoresSafeArea()
+        
+        VStack {
+            Text("Home Configuration")
+                .foregroundStyle(.white)
+            
+            Spacer()
+            
+            // Placeholder for dock (actual dock views in Phase 2)
+            RoundedRectangle(cornerRadius: 24)
+                .fill(Color.gray.opacity(0.3))
+                .frame(height: 68)
+                .overlay {
+                    Text("Mode: \(MockDockAdapter.home.currentMode.displayName)")
+                        .foregroundStyle(.white)
+                }
+                .padding()
+        }
+    }
+}
+
+#Preview("Mock Adapter - Session") {
+    ZStack {
+        Color.black.ignoresSafeArea()
+        
+        VStack {
+            Text("Session Configuration")
+                .foregroundStyle(.white)
+            
+            Spacer()
+            
+            RoundedRectangle(cornerRadius: 24)
+                .fill(Color.gray.opacity(0.3))
+                .frame(height: 155)
+                .overlay {
+                    VStack {
+                        Text("Center: \(String(describing: MockDockAdapter.sessionPlaying.centerContentState))")
+                        Text("Progress: \(MockDockAdapter.sessionPlaying.sessionSegments?.displayString ?? "N/A")")
+                    }
+                    .foregroundStyle(.white)
+                    .font(.caption)
+                }
+                .padding()
+        }
+    }
+}
+
+#Preview("Mock Adapter - Configuration") {
+    ZStack {
+        Color.black.ignoresSafeArea()
+        
+        VStack {
+            Text("Configuration Mode")
+                .foregroundStyle(.white)
+            
+            Spacer()
+            
+            RoundedRectangle(cornerRadius: 24)
+                .fill(Color.gray.opacity(0.3))
+                .frame(height: 68)
+                .overlay {
+                    VStack {
+                        Text("Label: \(MockDockAdapter.favorites.labelText)")
+                        Text("Loops: \(MockDockAdapter.favorites.loopCount)")
+                    }
+                    .foregroundStyle(.white)
+                    .font(.caption)
+                }
+                .padding()
+        }
+    }
+}

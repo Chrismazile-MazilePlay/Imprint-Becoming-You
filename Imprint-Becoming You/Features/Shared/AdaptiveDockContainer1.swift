@@ -57,7 +57,7 @@ import SwiftUI
 /// │                 "Label text"              ← Optional label     │
 /// └─────────────────────────────────────────────────────────────────┘
 /// ```
-struct AdaptiveDockContainer<DockContent: View>: View {
+struct AdaptiveDockContainer1<DockContent: View>: View {
     
     // MARK: - Container Mode
     
@@ -261,7 +261,7 @@ struct AdaptiveDockContainer<DockContent: View>: View {
         if let store = store {
             // Mode selector
             if store.isModeSelectorExpanded {
-                ModeSelectorExpanded(
+                ModeSelectorExpanded1(
                     selectedMode: store.currentMode,
                     showOnlyPlayableModes: false,
                     onSelect: { mode in
@@ -275,7 +275,7 @@ struct AdaptiveDockContainer<DockContent: View>: View {
             
             // Binaural selector
             if store.isBinauralSelectorExpanded {
-                BinauralSelectorExpanded(
+                BinauralSelectorExpanded1(
                     selectedPreset: store.binauralPreset,
                     onSelect: { preset in
                         store.send(.selectBinaural(preset))
@@ -293,7 +293,7 @@ struct AdaptiveDockContainer<DockContent: View>: View {
     @ViewBuilder
     private var configurationMenu: some View {
         if configIsModeSelectorExpanded {
-            ModeSelectorExpanded(
+            ModeSelectorExpanded1(
                 selectedMode: configSelectedMode,
                 showOnlyPlayableModes: true,
                 onSelect: { mode in
@@ -379,7 +379,7 @@ struct AdaptiveDockContainer<DockContent: View>: View {
 
 // MARK: - Convenience Extensions
 
-extension AdaptiveDockContainer {
+extension AdaptiveDockContainer1 {
     
     /// Creates a container for Results Summary context.
     ///
@@ -390,8 +390,8 @@ extension AdaptiveDockContainer {
         isModeSelectorExpanded: Binding<Bool>,
         selectedMode: Binding<SessionMode>,
         @ViewBuilder dock: @escaping () -> DockContent
-    ) -> AdaptiveDockContainer {
-        AdaptiveDockContainer(
+    ) -> AdaptiveDockContainer1 {
+        AdaptiveDockContainer1(
             isModeSelectorExpanded: isModeSelectorExpanded,
             selectedMode: selectedMode,
             label: "Repeat Session",
@@ -410,8 +410,8 @@ extension AdaptiveDockContainer {
         isModeSelectorExpanded: Binding<Bool>,
         selectedMode: Binding<SessionMode>,
         @ViewBuilder dock: @escaping () -> DockContent
-    ) -> AdaptiveDockContainer {
-        AdaptiveDockContainer(
+    ) -> AdaptiveDockContainer1 {
+        AdaptiveDockContainer1(
             isModeSelectorExpanded: isModeSelectorExpanded,
             selectedMode: selectedMode,
             label: "Practice \(count) affirmation\(count == 1 ? "" : "s")",
@@ -429,8 +429,8 @@ extension AdaptiveDockContainer {
         isModeSelectorExpanded: Binding<Bool>,
         selectedMode: Binding<SessionMode>,
         @ViewBuilder dock: @escaping () -> DockContent
-    ) -> AdaptiveDockContainer {
-        AdaptiveDockContainer(
+    ) -> AdaptiveDockContainer1 {
+        AdaptiveDockContainer1(
             isModeSelectorExpanded: isModeSelectorExpanded,
             selectedMode: selectedMode,
             label: "",
@@ -446,7 +446,7 @@ extension AdaptiveDockContainer {
     ZStack {
         AppColors.backgroundPrimary.ignoresSafeArea()
         
-        AdaptiveDockContainer(store: .preview) {
+        AdaptiveDockContainer1(store: .preview) {
             // Simulated dock
             RoundedRectangle(cornerRadius: AppTheme.CornerRadius.extraLarge)
                 .fill(AppColors.backgroundSecondary)
@@ -485,7 +485,7 @@ extension AdaptiveDockContainer {
                     .padding(.bottom, 160) // Space for dock
                 }
                 
-                AdaptiveDockContainer.resultsSummary(
+                AdaptiveDockContainer1.resultsSummary(
                     isModeSelectorExpanded: $expanded,
                     selectedMode: $mode
                 ) {
@@ -523,7 +523,7 @@ extension AdaptiveDockContainer {
             ZStack {
                 AppColors.backgroundPrimary.ignoresSafeArea()
                 
-                AdaptiveDockContainer.favorites(
+                AdaptiveDockContainer1.favorites(
                     count: 12,
                     isModeSelectorExpanded: $expanded,
                     selectedMode: $mode

@@ -18,7 +18,7 @@ import SwiftUI
 /// ```swift
 /// DockScoreDisplay(score: 78)
 /// ```
-struct DockScoreDisplay: View {
+struct DockScoreDisplay1: View {
     
     // MARK: - Properties
     
@@ -163,7 +163,7 @@ struct DockScoreDisplayCompact: View {
 #Preview("Score Display - Count Up") {
     ZStack {
         AppColors.backgroundSecondary
-        DockScoreDisplay(score: 78)
+        DockScoreDisplay1(score: 78)
     }
     .frame(height: 80)
     .padding()
@@ -171,9 +171,9 @@ struct DockScoreDisplayCompact: View {
 
 #Preview("Score Display - Various Scores") {
     VStack(spacing: 30) {
-        DockScoreDisplay(score: 95)
-        DockScoreDisplay(score: 72)
-        DockScoreDisplay(score: 45)
+        DockScoreDisplay1(score: 95)
+        DockScoreDisplay1(score: 72)
+        DockScoreDisplay1(score: 45)
     }
     .padding()
     .background(AppColors.backgroundSecondary)
@@ -194,7 +194,7 @@ struct DockScoreDisplayCompact: View {
         
         VStack(spacing: AppTheme.Spacing.md) {
             // Progress bars
-            DockProgressBars(current: 2, total: 5, progress: 1.0)
+            DockProgressBars1(current: 2, total: 5, progress: 1.0)
             
             // Score between chevrons
             HStack {
@@ -204,7 +204,7 @@ struct DockScoreDisplayCompact: View {
                 
                 Spacer()
                 
-                DockScoreDisplay(score: 78)
+                DockScoreDisplay1(score: 78)
                 
                 Spacer()
                 

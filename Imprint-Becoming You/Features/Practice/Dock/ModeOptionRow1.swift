@@ -24,7 +24,7 @@ import SwiftUI
 /// │     Speak affirmations yourself            │
 /// └─────────────────────────────────────────────┘
 /// ```
-struct ModeOptionRow: View {
+struct ModeOptionRow1: View {
     
     // MARK: - Properties
     
@@ -100,7 +100,7 @@ struct ModeOptionRow: View {
     ZStack {
         AppColors.backgroundSecondary.ignoresSafeArea()
         VStack {
-            ModeOptionRow(
+            ModeOptionRow1(
                 mode: .readThenSpeak,
                 isSelected: true,
                 onTap: {}
@@ -114,7 +114,7 @@ struct ModeOptionRow: View {
     ZStack {
         AppColors.backgroundSecondary.ignoresSafeArea()
         VStack {
-            ModeOptionRow(
+            ModeOptionRow1(
                 mode: .speakOnly,
                 isSelected: false,
                 onTap: {}
@@ -129,7 +129,7 @@ struct ModeOptionRow: View {
         AppColors.backgroundSecondary.ignoresSafeArea()
         VStack(spacing: AppTheme.Spacing.sm) {
             ForEach(SessionMode.allCases) { mode in
-                ModeOptionRow(
+                ModeOptionRow1(
                     mode: mode,
                     isSelected: mode == .readThenSpeak,
                     onTap: {}
@@ -149,7 +149,7 @@ struct ModeOptionRow: View {
                 AppColors.backgroundSecondary.ignoresSafeArea()
                 VStack(spacing: AppTheme.Spacing.sm) {
                     ForEach(SessionMode.allCases) { mode in
-                        ModeOptionRow(
+                        ModeOptionRow1(
                             mode: mode,
                             isSelected: mode == selected,
                             onTap: { selected = mode }

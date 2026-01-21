@@ -42,7 +42,7 @@ enum WaveformState: Equatable {
 /// ## Fallback Animation
 /// When in playing/listening state but no audio level updates are received,
 /// the waveform animates with simulated random values for visual feedback.
-struct DockWaveformView: View {
+struct DockWaveformView1: View {
     
     // MARK: - Configuration
     
@@ -81,7 +81,7 @@ struct DockWaveformView: View {
     var body: some View {
         HStack(spacing: barSpacing) {
             ForEach(0..<barCount, id: \.self) { index in
-                WaveformBar(
+                WaveformBar1(
                     height: barHeights[index],
                     maxHeight: maxHeight,
                     width: barWidth,
@@ -219,7 +219,7 @@ struct DockWaveformView: View {
 // MARK: - WaveformBar
 
 /// Individual bar in the waveform
-struct WaveformBar: View {
+struct WaveformBar1: View {
     
     let height: CGFloat
     let maxHeight: CGFloat
@@ -239,7 +239,7 @@ struct WaveformBar: View {
 #Preview("Waveform - Idle") {
     ZStack {
         AppColors.backgroundSecondary
-        DockWaveformView(state: .idle)
+        DockWaveformView1(state: .idle)
     }
     .frame(height: 60)
     .padding()
@@ -248,7 +248,7 @@ struct WaveformBar: View {
 #Preview("Waveform - Playing (Auto-Animating)") {
     ZStack {
         AppColors.backgroundSecondary
-        DockWaveformView(state: .playing, audioLevel: 0)
+        DockWaveformView1(state: .playing, audioLevel: 0)
     }
     .frame(height: 60)
     .padding()
@@ -257,7 +257,7 @@ struct WaveformBar: View {
 #Preview("Waveform - Listening (Green, Auto-Animating)") {
     ZStack {
         AppColors.backgroundSecondary
-        DockWaveformView(state: .listening, audioLevel: 0)
+        DockWaveformView1(state: .listening, audioLevel: 0)
     }
     .frame(height: 60)
     .padding()
@@ -266,7 +266,7 @@ struct WaveformBar: View {
 #Preview("Waveform - Waiting") {
     ZStack {
         AppColors.backgroundSecondary
-        DockWaveformView(state: .waiting)
+        DockWaveformView1(state: .waiting)
     }
     .frame(height: 60)
     .padding()
@@ -277,22 +277,22 @@ struct WaveformBar: View {
         Group {
             VStack {
                 Text("Idle").font(.caption)
-                DockWaveformView(state: .idle)
+                DockWaveformView1(state: .idle)
             }
             
             VStack {
                 Text("Waiting").font(.caption)
-                DockWaveformView(state: .waiting)
+                DockWaveformView1(state: .waiting)
             }
             
             VStack {
                 Text("Playing (auto)").font(.caption)
-                DockWaveformView(state: .playing)
+                DockWaveformView1(state: .playing)
             }
             
             VStack {
                 Text("Listening (green, auto)").font(.caption)
-                DockWaveformView(state: .listening)
+                DockWaveformView1(state: .listening)
             }
         }
         .frame(height: 50)

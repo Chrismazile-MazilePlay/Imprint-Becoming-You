@@ -11,35 +11,6 @@ import SwiftData
 // MARK: - FavoritesFullListView
 
 /// Full list of favorites accessible from Profile page.
-///
-/// Uses `AffirmationListCard` for consistent card styling and
-/// `AdaptiveDockContainer` for unified dock/menu handling.
-///
-/// ## Scroll Indicator
-/// Uses `safeAreaInset(edge: .bottom)` to ensure the scroll indicator
-/// remains visible above the gradient/dock overlay.
-///
-/// ## Layout
-/// ```
-/// ┌─────────────────────────────────────────────────────────────────────┐
-/// │  Close                        Favorites                             │
-/// ├─────────────────────────────────────────────────────────────────────┤
-/// │  ┌───────────────────────────────────────────────────────────────┐  │
-/// │  │  [Category]                                                   │  │
-/// │  │  "Affirmation text..."                                        │  │
-/// │  │  Saved 2 days ago                                        ♡   │  │
-/// │  └───────────────────────────────────────────────────────────────┘  │
-/// │  ┌───────────────────────────────────────────────────────────────┐  │
-/// │  │  [Category]                                                   │  │  ← Card list
-/// │  │  "Another affirmation..."                                     │  │
-/// │  │  Saved 1 hour ago                                        ♡   │  │
-/// │  └───────────────────────────────────────────────────────────────┘  │
-/// │                                                                     │
-/// ├═════════════════════════════════════════════════════════════════════┤  ← Gradient
-/// │              Practice 9 affirmations                                │  ← Label
-/// │ [Mode ▼]            [🔁 3] [🔀]              [▶]                   │  ← Dock
-/// └─────────────────────────────────────────────────────────────────────┘
-/// ```
 struct FavoritesFullListView: View {
     
     // MARK: - Environment
@@ -51,30 +22,33 @@ struct FavoritesFullListView: View {
     
     @Bindable var store: PracticeStore
     let dependencies: DependencyContainer
-    
-    /// Callback when navigating to practice (after starting a session)
     let onNavigateToCenter: () -> Void
     
     // MARK: - State
     
     @State private var favorites: [Affirmation] = []
-    
-    // MARK: - Configuration State
-    
-    @State private var selectedMode: SessionMode = .readThenSpeak
-    @State private var loopCount: Int = 1
-    @State private var shuffleEnabled: Bool = false
-    @State private var isModeSelectorExpanded: Bool = false
+    @State private var dockAdapter: ConfigurationDockAdapter
     
     // MARK: - Constants
     
-    /// Height reserved for the dock area at bottom (for safeAreaInset)
-    private let dockAreaHeight: CGFloat = 110
+    private let dockAreaHeight: CGFloat = 120
     
-    // MARK: - Computed Properties
+    // MARK: - Initialization
     
-    private var hasFavorites: Bool {
-        !favorites.isEmpty
+    init(
+        store: PracticeStore,
+        dependencies: DependencyContainer,
+        onNavigateToCenter: @escaping () -> Void
+    ) {
+        self.store = store
+        self.dependencies = dependencies
+        self.onNavigateToCenter = onNavigateToCenter
+        
+        self._dockAdapter = State(initialValue: ConfigurationDockAdapter(
+            labelText: "Loading...",
+            isPlayEnabled: false,
+            onPlay: { _, _, _ in }
+        ))
     }
     
     // MARK: - Body
@@ -84,36 +58,22 @@ struct FavoritesFullListView: View {
             AppColors.backgroundPrimary
                 .ignoresSafeArea()
             
-            // Content
             if favorites.isEmpty {
                 emptyState
             } else {
                 favoritesList
             }
-            
-            // Fixed dock area
-            // AdaptiveDockContainer handles:
-            // - Dismiss overlay for menus
-            // - Menu expansion (Mode selector)
-            // - Gradient fade
-            // - Dock positioning
-            AdaptiveDockContainer.favorites(
-                count: favorites.count,
-                isModeSelectorExpanded: $isModeSelectorExpanded,
-                selectedMode: $selectedMode
-            ) {
-                AdaptiveBottomDock(
-                    selectedMode: $selectedMode,
-                    loopCount: $loopCount,
-                    shuffleEnabled: $shuffleEnabled,
-                    isModeSelectorExpanded: $isModeSelectorExpanded,
-                    isPlayEnabled: hasFavorites,
-                    isDisabled: !hasFavorites,
-                    onPlay: {
-                        startFavoritesSession()
-                    }
-                )
+        }
+        .dismissesDockMenuOnTouch(adapter: dockAdapter)
+        .overlay {
+            VStack {
+                Spacer()
+                AdaptiveDockContainer(adapter: dockAdapter, showsGradient: true) {
+                    AdaptiveBottomDock(adapter: dockAdapter)
+                }
+                .imprintDockEnvironment()
             }
+            .ignoresSafeArea(edges: .bottom)
         }
         .navigationTitle("Favorites")
         .navigationBarTitleDisplayMode(.inline)
@@ -190,15 +150,31 @@ struct FavoritesFullListView: View {
             sortBy: [SortDescriptor(\.favoritedAt, order: .reverse)]
         )
         favorites = (try? modelContext.fetch(descriptor)) ?? []
+        updateDockAdapter()
     }
     
-    private func startFavoritesSession() {
+    private func updateDockAdapter() {
+        let count = favorites.count
+        let labelText = count > 0 ? "Practice \(count) affirmation\(count == 1 ? "" : "s")" : "No favorites yet"
+        
+        dockAdapter = ConfigurationDockAdapter(
+            initialMode: dockAdapter.currentMode,
+            initialLoopCount: dockAdapter.loopCount,
+            initialShuffle: dockAdapter.isShuffleEnabled,
+            labelText: labelText,
+            isPlayEnabled: count > 0,
+            onPlay: { [self] mode, loopCount, shuffle in
+                startFavoritesSession(mode: mode, loopCount: loopCount, shuffle: shuffle)
+            }
+        )
+    }
+    
+    private func startFavoritesSession(mode: SessionMode, loopCount: Int, shuffle: Bool) {
         let repository = dependencies.makeAffirmationRepository(modelContext: modelContext)
         
-        // Configure loop settings before starting
         let config = LoopConfiguration(
             loopCount: loopCount,
-            isShuffleEnabled: shuffleEnabled,
+            isShuffleEnabled: shuffle,
             currentLoopIteration: 1
         )
         store.setLoopConfiguration(config)
@@ -206,8 +182,8 @@ struct FavoritesFullListView: View {
         Task {
             await store.loadFavoritesAsSession(
                 using: repository,
-                mode: selectedMode,
-                shuffle: shuffleEnabled
+                mode: mode,
+                shuffle: shuffle
             )
             dismiss()
             onNavigateToCenter()
@@ -219,6 +195,7 @@ struct FavoritesFullListView: View {
         affirmation.favoritedAt = nil
         favorites.removeAll { $0.id == affirmation.id }
         HapticFeedback.impact(.light)
+        updateDockAdapter()
     }
 }
 

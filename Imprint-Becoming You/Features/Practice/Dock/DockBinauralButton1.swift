@@ -20,7 +20,7 @@ import SwiftUI
 /// │ 🧠 Focus  ∧        │
 /// └─────────────────────┘
 /// ```
-struct DockBinauralButton: View {
+struct DockBinauralButton1: View {
     
     // MARK: - Properties
     
@@ -71,7 +71,7 @@ struct DockBinauralButton: View {
 #Preview("Binaural Button - Off") {
     ZStack {
         AppColors.backgroundPrimary.ignoresSafeArea()
-        DockBinauralButton(
+        DockBinauralButton1(
             preset: .off,
             isExpanded: false,
             onTap: {}
@@ -82,7 +82,7 @@ struct DockBinauralButton: View {
 #Preview("Binaural Button - Focus") {
     ZStack {
         AppColors.backgroundPrimary.ignoresSafeArea()
-        DockBinauralButton(
+        DockBinauralButton1(
             preset: .focus,
             isExpanded: false,
             onTap: {}
@@ -93,7 +93,7 @@ struct DockBinauralButton: View {
 #Preview("Binaural Button - Expanded") {
     ZStack {
         AppColors.backgroundPrimary.ignoresSafeArea()
-        DockBinauralButton(
+        DockBinauralButton1(
             preset: .relax,
             isExpanded: true,
             onTap: {}

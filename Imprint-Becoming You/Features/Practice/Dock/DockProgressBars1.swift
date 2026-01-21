@@ -24,7 +24,7 @@ import SwiftUI
 ///     progress: 0.7  // 70% through current item
 /// )
 /// ```
-struct DockProgressBars: View {
+struct DockProgressBars1: View {
     
     // MARK: - Configuration
     
@@ -60,7 +60,7 @@ struct DockProgressBars: View {
     var body: some View {
         HStack(spacing: barSpacing) {
             ForEach(0..<total, id: \.self) { index in
-                ProgressSegment(
+                ProgressSegment1(
                     state: segmentState(for: index),
                     progress: index == current ? progress : (index < current ? 1.0 : 0.0),
                     cornerRadius: cornerRadius
@@ -120,9 +120,9 @@ struct DockProgressBars: View {
 // MARK: - ProgressSegment
 
 /// Individual segment in the progress bar
-struct ProgressSegment: View {
+struct ProgressSegment1: View {
     
-    let state: DockProgressBars.SegmentState
+    let state: DockProgressBars1.SegmentState
     let progress: CGFloat
     let cornerRadius: CGFloat
     
@@ -172,8 +172,8 @@ struct ProgressSegment: View {
 
 #Preview("Progress Bars - Start") {
     VStack(spacing: 20) {
-        DockProgressBars(current: 0, total: 5, progress: 0.0)
-        DockProgressBars(current: 0, total: 5, progress: 0.5)
+        DockProgressBars1(current: 0, total: 5, progress: 0.0)
+        DockProgressBars1(current: 0, total: 5, progress: 0.5)
     }
     .padding()
     .background(AppColors.backgroundSecondary)
@@ -181,8 +181,8 @@ struct ProgressSegment: View {
 
 #Preview("Progress Bars - Middle") {
     VStack(spacing: 20) {
-        DockProgressBars(current: 2, total: 5, progress: 0.0)
-        DockProgressBars(current: 2, total: 5, progress: 0.7)
+        DockProgressBars1(current: 2, total: 5, progress: 0.0)
+        DockProgressBars1(current: 2, total: 5, progress: 0.7)
     }
     .padding()
     .background(AppColors.backgroundSecondary)
@@ -190,8 +190,8 @@ struct ProgressSegment: View {
 
 #Preview("Progress Bars - End") {
     VStack(spacing: 20) {
-        DockProgressBars(current: 4, total: 5, progress: 0.5)
-        DockProgressBars(current: 4, total: 5, progress: 1.0)
+        DockProgressBars1(current: 4, total: 5, progress: 0.5)
+        DockProgressBars1(current: 4, total: 5, progress: 1.0)
     }
     .padding()
     .background(AppColors.backgroundSecondary)
@@ -199,16 +199,16 @@ struct ProgressSegment: View {
 
 #Preview("Progress Bars - Various Counts") {
     VStack(spacing: 20) {
-        DockProgressBars(current: 1, total: 3, progress: 0.5)
-        DockProgressBars(current: 3, total: 7, progress: 0.3)
-        DockProgressBars(current: 5, total: 10, progress: 0.8)
+        DockProgressBars1(current: 1, total: 3, progress: 0.5)
+        DockProgressBars1(current: 3, total: 7, progress: 0.3)
+        DockProgressBars1(current: 5, total: 10, progress: 0.8)
     }
     .padding()
     .background(AppColors.backgroundSecondary)
 }
 
 #Preview("Progress Bars - Animating") {
-    DockProgressBars(current: 2, total: 5, progress: 0.5, isAnimating: true)
+    DockProgressBars1(current: 2, total: 5, progress: 0.5, isAnimating: true)
         .padding()
         .background(AppColors.backgroundSecondary)
 }

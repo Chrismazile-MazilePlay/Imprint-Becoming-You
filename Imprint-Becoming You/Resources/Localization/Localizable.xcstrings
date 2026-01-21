@@ -10,6 +10,19 @@
     "\"%@\"?" : {
 
     },
+    "%@" : {
+
+    },
+    "%@ (%lld)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ (%2$lld)"
+          }
+        }
+      }
+    },
     "%@, %@" : {
       "localizations" : {
         "en" : {
@@ -78,6 +91,9 @@
     "×%lld" : {
 
     },
+    "Aa" : {
+
+    },
     "Add to favorites" : {
 
     },
@@ -141,7 +157,7 @@
     "Coming Soon" : {
 
     },
-    "Complete a session and save it to see it here" : {
+    "Complete a practice session and save it to create your own custom sessions." : {
 
     },
     "Completed" : {
@@ -259,6 +275,9 @@
     "Loop" : {
 
     },
+    "Loop count: %lld" : {
+
+    },
     "Loop count: %lld. Tap to cycle." : {
 
     },
@@ -271,10 +290,19 @@
     "No Favorites Yet" : {
 
     },
+    "No items to practice" : {
+
+    },
     "No Saved Sessions" : {
 
     },
+    "Off" : {
+
+    },
     "OK" : {
+
+    },
+    "On" : {
 
     },
     "Onboarding progress" : {
@@ -307,6 +335,16 @@
     },
     "Profile" : {
 
+    },
+    "Progress: %lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Progress: %1$lld of %2$lld"
+          }
+        }
+      }
     },
     "Randomizes affirmation order each loop" : {
 
@@ -359,6 +397,9 @@
     "Score" : {
 
     },
+    "Score: %lld percent" : {
+
+    },
     "Session Complete" : {
 
     },
@@ -383,6 +424,9 @@
     "Share affirmation" : {
 
     },
+    "Shuffle" : {
+
+    },
     "Shuffle: %@" : {
 
     },
@@ -401,7 +445,13 @@
     "Start Calibration" : {
 
     },
+    "Start practice session" : {
+
+    },
     "Tap the heart on any affirmation to save it here." : {
+
+    },
+    "Tap to %@ selector" : {
 
     },
     "This cannot be undone." : {

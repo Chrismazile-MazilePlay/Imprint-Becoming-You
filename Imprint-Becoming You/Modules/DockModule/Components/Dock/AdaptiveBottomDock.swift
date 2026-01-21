@@ -1,0 +1,287 @@
+//
+//  AdaptiveBottomDock.swift
+//  Imprint-Becoming You
+//
+//  Created by Christopher Mazile on 1/19/26.
+//
+
+import SwiftUI
+
+// MARK: - AdaptiveBottomDock
+
+/// The unified morphing bottom dock that adapts its content based on configuration.
+///
+/// This component is a **pure dock row** — it renders only the dock content and has
+/// no knowledge of expanded menus. Menu handling is delegated to `AdaptiveDockContainer`.
+///
+/// ## Configurations
+///
+/// | Configuration   | Layout                                          |
+/// |-----------------|------------------------------------------------|
+/// | `.home`         | Mode + Binaural buttons (icon + label)          |
+/// | `.session`      | Progress + Nav + Center + Mode + Binaural       |
+/// | `.configuration`| Mode + Loop + Shuffle + Play                    |
+///
+/// ## Button Consistency
+/// Mode and Binaural buttons always show icon + label across all configurations.
+///
+/// ## Usage
+///
+/// ```swift
+/// AdaptiveBottomDock(adapter: myDockAdapter)
+/// ```
+public struct AdaptiveBottomDock: View {
+    
+    // MARK: - Environment
+    
+    @Environment(\.dockDesignTokens) private var tokens
+    
+    // MARK: - Properties
+    
+    public let adapter: any DockAdapterProtocol
+    
+    // MARK: - Animation State
+    
+    @State private var isAnimatingSelector = false
+    private let animationDuration: TimeInterval = 0.35
+    
+    // MARK: - Initialization
+    
+    public init(adapter: any DockAdapterProtocol) {
+        self.adapter = adapter
+    }
+    
+    // MARK: - Body
+    
+    public var body: some View {
+        mainContent
+            .padding(.horizontal, tokens.spacingLG)
+            .padding(.vertical, tokens.spacingMD)
+            .background(dockBackground)
+            .animation(tokens.standardAnimation, value: adapter.configuration)
+    }
+    
+    // MARK: - Background
+    
+    private var dockBackground: some View {
+        RoundedRectangle(cornerRadius: tokens.cornerRadiusExtraLarge)
+            .fill(tokens.backgroundSecondary.opacity(0.95))
+            .shadow(color: .black.opacity(0.2), radius: 20, y: -5)
+    }
+    
+    // MARK: - Main Content Router
+    
+    @ViewBuilder
+    private var mainContent: some View {
+        switch adapter.configuration {
+        case .home:
+            homeContent
+        case .session:
+            sessionContent
+        case .configuration:
+            configurationContent
+        }
+    }
+}
+
+// MARK: - Home Configuration
+
+private extension AdaptiveBottomDock {
+    
+    var homeContent: some View {
+        HStack(spacing: tokens.spacingMD) {
+            DockMenuSelectorButton(
+                icon: adapter.currentMode.iconName,
+                label: adapter.currentMode.displayName,
+                isExpanded: adapter.isModeSelectorExpanded,
+                isActive: false
+            ) {
+                toggleModeSelector()
+            }
+            
+            Spacer(minLength: 0)
+            
+            DockMenuSelectorButton(
+                icon: adapter.binauralPreset.iconName,
+                label: adapter.binauralPreset.displayName,
+                isExpanded: adapter.isBinauralSelectorExpanded,
+                isActive: adapter.binauralPreset.isActive
+            ) {
+                toggleBinauralSelector()
+            }
+        }
+    }
+}
+
+// MARK: - Session Configuration
+
+private extension AdaptiveBottomDock {
+    
+    var sessionContent: some View {
+        VStack(spacing: tokens.spacingMD) {
+            // Progress segments (Stories-style)
+            if let segments = adapter.sessionSegments {
+                DockSegmentsView(
+                    segments: segments,
+                    onSegmentCompleted: {
+                        adapter.segmentAnimationCompleted()
+                    }
+                )
+            }
+            
+            // Center row: Nav + Content + Nav
+            HStack(spacing: 0) {
+                DockNavigationButton(
+                    direction: .previous,
+                    isEnabled: adapter.canNavigatePrevious
+                ) {
+                    adapter.navigatePrevious()
+                }
+                
+                Spacer(minLength: 0)
+                
+                DockCenterContentView(state: adapter.centerContentState)
+                    .frame(minWidth: 80)
+                
+                Spacer(minLength: 0)
+                
+                DockNavigationButton(
+                    direction: .next,
+                    isEnabled: adapter.canNavigateNext
+                ) {
+                    adapter.navigateNext()
+                }
+            }
+            
+            // Bottom row: Mode + Binaural
+            HStack(spacing: tokens.spacingMD) {
+                DockMenuSelectorButton(
+                    icon: adapter.currentMode.iconName,
+                    label: adapter.currentMode.displayName,
+                    isExpanded: adapter.isModeSelectorExpanded,
+                    isActive: false
+                ) {
+                    toggleModeSelector()
+                }
+                
+                Spacer(minLength: 0)
+                
+                DockMenuSelectorButton(
+                    icon: adapter.binauralPreset.iconName,
+                    label: adapter.binauralPreset.displayName,
+                    isExpanded: adapter.isBinauralSelectorExpanded,
+                    isActive: adapter.binauralPreset.isActive
+                ) {
+                    toggleBinauralSelector()
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Configuration Mode
+
+private extension AdaptiveBottomDock {
+    
+    var configurationContent: some View {
+        HStack(spacing: 0) {
+            DockMenuSelectorButton(
+                icon: adapter.currentMode.iconName,
+                label: adapter.currentMode.displayName,
+                isExpanded: adapter.isModeSelectorExpanded,
+                isActive: false
+            ) {
+                toggleModeSelector()
+            }
+            
+            Spacer(minLength: tokens.spacingSM)
+            
+            HStack(spacing: tokens.spacingSM) {
+                DockLoopButton(count: adapter.loopCount) {
+                    adapter.cycleLoopCount()
+                }
+                
+                DockShuffleButton(isEnabled: adapter.isShuffleEnabled) {
+                    adapter.toggleShuffle()
+                }
+                
+                DockPlayButton(isEnabled: adapter.isPlayEnabled) {
+                    adapter.play()
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Selector Actions
+
+private extension AdaptiveBottomDock {
+    
+    func toggleModeSelector() {
+        guard !isAnimatingSelector else { return }
+        isAnimatingSelector = true
+        
+        if adapter.isBinauralSelectorExpanded {
+            adapter.isBinauralSelectorExpanded = false
+        }
+        adapter.isModeSelectorExpanded.toggle()
+        
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(animationDuration))
+            isAnimatingSelector = false
+        }
+    }
+    
+    func toggleBinauralSelector() {
+        guard !isAnimatingSelector else { return }
+        isAnimatingSelector = true
+        
+        if adapter.isModeSelectorExpanded {
+            adapter.isModeSelectorExpanded = false
+        }
+        adapter.isBinauralSelectorExpanded.toggle()
+        
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(animationDuration))
+            isAnimatingSelector = false
+        }
+    }
+}
+
+// MARK: - Previews
+
+#Preview("Dock - Home") {
+    ZStack {
+        Color.black.ignoresSafeArea()
+        VStack {
+            Spacer()
+            AdaptiveBottomDock(adapter: MockDockAdapter.home)
+                .padding(.horizontal)
+                .padding(.bottom, 24)
+        }
+    }
+}
+
+#Preview("Dock - Session Playing") {
+    ZStack {
+        Color.black.ignoresSafeArea()
+        VStack {
+            Spacer()
+            AdaptiveBottomDock(adapter: MockDockAdapter.sessionPlaying)
+                .padding(.horizontal)
+                .padding(.bottom, 24)
+        }
+    }
+}
+
+#Preview("Dock - Configuration") {
+    ZStack {
+        Color.black.ignoresSafeArea()
+        VStack {
+            Spacer()
+            AdaptiveBottomDock(adapter: MockDockAdapter.favorites)
+                .padding(.horizontal)
+                .padding(.bottom, 24)
+        }
+    }
+}

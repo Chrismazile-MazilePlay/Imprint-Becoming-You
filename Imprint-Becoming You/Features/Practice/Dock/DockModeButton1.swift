@@ -20,7 +20,7 @@ import SwiftUI
 /// │ 🔊 Read Aloud  ∧   │
 /// └─────────────────────┘
 /// ```
-struct DockModeButton: View {
+struct DockModeButton1: View {
     
     // MARK: - Properties
     
@@ -70,7 +70,7 @@ struct DockModeButton: View {
 #Preview("Mode Button - Read Only") {
     ZStack {
         AppColors.backgroundPrimary.ignoresSafeArea()
-        DockModeButton(
+        DockModeButton1(
             mode: .readOnly,
             isExpanded: false,
             onTap: {}
@@ -81,7 +81,7 @@ struct DockModeButton: View {
 #Preview("Mode Button - Expanded") {
     ZStack {
         AppColors.backgroundPrimary.ignoresSafeArea()
-        DockModeButton(
+        DockModeButton1(
             mode: .readThenSpeak,
             isExpanded: true,
             onTap: {}
@@ -92,7 +92,7 @@ struct DockModeButton: View {
 #Preview("Mode Button - No Label") {
     ZStack {
         AppColors.backgroundPrimary.ignoresSafeArea()
-        DockModeButton(
+        DockModeButton1(
             mode: .speakOnly,
             isExpanded: false,
             showLabel: false,

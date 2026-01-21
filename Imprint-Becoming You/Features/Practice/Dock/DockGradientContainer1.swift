@@ -30,7 +30,7 @@ import SwiftUI
 /// │  "Practice 9 affirmations"                                     │
 /// └─────────────────────────────────────────────────────────────────┘
 /// ```
-struct DockGradientContainer<DockContent: View>: View {
+struct DockGradientContainer1<DockContent: View>: View {
     
     // MARK: - Properties
     
@@ -133,7 +133,7 @@ struct DockGradientContainer<DockContent: View>: View {
     private var expandedModeSelector: some View {
         VStack(spacing: 0) {
             if isModeSelectorExpanded {
-                ModeSelectorExpanded(
+                ModeSelectorExpanded1(
                     selectedMode: selectedMode,
                     showOnlyPlayableModes: true,
                     onSelect: { mode in
@@ -178,15 +178,15 @@ struct DockGradientContainer<DockContent: View>: View {
 
 // MARK: - Convenience Extensions
 
-extension DockGradientContainer {
+extension DockGradientContainer1 {
     
     /// Creates a container for Results Summary context
     static func resultsSummary(
         isModeSelectorExpanded: Binding<Bool>,
         selectedMode: Binding<SessionMode>,
         @ViewBuilder dockContent: @escaping () -> DockContent
-    ) -> DockGradientContainer {
-        DockGradientContainer(
+    ) -> DockGradientContainer1 {
+        DockGradientContainer1(
             label: "Repeat Session",
             isModeSelectorExpanded: isModeSelectorExpanded,
             selectedMode: selectedMode,
@@ -200,8 +200,8 @@ extension DockGradientContainer {
         isModeSelectorExpanded: Binding<Bool>,
         selectedMode: Binding<SessionMode>,
         @ViewBuilder dockContent: @escaping () -> DockContent
-    ) -> DockGradientContainer {
-        DockGradientContainer(
+    ) -> DockGradientContainer1 {
+        DockGradientContainer1(
             label: "Practice \(count) affirmation\(count == 1 ? "" : "s")",
             isModeSelectorExpanded: isModeSelectorExpanded,
             selectedMode: selectedMode,
@@ -214,8 +214,8 @@ extension DockGradientContainer {
         isModeSelectorExpanded: Binding<Bool>,
         selectedMode: Binding<SessionMode>,
         @ViewBuilder dockContent: @escaping () -> DockContent
-    ) -> DockGradientContainer {
-        DockGradientContainer(
+    ) -> DockGradientContainer1 {
+        DockGradientContainer1(
             label: "",
             isModeSelectorExpanded: isModeSelectorExpanded,
             selectedMode: selectedMode,
@@ -257,7 +257,7 @@ extension DockGradientContainer {
                 VStack {
                     Spacer()
                     
-                    DockGradientContainer.resultsSummary(
+                    DockGradientContainer1.resultsSummary(
                         isModeSelectorExpanded: $expanded,
                         selectedMode: $mode
                     ) {
@@ -296,7 +296,7 @@ extension DockGradientContainer {
                 VStack {
                     Spacer()
                     
-                    DockGradientContainer.favorites(
+                    DockGradientContainer1.favorites(
                         count: 9,
                         isModeSelectorExpanded: $expanded,
                         selectedMode: $mode

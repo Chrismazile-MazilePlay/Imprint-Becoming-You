@@ -9,21 +9,33 @@ import SwiftUI
 
 // MARK: - AdaptiveDockContainer
 
-/// Self-sufficient dock container with optional gradient background.
+/// Top-level container managing dock layout, expanded menus, and dismiss behavior.
 ///
-/// Uses ZStack to layer gradient behind dock content:
+/// This container wraps `AdaptiveBottomDock` and handles:
+/// - Expanded selector menus (Mode, Binaural)
+/// - Dismiss overlay for closing menus
+/// - Optional gradient background
+/// - Optional label display below dock
+///
+/// ## Structure
+///
 /// ```
-/// ZStack (alignment: .bottom)
-/// ├── Back:  LinearGradient (when showsGradient)
-/// └── Front: VStack (menus, dock, label)
+/// ┌───────────────────────────────────┐
+/// │         (Dismiss Overlay)         │
+/// ├───────────────────────────────────┤
+/// │    [Expanded Menu - if visible]   │
+/// ├───────────────────────────────────┤
+/// │    [Dock Content - via content]   │
+/// ├───────────────────────────────────┤
+/// │    [Label - if present]           │
+/// └───────────────────────────────────┘
 /// ```
 ///
-/// Parent views position at screen bottom:
+/// ## Usage
+///
 /// ```swift
-/// .overlay(alignment: .bottom) {
-///     AdaptiveDockContainer(adapter: adapter, showsGradient: true) {
-///         AdaptiveBottomDock(adapter: adapter)
-///     }
+/// AdaptiveDockContainer(adapter: myAdapter) {
+///     AdaptiveBottomDock(adapter: myAdapter)
 /// }
 /// ```
 public struct AdaptiveDockContainer<Content: View>: View {
@@ -37,11 +49,6 @@ public struct AdaptiveDockContainer<Content: View>: View {
     public let adapter: any DockAdapterProtocol
     public let showsGradient: Bool
     @ViewBuilder public let content: () -> Content
-    
-    // MARK: - Constants
-    
-    /// Height of gradient background (dock area + fade portion)
-    private let gradientHeight: CGFloat = 200
     
     // MARK: - Initialization
     
@@ -59,39 +66,37 @@ public struct AdaptiveDockContainer<Content: View>: View {
     
     public var body: some View {
         ZStack(alignment: .bottom) {
-            // Back layer: gradient
-            if showsGradient {
-                LinearGradient(
-                    gradient: Gradient(colors: [
-                        .clear,
-                        tokens.backgroundPrimary.opacity(0.7),
-                        tokens.backgroundPrimary
-                    ]),
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: gradientHeight)
-                .allowsHitTesting(false)
+            // Dismiss overlay
+            if isAnyMenuExpanded {
+                dismissOverlay
             }
             
-            // Front layer: dock content
+            // Main content stack
             VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                
+                // Expanded menus (slide up from bottom)
                 expandedMenus
                 
+                // Dock content
                 content()
                     .padding(.horizontal, tokens.spacingMD)
-                    .padding(.bottom, labelText.isEmpty ? tokens.spacingSM : tokens.spacingXS)
+                    .padding(.bottom, labelText.isEmpty ? tokens.dockBottomPadding : tokens.spacingSM)
                 
+                // Optional label
                 if !labelText.isEmpty {
                     Text(labelText)
                         .font(tokens.caption1)
                         .foregroundStyle(tokens.textSecondary)
-                        .padding(.bottom, tokens.spacingSM)
+                        .padding(.bottom, tokens.dockBottomPadding)
                 }
             }
-            .padding(.bottom)
         }
-        .ignoresSafeArea(edges: .bottom)
+        .background(alignment: .bottom) {
+            if showsGradient {
+                gradientBackground
+            }
+        }
     }
     
     // MARK: - Computed Properties
@@ -104,6 +109,18 @@ public struct AdaptiveDockContainer<Content: View>: View {
         adapter.labelText
     }
     
+    // MARK: - Dismiss Overlay
+    
+    private var dismissOverlay: some View {
+        Color.black.opacity(0.01)
+            .ignoresSafeArea()
+            .onTapGesture {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    adapter.closeAllSelectors()
+                }
+            }
+    }
+    
     // MARK: - Expanded Menus
     
     @ViewBuilder
@@ -114,7 +131,7 @@ public struct AdaptiveDockContainer<Content: View>: View {
                     modes: adapter.availableModes,
                     selectedMode: adapter.currentMode
                 ) { mode in
-                    withAnimation(tokens.standardAnimation) {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                         adapter.selectMode(mode)
                     }
                 }
@@ -131,7 +148,7 @@ public struct AdaptiveDockContainer<Content: View>: View {
                 BinauralSelectorExpanded(
                     selectedPreset: adapter.binauralPreset
                 ) { preset in
-                    withAnimation(tokens.standardAnimation) {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                         adapter.selectBinaural(preset)
                     }
                 }
@@ -141,68 +158,101 @@ public struct AdaptiveDockContainer<Content: View>: View {
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
+    
+    // MARK: - Gradient Background
+    
+    private var gradientBackground: some View {
+        LinearGradient(
+            colors: [
+                tokens.backgroundPrimary.opacity(0),
+                tokens.backgroundPrimary.opacity(0.8),
+                tokens.backgroundPrimary
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: 180)
+        .allowsHitTesting(false)
+    }
 }
 
 // MARK: - Previews
 
-#Preview("Config - With Gradient") {
-    ZStack {
-        Color.black.ignoresSafeArea()
+#Preview("Container - Home") {
+    struct PreviewWrapper: View {
+        @State private var adapter = MockDockAdapter.home
         
-        ScrollView {
-            VStack(spacing: 8) {
-                ForEach(0..<20) { i in
-                    Text("Item \(i + 1)")
-                        .foregroundStyle(.white.opacity(0.5))
-                        .frame(maxWidth: .infinity)
-                        .padding()
+        var body: some View {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                AdaptiveDockContainer(adapter: adapter) {
+                    AdaptiveBottomDock(adapter: adapter)
                 }
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 120)
-        }
     }
-    .overlay {
-        VStack {
-            Spacer()
-            AdaptiveDockContainer(adapter: MockDockAdapter.favorites, showsGradient: true) {
-                AdaptiveBottomDock(adapter: MockDockAdapter.favorites)
-            }
-            .imprintDockEnvironment()
-        }
-        .ignoresSafeArea(edges: .bottom)
-    }
+    return PreviewWrapper()
 }
 
-#Preview("Home - No Gradient") {
-    ZStack {
-        Color.purple.opacity(0.3).ignoresSafeArea()
-    }
-    .overlay {
-        VStack {
-            Spacer()
-            AdaptiveDockContainer(adapter: MockDockAdapter.home) {
-                AdaptiveBottomDock(adapter: MockDockAdapter.home)
+#Preview("Container - Session") {
+    struct PreviewWrapper: View {
+        @State private var adapter = MockDockAdapter.sessionPlaying
+        
+        var body: some View {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                AdaptiveDockContainer(adapter: adapter) {
+                    AdaptiveBottomDock(adapter: adapter)
+                }
             }
-            .imprintDockEnvironment()
         }
-        .ignoresSafeArea(edges: .bottom)
     }
+    return PreviewWrapper()
 }
 
-#Preview("Session - No Gradient") {
-    ZStack {
-        Color.blue.opacity(0.2).ignoresSafeArea()
-    }
-    .overlay {
-        VStack {
-            Spacer()
-            AdaptiveDockContainer(adapter: MockDockAdapter.sessionPlaying) {
-                AdaptiveBottomDock(adapter: MockDockAdapter.sessionPlaying)
+#Preview("Container - Config with Gradient") {
+    struct PreviewWrapper: View {
+        @State private var adapter = MockDockAdapter.favorites
+        
+        var body: some View {
+            ZStack {
+                ScrollView {
+                    VStack(spacing: 8) {
+                        ForEach(0..<20) { i in
+                            Text("Affirmation \(i + 1)")
+                                .foregroundStyle(.white.opacity(0.5))
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                        }
+                    }
+                }
+                
+                AdaptiveDockContainer(adapter: adapter, showsGradient: true) {
+                    AdaptiveBottomDock(adapter: adapter)
+                }
             }
-            .imprintDockEnvironment()
+            .background(Color.black)
         }
-        .ignoresSafeArea(edges: .bottom)
     }
+    return PreviewWrapper()
+}
+
+#Preview("Container - Mode Selector Open") {
+    struct PreviewWrapper: View {
+        @State private var adapter: MockDockAdapter = {
+            let a = MockDockAdapter.home
+            a.isModeSelectorExpanded = true
+            return a
+        }()
+        
+        var body: some View {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                AdaptiveDockContainer(adapter: adapter) {
+                    AdaptiveBottomDock(adapter: adapter)
+                }
+            }
+        }
+    }
+    return PreviewWrapper()
 }

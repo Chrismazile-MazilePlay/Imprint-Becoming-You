@@ -117,9 +117,13 @@ private extension AdaptiveBottomDock {
 
 private extension AdaptiveBottomDock {
     
+    /// Horizontal inset for aligning progress/buttons with nav button edges
+    /// Small value keeps alignment subtle while maintaining width
+    private var alignmentInset: CGFloat { 4 }
+    
     var sessionContent: some View {
         VStack(spacing: tokens.spacingMD) {
-            // Progress segments (Stories-style)
+            // Progress segments - slight inset for visual alignment
             if let segments = adapter.sessionSegments {
                 DockSegmentsView(
                     segments: segments,
@@ -127,6 +131,7 @@ private extension AdaptiveBottomDock {
                         adapter.segmentAnimationCompleted()
                     }
                 )
+                .padding(.horizontal, alignmentInset)
             }
             
             // Center row: Nav + Content + Nav
@@ -154,6 +159,7 @@ private extension AdaptiveBottomDock {
             }
             
             // Bottom row: Mode + Binaural
+            // Slight inset to align with progress segments
             HStack(spacing: tokens.spacingMD) {
                 DockMenuSelectorButton(
                     icon: adapter.currentMode.iconName,
@@ -175,6 +181,7 @@ private extension AdaptiveBottomDock {
                     toggleBinauralSelector()
                 }
             }
+            .padding(.horizontal, alignmentInset)
         }
     }
 }
@@ -221,10 +228,12 @@ private extension AdaptiveBottomDock {
         guard !isAnimatingSelector else { return }
         isAnimatingSelector = true
         
-        if adapter.isBinauralSelectorExpanded {
-            adapter.isBinauralSelectorExpanded = false
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            if adapter.isBinauralSelectorExpanded {
+                adapter.isBinauralSelectorExpanded = false
+            }
+            adapter.isModeSelectorExpanded.toggle()
         }
-        adapter.isModeSelectorExpanded.toggle()
         
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(animationDuration))
@@ -236,10 +245,12 @@ private extension AdaptiveBottomDock {
         guard !isAnimatingSelector else { return }
         isAnimatingSelector = true
         
-        if adapter.isModeSelectorExpanded {
-            adapter.isModeSelectorExpanded = false
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            if adapter.isModeSelectorExpanded {
+                adapter.isModeSelectorExpanded = false
+            }
+            adapter.isBinauralSelectorExpanded.toggle()
         }
-        adapter.isBinauralSelectorExpanded.toggle()
         
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(animationDuration))

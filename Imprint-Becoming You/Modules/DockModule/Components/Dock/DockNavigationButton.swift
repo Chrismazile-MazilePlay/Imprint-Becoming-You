@@ -33,6 +33,10 @@ public enum DockNavigationDirection: Equatable, Sendable {
 
 /// A circular navigation button for moving between affirmations.
 ///
+/// Features a circular background with a prominent chevron icon.
+/// The button is sized to provide a comfortable tap target while
+/// maintaining visual balance with other dock elements.
+///
 /// ## Usage
 ///
 /// ```swift
@@ -56,7 +60,13 @@ public struct DockNavigationButton: View {
     public let isEnabled: Bool
     public let action: () -> Void
     
-    private let buttonSize: CGFloat = 44
+    // MARK: - Constants
+    
+    /// Size of the circular button background
+    static let buttonSize: CGFloat = 48
+    
+    /// Size of the chevron icon
+    private let iconSize: CGFloat = 20
     
     // MARK: - Initialization
     
@@ -77,10 +87,14 @@ public struct DockNavigationButton: View {
             haptics.lightImpact()
             action()
         } label: {
-            Image(systemName: direction.iconName)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(isEnabled ? tokens.textPrimary : tokens.textTertiary)
-                .frame(width: buttonSize, height: buttonSize)
+            Circle()
+                .fill(tokens.backgroundTertiary.opacity(isEnabled ? 1.0 : 0.5))
+                .frame(width: Self.buttonSize, height: Self.buttonSize)
+                .overlay {
+                    Image(systemName: direction.iconName)
+                        .font(.system(size: iconSize, weight: .semibold))
+                        .foregroundStyle(isEnabled ? tokens.textPrimary : tokens.textTertiary)
+                }
         }
         .disabled(!isEnabled)
         .accessibilityLabel(direction.label)
@@ -94,6 +108,16 @@ public struct DockNavigationButton: View {
         Color.black.ignoresSafeArea()
         HStack(spacing: 40) {
             DockNavigationButton(direction: .previous, isEnabled: true, action: {})
+            DockNavigationButton(direction: .next, isEnabled: true, action: {})
+        }
+    }
+}
+
+#Preview("Navigation Buttons - Disabled") {
+    ZStack {
+        Color.black.ignoresSafeArea()
+        HStack(spacing: 40) {
+            DockNavigationButton(direction: .previous, isEnabled: false, action: {})
             DockNavigationButton(direction: .next, isEnabled: false, action: {})
         }
     }

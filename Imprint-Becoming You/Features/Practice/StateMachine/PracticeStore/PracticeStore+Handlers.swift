@@ -210,7 +210,7 @@ extension PracticeStore {
 
 extension PracticeStore {
     
-    /// Cycles loop count: 1 → 3 → 5 → 1
+    /// Cycles loop count: 1 â†’ 3 â†’ 5 â†’ 1
     func handleCycleLoopCount() {
         var config = loopConfiguration
         config.cycleLoopCount()
@@ -444,7 +444,7 @@ extension PracticeStore {
             }
             setSegmentProgress(0)
             startFlowForCurrentAffirmation()
-        } else if isSessionActive && sessionIndex >= Constants.Session.sessionSize - 1 {
+        } else if isSessionActive && sessionIndex >= sessionAffirmations.count - 1 {
             // Check for more loops before showing summary
             send(.loopIterationCompleted)
         } else {
@@ -535,7 +535,7 @@ extension PracticeStore {
     
     func handleScoreDisplayCompleted() {
         // Check if we've completed the current loop
-        if isSessionActive && sessionIndex >= Constants.Session.sessionSize - 1 {
+        if isSessionActive && sessionIndex >= sessionAffirmations.count - 1 {
             send(.loopIterationCompleted)
             return
         }
@@ -628,7 +628,7 @@ extension PracticeStore {
         guard isSessionActive else { return }
         
         // Check if we've completed the current loop
-        if sessionIndex >= Constants.Session.sessionSize - 1 {
+        if sessionIndex >= sessionAffirmations.count - 1 {
             send(.loopIterationCompleted)
             return
         }

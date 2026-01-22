@@ -253,7 +253,7 @@ final class PracticeStore {
     /// Whether we can navigate to next affirmation
     var canGoNext: Bool {
         if isSessionActive {
-            return sessionIndex < Constants.Session.sessionSize - 1
+            return sessionIndex < sessionAffirmations.count - 1
         }
         return browseIndex < browseAffirmations.count - 1
     }
@@ -305,7 +305,7 @@ final class PracticeStore {
     
     /// Total count for dock progress bar display.
     var displayTotalCount: Int {
-        isSessionActive ? Constants.Session.sessionSize : browseAffirmations.count
+        isSessionActive ? sessionAffirmations.count : browseAffirmations.count
     }
     
     /// Current index for dock progress bar display.

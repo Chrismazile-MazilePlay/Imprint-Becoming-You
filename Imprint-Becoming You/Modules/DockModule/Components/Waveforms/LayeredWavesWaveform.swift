@@ -18,7 +18,13 @@ public struct LayeredWavesWaveformStyle: DockWaveformStyle {
     public init() {}
     
     public func makeBody(state: DockCenterContentState, tokens: DockDesignTokens) -> some View {
-        LayeredWavesWaveformView(state: state, tokens: tokens)
+        // Note: When used through the style protocol, we need internal TimelineView
+        // When used directly from DockCenterContentView, breathingPhase is provided
+        TimelineView(.animation) { timeline in
+            let elapsed = timeline.date.timeIntervalSinceReferenceDate
+            let phase = CGFloat((elapsed / 2.0).truncatingRemainder(dividingBy: 1.0))
+            LayeredWavesWaveformView(state: state, tokens: tokens, breathingPhase: phase)
+        }
     }
 }
 
@@ -28,6 +34,14 @@ public struct LayeredWavesWaveformStyle: DockWaveformStyle {
 ///
 /// Renders multiple overlapping sine curves that respond to different states
 /// (playing, listening, waiting, etc.) with smooth transitions.
+///
+/// ## Animation Architecture
+///
+/// The `breathingPhase` is provided by the parent container (`DockCenterContentView`)
+/// which wraps all waveforms in a single `TimelineView`. This ensures:
+/// - All waveforms animate in perfect sync
+/// - No duplicate TimelineView instances
+/// - Consistent timing across different waveform styles
 ///
 /// ## Performance Optimizations
 ///
@@ -40,6 +54,9 @@ struct LayeredWavesWaveformView: View {
     
     let state: DockCenterContentState
     let tokens: DockDesignTokens
+    
+    /// Continuous breathing phase (0.0-1.0) provided by parent TimelineView.
+    let breathingPhase: CGFloat
     
     // MARK: - Configuration Constants
     
@@ -63,29 +80,23 @@ struct LayeredWavesWaveformView: View {
     // MARK: - Body
     
     var body: some View {
-        TimelineView(.animation) { timeline in
-            // Calculate continuous phase from elapsed time
-            let elapsed = timeline.date.timeIntervalSinceReferenceDate
-            let breathingPhase = (elapsed / 2.0).truncatingRemainder(dividingBy: 1.0)
-            
-            GeometryReader { geometry in
-                ZStack {
-                    ForEach(0..<layerCount, id: \.self) { index in
-                        WaveLayer(
-                            index: index,
-                            layerCount: layerCount,
-                            width: geometry.size.width,
-                            height: geometry.size.height,
-                            config: config,
-                            audioLevel: isInChoreographedTransition ? 0 : (state.audioLevel ?? 0),
-                            breathingPhase: breathingPhase,
-                            baseFrequency: baseFrequency,
-                            frequencyStep: frequencyStep,
-                            lineWidth: lineWidth,
-                            accentColor: tokens.accent,
-                            listeningColor: tokens.success
-                        )
-                    }
+        GeometryReader { geometry in
+            ZStack {
+                ForEach(0..<layerCount, id: \.self) { index in
+                    WaveLayer(
+                        index: index,
+                        layerCount: layerCount,
+                        width: geometry.size.width,
+                        height: geometry.size.height,
+                        config: config,
+                        audioLevel: isInChoreographedTransition ? 0 : (state.audioLevel ?? 0),
+                        breathingPhase: breathingPhase,
+                        baseFrequency: baseFrequency,
+                        frequencyStep: frequencyStep,
+                        lineWidth: lineWidth,
+                        accentColor: tokens.accent,
+                        listeningColor: tokens.success
+                    )
                 }
             }
         }
@@ -446,7 +457,8 @@ private extension Color {
         Color.black.ignoresSafeArea()
         LayeredWavesWaveformView(
             state: .idle,
-            tokens: DefaultDockDesignTokens()
+            tokens: DefaultDockDesignTokens(),
+            breathingPhase: 0.5
         )
         .frame(height: 60)
         .padding(.horizontal, 20)
@@ -458,7 +470,8 @@ private extension Color {
         Color.black.ignoresSafeArea()
         LayeredWavesWaveformView(
             state: .playing(audioLevel: 0.7),
-            tokens: DefaultDockDesignTokens()
+            tokens: DefaultDockDesignTokens(),
+            breathingPhase: 0.5
         )
         .frame(height: 60)
         .padding(.horizontal, 20)
@@ -470,8 +483,26 @@ private extension Color {
         Color.black.ignoresSafeArea()
         LayeredWavesWaveformView(
             state: .listening(audioLevel: 0.6),
-            tokens: DefaultDockDesignTokens()
+            tokens: DefaultDockDesignTokens(),
+            breathingPhase: 0.5
         )
+        .frame(height: 60)
+        .padding(.horizontal, 20)
+    }
+}
+
+#Preview("Layered Waves - Animated") {
+    ZStack {
+        Color.black.ignoresSafeArea()
+        TimelineView(.animation) { timeline in
+            let elapsed = timeline.date.timeIntervalSinceReferenceDate
+            let phase = CGFloat((elapsed / 2.0).truncatingRemainder(dividingBy: 1.0))
+            LayeredWavesWaveformView(
+                state: .playing(audioLevel: 0.7),
+                tokens: DefaultDockDesignTokens(),
+                breathingPhase: phase
+            )
+        }
         .frame(height: 60)
         .padding(.horizontal, 20)
     }

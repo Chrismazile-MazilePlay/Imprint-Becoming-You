@@ -18,7 +18,13 @@ public struct ClassicBarsWaveformStyle: DockWaveformStyle {
     public init() {}
     
     public func makeBody(state: DockCenterContentState, tokens: DockDesignTokens) -> some View {
-        ClassicBarsWaveformView(state: state, tokens: tokens)
+        // Note: When used through the style protocol, we need internal TimelineView
+        // When used directly from DockCenterContentView, breathingPhase is provided
+        TimelineView(.animation) { timeline in
+            let elapsed = timeline.date.timeIntervalSinceReferenceDate
+            let phase = CGFloat((elapsed / 2.0).truncatingRemainder(dividingBy: 1.0))
+            ClassicBarsWaveformView(state: state, tokens: tokens, breathingPhase: phase)
+        }
     }
 }
 
@@ -28,12 +34,23 @@ public struct ClassicBarsWaveformStyle: DockWaveformStyle {
 ///
 /// Renders animated bars that respond to different states (playing, listening,
 /// waiting, etc.) with smooth transitions.
+///
+/// ## Animation Architecture
+///
+/// The `breathingPhase` is provided by the parent container (`DockCenterContentView`)
+/// which wraps all waveforms in a single `TimelineView`. This ensures:
+/// - All waveforms animate in perfect sync
+/// - No duplicate TimelineView instances
+/// - Consistent timing across different waveform styles
 struct ClassicBarsWaveformView: View {
     
     // MARK: - Properties
     
     let state: DockCenterContentState
     let tokens: DockDesignTokens
+    
+    /// Continuous breathing phase (0.0-1.0) provided by parent TimelineView.
+    let breathingPhase: CGFloat
     
     // MARK: - Configuration Constants
     
@@ -52,7 +69,6 @@ struct ClassicBarsWaveformView: View {
     // MARK: - Animation State
     
     @State private var config: ClassicBarsConfiguration = .idle
-    @State private var breathingPhase: CGFloat = 0
     @State private var barOffsets: [CGFloat] = []
     @State private var previousState: DockCenterContentState?
     @State private var isInChoreographedTransition: Bool = false
@@ -81,7 +97,6 @@ struct ClassicBarsWaveformView: View {
             initializeBarOffsets()
             config = configuration(for: state)
             previousState = state
-            startBreathingAnimation()
         }
         .onChange(of: state) { oldState, newState in
             handleStateChange(from: oldState, to: newState)
@@ -94,17 +109,6 @@ struct ClassicBarsWaveformView: View {
         barOffsets = (0..<barCount).map { index in
             let seed = CGFloat(index) * 1.618
             return (seed.truncatingRemainder(dividingBy: 1.0)) * 2 - 1
-        }
-    }
-    
-    // MARK: - Breathing Animation
-    
-    private func startBreathingAnimation() {
-        withAnimation(
-            .easeInOut(duration: 1.2)
-            .repeatForever(autoreverses: true)
-        ) {
-            breathingPhase = 1
         }
     }
     
@@ -275,7 +279,9 @@ private struct WaveformBar: View {
         
         height += centerWeight * config.intensity * range * 0.6
         
-        let breathingContribution = (sin(breathingPhase * .pi) * 0.5 + 0.5) * config.breathingAmplitude * range
+        // Use continuous breathingPhase from TimelineView (convert to sine wave)
+        let breathingWave = sin(breathingPhase * .pi * 2)
+        let breathingContribution = (breathingWave * 0.5 + 0.5) * config.breathingAmplitude * range
         height += breathingContribution * centerWeight
         
         if config.audioReactivity > 0 {
@@ -321,7 +327,7 @@ private struct ClassicBarsConfiguration: Equatable {
     )
     
     static let speaking = ClassicBarsConfiguration(
-        intensity: 0.45, colorBlend: 0, audioReactivity: 0,
+        intensity: 0.45, colorBlend: 0, audioReactivity: 0.5,
         breathingAmplitude: 0.05, dampingScale: 3.5, randomization: 0.65
     )
     
@@ -385,7 +391,8 @@ private extension Color {
         Color.black.ignoresSafeArea()
         ClassicBarsWaveformView(
             state: .idle,
-            tokens: DefaultDockDesignTokens()
+            tokens: DefaultDockDesignTokens(),
+            breathingPhase: 0.5
         )
         .frame(height: 40)
     }
@@ -396,7 +403,8 @@ private extension Color {
         Color.black.ignoresSafeArea()
         ClassicBarsWaveformView(
             state: .playing(audioLevel: 0.7),
-            tokens: DefaultDockDesignTokens()
+            tokens: DefaultDockDesignTokens(),
+            breathingPhase: 0.5
         )
         .frame(height: 40)
     }
@@ -407,8 +415,25 @@ private extension Color {
         Color.black.ignoresSafeArea()
         ClassicBarsWaveformView(
             state: .listening(audioLevel: 0.6),
-            tokens: DefaultDockDesignTokens()
+            tokens: DefaultDockDesignTokens(),
+            breathingPhase: 0.5
         )
+        .frame(height: 40)
+    }
+}
+
+#Preview("Classic Bars - Animated") {
+    ZStack {
+        Color.black.ignoresSafeArea()
+        TimelineView(.animation) { timeline in
+            let elapsed = timeline.date.timeIntervalSinceReferenceDate
+            let phase = CGFloat((elapsed / 2.0).truncatingRemainder(dividingBy: 1.0))
+            ClassicBarsWaveformView(
+                state: .playing(audioLevel: 0.7),
+                tokens: DefaultDockDesignTokens(),
+                breathingPhase: phase
+            )
+        }
         .frame(height: 40)
     }
 }

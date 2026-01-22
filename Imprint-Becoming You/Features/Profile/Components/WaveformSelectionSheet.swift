@@ -204,23 +204,28 @@ private struct WaveformOptionCard: View {
             RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
                 .fill(Color.black)
             
-            // Waveform preview based on type
-            waveformPreview
-                .frame(height: 50)
-                .padding(.horizontal, AppTheme.Spacing.lg)
+            // Waveform preview based on type - wrapped in TimelineView for animation
+            TimelineView(.animation) { timeline in
+                let elapsed = timeline.date.timeIntervalSinceReferenceDate
+                let breathingPhase = CGFloat((elapsed / 2.0).truncatingRemainder(dividingBy: 1.0))
+                
+                waveformPreview(breathingPhase: breathingPhase)
+            }
+            .frame(height: 50)
+            .padding(.horizontal, AppTheme.Spacing.lg)
         }
         .frame(height: 80)
     }
     
     /// Renders the waveform preview for this type.
     @ViewBuilder
-    private var waveformPreview: some View {
+    private func waveformPreview(breathingPhase: CGFloat) -> some View {
         let tokens = DefaultDockDesignTokens()
         switch type {
         case .layeredWaves:
-            LayeredWavesWaveformView(state: previewState, tokens: tokens)
+            LayeredWavesWaveformView(state: previewState, tokens: tokens, breathingPhase: breathingPhase)
         case .classicBars:
-            ClassicBarsWaveformView(state: previewState, tokens: tokens)
+            ClassicBarsWaveformView(state: previewState, tokens: tokens, breathingPhase: breathingPhase)
         }
     }
     

@@ -15,6 +15,15 @@ import SwiftUI
 /// It routes between waveform visualization and score display based on the
 /// current state, with smooth transitions between them.
 ///
+/// ## Animation Architecture
+///
+/// This view wraps content in a `TimelineView(.animation)` to provide a single,
+/// consistent animation source for all waveforms. The computed `breathingPhase`
+/// (0.0-1.0 continuous) is passed to each waveform, ensuring:
+/// - All waveforms animate in perfect sync
+/// - No duplicate TimelineView instances
+/// - Consistent timing across different waveform styles
+///
 /// ## Waveform Style Selection
 ///
 /// The waveform type is set via environment using `dockWaveformType`:
@@ -65,17 +74,21 @@ public struct DockCenterContentView: View {
     // MARK: - Body
     
     public var body: some View {
-        ZStack {
-            // Waveform (visible for most states) - uses injected type
-            if showsWaveform {
-                waveformView
-                    .transition(.opacity)
-            }
+        TimelineView(.animation) { timeline in
+            let breathingPhase = computeBreathingPhase(from: timeline.date)
             
-            // Score display (visible only for showingScore)
-            if case .showingScore(let score) = state {
-                DockScoreDisplay(score: score)
-                    .transition(.scale(scale: 0.8).combined(with: .opacity))
+            ZStack {
+                // Waveform (visible for most states) - uses injected type
+                if showsWaveform {
+                    waveformView(breathingPhase: breathingPhase)
+                        .transition(.opacity)
+                }
+                
+                // Score display (visible only for showingScore)
+                if case .showingScore(let score) = state {
+                    DockScoreDisplay(score: score)
+                        .transition(.scale(scale: 0.8).combined(with: .opacity))
+                }
             }
         }
         .frame(height: 40)
@@ -83,16 +96,30 @@ public struct DockCenterContentView: View {
         .opacity(state == .hidden ? 0 : 1)
     }
     
+    // MARK: - Breathing Phase Calculation
+    
+    /// Computes a continuous breathing phase (0.0-1.0) from the timeline date.
+    ///
+    /// Uses a 2-second cycle for smooth, natural breathing animation.
+    /// This provides a single animation source for all waveforms.
+    ///
+    /// - Parameter date: The current timeline date
+    /// - Returns: A value from 0.0 to 1.0 representing the breathing phase
+    private func computeBreathingPhase(from date: Date) -> CGFloat {
+        let elapsed = date.timeIntervalSinceReferenceDate
+        return CGFloat((elapsed / 2.0).truncatingRemainder(dividingBy: 1.0))
+    }
+    
     // MARK: - Waveform View
     
     /// Renders the appropriate waveform based on the selected type.
     @ViewBuilder
-    private var waveformView: some View {
+    private func waveformView(breathingPhase: CGFloat) -> some View {
         switch waveformType {
         case .layeredWaves:
-            LayeredWavesWaveformView(state: state, tokens: tokens)
+            LayeredWavesWaveformView(state: state, tokens: tokens, breathingPhase: breathingPhase)
         case .classicBars:
-            ClassicBarsWaveformView(state: state, tokens: tokens)
+            ClassicBarsWaveformView(state: state, tokens: tokens, breathingPhase: breathingPhase)
         }
     }
     

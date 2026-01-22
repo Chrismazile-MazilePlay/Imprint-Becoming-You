@@ -13,9 +13,9 @@ import SwiftUI
 ///
 /// This view renders animated bars that respond to different states (playing, listening,
 /// waiting, etc.) with smooth transitions. It is completely decoupled from TTS callbacks
-/// and session state — it only knows about visualization states.
+/// and session state â€” it only knows about visualization states.
 ///
-/// ## Choreographed Transition (Playing → Listening)
+/// ## Choreographed Transition (Playing â†’ Listening)
 ///
 /// When transitioning from TTS playback to mic listening, the waveform performs
 /// a three-phase visual choreography:
@@ -172,7 +172,7 @@ public struct DockWaveformView: View {
         case (.preparing, .listening):
             return .preparingToListening
         case (.playing, .listening):
-            // Direct playing → listening (legacy, in case .preparing is skipped)
+            // Direct playing â†’ listening (legacy, in case .preparing is skipped)
             return .playingToListening
         default:
             return .standard
@@ -181,8 +181,8 @@ public struct DockWaveformView: View {
     
     // MARK: - Choreographed Transitions
     
-    /// Phase 1: Playing → Preparing
-    /// Scale DOWN + color MORPH (orange → green breathing)
+    /// Phase 1: Playing â†’ Preparing
+    /// Scale DOWN + color MORPH (orange â†’ green breathing)
     private func performPlayingToPreparingTransition() {
         isInChoreographedTransition = true
         
@@ -201,7 +201,7 @@ public struct DockWaveformView: View {
         }
     }
     
-    /// Phase 2: Preparing → Listening
+    /// Phase 2: Preparing â†’ Listening
     /// Scale UP to active listening (already green)
     private func performPreparingToListeningTransition() {
         withAnimation(.easeOut(duration: scaleUpDuration)) {
@@ -212,10 +212,10 @@ public struct DockWaveformView: View {
         shuffleBarOffsets()
     }
     
-    /// Full choreography for direct playing → listening (legacy support)
+    /// Full choreography for direct playing â†’ listening (legacy support)
     ///
     /// Phase 1: Scale DOWN (bars to minimum, still orange)
-    /// Phase 2: Color MORPH (orange → green at minimum amplitude)
+    /// Phase 2: Color MORPH (orange â†’ green at minimum amplitude)
     /// Phase 3: Scale UP (bars to active height, now green)
     private func performFullPlayingToListeningTransition(targetState: DockCenterContentState) {
         isInChoreographedTransition = true
@@ -418,7 +418,7 @@ private struct WaveformConfiguration: Equatable {
     static let speaking = WaveformConfiguration(
         intensity: 0.45,
         colorBlend: 0,
-        audioReactivity: 0,
+        audioReactivity: 0.5,
         breathingAmplitude: 0.05,
         dampingScale: 3.5,
         randomization: 0.65
@@ -465,7 +465,7 @@ private struct WaveformConfiguration: Equatable {
         randomization: 0
     )
     
-    // MARK: - Transition States (for choreographed playing → listening)
+    // MARK: - Transition States (for choreographed playing â†’ listening)
     
     /// Phase 1: Scaled down, still orange
     static let transitionScaledDown = WaveformConfiguration(
@@ -552,7 +552,7 @@ private extension Color {
                 DockWaveformView(state: state)
                     .frame(height: 40)
                 
-                Button("Toggle Playing ↔ Listening") {
+                Button("Toggle Playing â†” Listening") {
                     if case .playing = state {
                         state = .listening(audioLevel: 0.6)
                     } else {

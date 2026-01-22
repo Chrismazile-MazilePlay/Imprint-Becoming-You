@@ -47,6 +47,7 @@ struct ProfilePageView: View {
     @State private var showFavorites = false
     @State private var showSavedSessions = false
     @State private var savedSessionCount: Int = 0
+    @State private var showWaveformSelection = false
     
     // MARK: - Body
     
@@ -121,6 +122,26 @@ struct ProfilePageView: View {
                 )
             }
         }
+        .sheet(isPresented: $showWaveformSelection) {
+            WaveformSelectionSheet(
+                selectedType: waveformTypeBinding,
+                onSave: { newType in
+                    // Save is handled via binding
+                }
+            )
+        }
+    }
+    
+    // MARK: - Waveform Type Binding
+    
+    /// Binding to UserProfile's waveformType for the selection sheet
+    private var waveformTypeBinding: Binding<DockWaveformType> {
+        Binding(
+            get: { appState.userProfile?.waveformType ?? .layeredWaves },
+            set: { newType in
+                appState.userProfile?.waveformType = newType
+            }
+        )
     }
     
     // MARK: - Navigation Header
@@ -244,7 +265,7 @@ struct ProfilePageView: View {
                             .foregroundStyle(AppColors.textSecondary)
                     }
                     
-                    Spacer(minLength: 0)
+                    Spacer()
                     
                     Image(systemName: "chevron.right")
                         .font(.system(size: 14, weight: .semibold))
@@ -270,7 +291,7 @@ struct ProfilePageView: View {
                 HStack(spacing: AppTheme.Spacing.md) {
                     Image(systemName: "bookmark.fill")
                         .font(.system(size: 20))
-                        .foregroundStyle(AppColors.accent)
+                        .foregroundStyle(AppColors.accentSecondary)
                         .frame(width: 32, height: 32)
                     
                     VStack(alignment: .leading, spacing: 2) {
@@ -278,12 +299,12 @@ struct ProfilePageView: View {
                             .font(AppTypography.headline)
                             .foregroundStyle(AppColors.textPrimary)
                         
-                        Text("\(savedSessionCount) session\(savedSessionCount == 1 ? "" : "s")")
+                        Text("\(savedSessionCount) sessions")
                             .font(AppTypography.caption1)
                             .foregroundStyle(AppColors.textSecondary)
                     }
                     
-                    Spacer(minLength: 0)
+                    Spacer()
                     
                     Image(systemName: "chevron.right")
                         .font(.system(size: 14, weight: .semibold))
@@ -329,6 +350,16 @@ struct ProfilePageView: View {
                     subtitle: appState.userProfile?.voiceProfileId != nil ? "Custom voice" : "System voice"
                 ) {
                     // TODO: Navigate to voice settings
+                }
+                
+                // Waveform Style
+                SettingsRow(
+                    icon: "waveform.path",
+                    iconColor: AppColors.success,
+                    title: "Waveform Style",
+                    subtitle: appState.userProfile?.waveformType.displayName ?? "Layered Waves"
+                ) {
+                    showWaveformSelection = true
                 }
                 
                 // Goals

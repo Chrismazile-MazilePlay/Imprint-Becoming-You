@@ -73,19 +73,27 @@ import SwiftUI
 
 public extension View {
     
-    /// Configures the dock with Imprint's haptics and design tokens.
+    /// Configures the dock with Imprint's haptics, design tokens, and waveform type.
     ///
     /// Apply this modifier to the view containing the dock:
     ///
     /// ```swift
+    /// // Basic usage (uses default Layered Waves style)
     /// AdaptiveDockContainer(adapter: adapter) {
     ///     AdaptiveBottomDock(adapter: adapter)
     /// }
     /// .imprintDockEnvironment()
+    ///
+    /// // With custom waveform type from user preference
+    /// .imprintDockEnvironment(waveformType: userProfile.waveformType)
     /// ```
-    func imprintDockEnvironment() -> some View {
+    ///
+    /// - Parameter waveformType: The waveform visualization type to use.
+    ///   Defaults to `.layeredWaves` if not specified.
+    func imprintDockEnvironment(waveformType: DockWaveformType = .layeredWaves) -> some View {
         self
             .environment(\.dockHapticsProvider, ImprintHapticsProvider())
+            .environment(\.dockWaveformType, waveformType)
         // Design tokens use defaults which already match Imprint colors
         // Add .environment(\.dockDesignTokens, ImprintDesignTokens()) if needed
     }

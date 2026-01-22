@@ -62,15 +62,8 @@
     "%lld percent complete" : {
 
     },
-    "%lld session%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$lld session%2$@"
-          }
-        }
-      }
+    "%lld sessions" : {
+
     },
     "%lld/%lld selected" : {
       "localizations" : {
@@ -140,6 +133,9 @@
 
     },
     "Category: %@" : {
+
+    },
+    "Choose how your waveform looks during practice sessions." : {
 
     },
     "Choose up to %lld areas to focus your affirmations" : {
@@ -470,6 +466,9 @@
 
     },
     "Voice calibration skipped – you can do this later in Settings" : {
+
+    },
+    "Waveform Style" : {
 
     },
     "We didn't detect speech matching the affirmation. Would you like to try again?" : {

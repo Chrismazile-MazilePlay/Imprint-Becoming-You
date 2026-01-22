@@ -67,6 +67,7 @@ struct PracticePageView: View {
     
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dependencies) private var dependencies
+    @Environment(\.appState) private var appState
     
     // MARK: - State
     
@@ -130,7 +131,7 @@ struct PracticePageView: View {
                 AdaptiveDockContainer(adapter: dockAdapter) {
                     AdaptiveBottomDock(adapter: dockAdapter)
                 }
-                .imprintDockEnvironment()
+                .imprintDockEnvironment(waveformType: appState.userProfile?.waveformType ?? .layeredWaves)
             }
             .ignoresSafeArea(edges: .bottom)
         }

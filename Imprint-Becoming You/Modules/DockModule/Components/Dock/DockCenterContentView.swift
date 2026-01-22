@@ -15,6 +15,15 @@ import SwiftUI
 /// It routes between waveform visualization and score display based on the
 /// current state, with smooth transitions between them.
 ///
+/// ## Waveform Style Selection
+///
+/// The waveform type is set via environment using `dockWaveformType`:
+///
+/// ```swift
+/// DockCenterContentView(state: .playing(audioLevel: 0.7))
+///     .dockWaveformType(.layeredWaves)  // or .classicBars
+/// ```
+///
 /// ## State Routing
 ///
 /// | State             | Display                    |
@@ -37,6 +46,7 @@ public struct DockCenterContentView: View {
     // MARK: - Environment
     
     @Environment(\.dockDesignTokens) private var tokens
+    @Environment(\.dockWaveformType) private var waveformType
     
     // MARK: - Properties
     
@@ -56,9 +66,9 @@ public struct DockCenterContentView: View {
     
     public var body: some View {
         ZStack {
-            // Waveform (visible for most states)
+            // Waveform (visible for most states) - uses injected type
             if showsWaveform {
-                DockWaveformView(state: state)
+                waveformView
                     .transition(.opacity)
             }
             
@@ -71,6 +81,19 @@ public struct DockCenterContentView: View {
         .frame(height: 40)
         .animation(tokens.standardAnimation, value: isShowingScore)
         .opacity(state == .hidden ? 0 : 1)
+    }
+    
+    // MARK: - Waveform View
+    
+    /// Renders the appropriate waveform based on the selected type.
+    @ViewBuilder
+    private var waveformView: some View {
+        switch waveformType {
+        case .layeredWaves:
+            LayeredWavesWaveformView(state: state, tokens: tokens)
+        case .classicBars:
+            ClassicBarsWaveformView(state: state, tokens: tokens)
+        }
     }
     
     // MARK: - Computed Properties
@@ -121,6 +144,22 @@ public struct DockCenterContentView: View {
     ZStack {
         Color.black.ignoresSafeArea()
         DockCenterContentView(state: .showingScore(percentScore: 87))
+    }
+}
+
+#Preview("Center Content - Classic Bars Style") {
+    ZStack {
+        Color.black.ignoresSafeArea()
+        DockCenterContentView(state: .playing(audioLevel: 0.7))
+            .dockWaveformType(.classicBars)
+    }
+}
+
+#Preview("Center Content - Layered Waves Style") {
+    ZStack {
+        Color.black.ignoresSafeArea()
+        DockCenterContentView(state: .playing(audioLevel: 0.7))
+            .dockWaveformType(.layeredWaves)
     }
 }
 

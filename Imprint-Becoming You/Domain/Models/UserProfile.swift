@@ -52,6 +52,12 @@ final class UserProfile {
     /// User's preferred binaural beat preset
     var binauralPreset: BinauralPreset
     
+    /// User's preferred waveform visualization style.
+    ///
+    /// Stored as raw value string for SwiftData compatibility.
+    /// Use `waveformType` computed property for type-safe access.
+    var preferredWaveformType: String
+    
     /// Whether the user has an active premium subscription
     var isPremium: Bool
     
@@ -90,6 +96,7 @@ final class UserProfile {
         calibrationData: CalibrationData? = nil,
         preferredMode: SessionMode = .readOnly,
         binauralPreset: BinauralPreset = .off,
+        preferredWaveformType: String = "layeredWaves",
         isPremium: Bool = false,
         premiumExpiresAt: Date? = nil,
         lastSyncedAt: Date? = nil,
@@ -106,6 +113,7 @@ final class UserProfile {
         self.calibrationData = calibrationData
         self.preferredMode = preferredMode
         self.binauralPreset = binauralPreset
+        self.preferredWaveformType = preferredWaveformType
         self.isPremium = isPremium
         self.premiumExpiresAt = premiumExpiresAt
         self.lastSyncedAt = lastSyncedAt
@@ -190,6 +198,21 @@ extension UserProfile {
         }
         return GoalGroup.allCases
     }
+    
+    // MARK: - Waveform Type
+    
+    /// The user's preferred waveform visualization type.
+    ///
+    /// Provides type-safe access to the stored `preferredWaveformType` string.
+    /// Falls back to `.layeredWaves` if the stored value is invalid.
+    var waveformType: DockWaveformType {
+        get {
+            DockWaveformType(rawValue: preferredWaveformType) ?? .layeredWaves
+        }
+        set {
+            preferredWaveformType = newValue.rawValue
+        }
+    }
 }
 
 // MARK: - CalibrationData
@@ -249,3 +272,6 @@ struct CalibrationData: Codable, Equatable, Sendable {
 // NOTE: SessionMode and BinauralPreset enums have been moved to their own files:
 // - Domain/Models/SessionMode.swift
 // - Domain/Models/BinauralPreset.swift
+
+// NOTE: DockWaveformType is defined in DockModule:
+// - DockModule/Models/DockWaveformType.swift

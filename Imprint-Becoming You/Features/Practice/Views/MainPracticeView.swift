@@ -41,10 +41,10 @@ enum AppPage: Int, CaseIterable {
 /// goals using the `AffirmationRepository` smart queue algorithm.
 ///
 /// Navigation:
-/// - AI button (top-left) → slides to Prompts page (left) [home mode only]
-/// - Profile button (top-right) → slides to Profile page (right) [home mode only]
-/// - Categories button → full-screen cover (no slide)
-/// - Swipe left/right → Only works in home mode
+/// - AI button (top-left) â†’ slides to Prompts page (left) [home mode only]
+/// - Profile button (top-right) â†’ slides to Profile page (right) [home mode only]
+/// - Categories button â†’ full-screen cover (no slide)
+/// - Swipe left/right â†’ Only works in home mode
 struct MainPracticeView: View {
     
     // MARK: - Environment
@@ -52,6 +52,7 @@ struct MainPracticeView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dependencies) private var dependencies
     @Environment(\.appState) private var appState
+    @Environment(\.scenePhase) private var scenePhase
     
     // MARK: - State
     
@@ -69,6 +70,15 @@ struct MainPracticeView: View {
     /// Refresh token for TabView to fix gesture recognizer issues after session ends.
     /// SwiftUI's TabView can have stale gesture recognizers when conditionally rendered.
     @State private var tabViewRefreshId = UUID()
+    
+    /// Timestamp when app entered background (for timeout calculation)
+    @State private var backgroundedAt: Date?
+    
+    // MARK: - Constants
+    
+    /// Duration in background after which active sessions are reset to home.
+    /// Summary view is always dismissed on background return regardless of duration.
+    private let sessionBackgroundTimeout: TimeInterval = 10 * 60 // 10 minutes
     
     // MARK: - Body
     
@@ -97,6 +107,9 @@ struct MainPracticeView: View {
                 // Generate new id to force TabView recreation with fresh gesture recognizers
                 tabViewRefreshId = UUID()
             }
+        }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            handleScenePhaseChange(from: oldPhase, to: newPhase)
         }
         .alert(
             "Error",
@@ -245,6 +258,63 @@ struct MainPracticeView: View {
     /// Dismisses the summary and returns to home.
     private func dismissSummary() {
         store.send(.dismissSummary)
+    }
+    
+    // MARK: - Background Handling
+    
+    /// Handles app lifecycle transitions for session/summary state management.
+    ///
+    /// - Summary view: Always dismissed on return from background (SwiftData objects may be stale)
+    /// - Active sessions: Reset to home if backgrounded for ≥ 10 minutes
+    private func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
+        switch newPhase {
+        case .background:
+            // Record when we entered background
+            backgroundedAt = Date()
+            
+            #if DEBUG
+            print("[DEBUG] MainPracticeView: App entered background")
+            #endif
+            
+        case .active:
+            guard oldPhase == .background else { return }
+            
+            #if DEBUG
+            let duration = backgroundedAt.map { Date().timeIntervalSince($0) } ?? 0
+            print("[DEBUG] MainPracticeView: Returned from background after \(Int(duration))s")
+            #endif
+            
+            // Always dismiss summary on background return (prevents stale data issues)
+            if store.isShowingSummary {
+                #if DEBUG
+                print("[DEBUG] MainPracticeView: Dismissing summary after background return")
+                #endif
+                store.send(.dismissSummary)
+                backgroundedAt = nil
+                return
+            }
+            
+            // Check if active session should be reset (10 minute timeout)
+            if store.isSessionActive, let backgroundTime = backgroundedAt {
+                let timeInBackground = Date().timeIntervalSince(backgroundTime)
+                
+                if timeInBackground >= sessionBackgroundTimeout {
+                    #if DEBUG
+                    print("[DEBUG] MainPracticeView: Exiting session after \(Int(timeInBackground))s in background (threshold: \(Int(sessionBackgroundTimeout))s)")
+                    #endif
+                    store.send(.exitSession)
+                }
+            }
+            
+            backgroundedAt = nil
+            
+        case .inactive:
+            // No action needed for inactive state
+            break
+            
+        @unknown default:
+            break
+        }
     }
     
     // MARK: - Loading View

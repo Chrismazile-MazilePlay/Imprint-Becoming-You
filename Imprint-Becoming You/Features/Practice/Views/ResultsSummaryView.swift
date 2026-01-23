@@ -17,6 +17,7 @@ struct ResultsSummaryView: View {
     let summary: SessionSummary
     let loopConfiguration: LoopConfiguration
     let isPlayingSavedSession: Bool
+    let isFavoritesSession: Bool
     let onClose: () -> Void
     let onRepeat: (_ mode: SessionMode, _ loopCount: Int, _ shuffle: Bool) -> Void
     let onSaveSession: () -> Void
@@ -36,6 +37,7 @@ struct ResultsSummaryView: View {
         summary: SessionSummary,
         loopConfiguration: LoopConfiguration,
         isPlayingSavedSession: Bool,
+        isFavoritesSession: Bool,
         onClose: @escaping () -> Void,
         onRepeat: @escaping (_ mode: SessionMode, _ loopCount: Int, _ shuffle: Bool) -> Void,
         onSaveSession: @escaping () -> Void,
@@ -44,6 +46,7 @@ struct ResultsSummaryView: View {
         self.summary = summary
         self.loopConfiguration = loopConfiguration
         self.isPlayingSavedSession = isPlayingSavedSession
+        self.isFavoritesSession = isFavoritesSession
         self.onClose = onClose
         self.onRepeat = onRepeat
         self.onSaveSession = onSaveSession
@@ -99,7 +102,7 @@ struct ResultsSummaryView: View {
                     .foregroundStyle(AppColors.accent)
                 }
                 
-                if !isPlayingSavedSession {
+                if !isPlayingSavedSession && !isFavoritesSession {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
                             onSaveSession()
@@ -180,6 +183,7 @@ struct ResultsSummaryView: View {
         summary: .sample,
         loopConfiguration: LoopConfiguration(loopCount: 3, isShuffleEnabled: true),
         isPlayingSavedSession: false,
+        isFavoritesSession: false,
         onClose: {},
         onRepeat: { _, _, _ in },
         onSaveSession: {},

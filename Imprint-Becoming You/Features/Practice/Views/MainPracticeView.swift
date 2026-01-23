@@ -41,10 +41,10 @@ enum AppPage: Int, CaseIterable {
 /// goals using the `AffirmationRepository` smart queue algorithm.
 ///
 /// Navigation:
-/// - AI button (top-left) â†’ slides to Prompts page (left) [home mode only]
-/// - Profile button (top-right) â†’ slides to Profile page (right) [home mode only]
-/// - Categories button â†’ full-screen cover (no slide)
-/// - Swipe left/right â†’ Only works in home mode
+/// - AI button (top-left) -> slides to Prompts page (left) [home mode only]
+/// - Profile button (top-right) -> slides to Profile page (right) [home mode only]
+/// - Categories button -> full-screen cover (no slide)
+/// - Swipe left/right -> Only works in home mode
 struct MainPracticeView: View {
     
     // MARK: - Environment
@@ -183,6 +183,7 @@ struct MainPracticeView: View {
                     summary: store.sessionSummary,
                     loopConfiguration: store.loopConfiguration,
                     isPlayingSavedSession: store.isPlayingSavedSession,
+                    isFavoritesSession: store.isFavoritesSession,
                     onClose: {
                         dismissSummary()
                     },
@@ -262,51 +263,93 @@ struct MainPracticeView: View {
     
     // MARK: - Background Handling
     
-    /// Handles app lifecycle transitions for session/summary state management.
+    /// Handles app lifecycle transitions with centralized reset control.
     ///
-    /// - Summary view: Always dismissed on return from background (SwiftData objects may be stale)
-    /// - Active sessions: Reset to home if backgrounded for ≥ 10 minutes
+    /// ## Reset Hierarchy
+    ///
+    /// | Condition | Action |
+    /// |-----------|--------|
+    /// | Background >= 10 min (any state) | Full reset to home |
+    /// | Background < 10 min (active session) | Resume segment from beginning |
+    /// | Background < 10 min (summary) | Dismiss summary |
+    /// | Background < 10 min (other) | No action |
+    ///
+    /// The host (MainPracticeView) is the single decision point for resets.
+    /// PracticeStore executes the reset via events.
     private func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
         switch newPhase {
         case .background:
             // Record when we entered background
             backgroundedAt = Date()
             
+            // Pause active session (stop TTS, listening, timers)
+            if store.isSessionActive {
+                store.send(.pauseSession)
+                
+                #if DEBUG
+                print("[DEBUG] MainPracticeView: Paused session on background")
+                #endif
+            }
+            
             #if DEBUG
             print("[DEBUG] MainPracticeView: App entered background")
             #endif
             
         case .active:
-            guard oldPhase == .background else { return }
+            // Only handle if we were actually backgrounded (backgroundedAt was set)
+            // Note: Phase transitions go Background -> Inactive -> Active, so oldPhase
+            // will be .inactive, not .background. We use backgroundedAt to track this.
+            guard let backgroundTime = backgroundedAt else { return }
+            
+            let timeInBackground = Date().timeIntervalSince(backgroundTime)
+            backgroundedAt = nil
             
             #if DEBUG
-            let duration = backgroundedAt.map { Date().timeIntervalSince($0) } ?? 0
-            print("[DEBUG] MainPracticeView: Returned from background after \(Int(duration))s")
+            print("[DEBUG] MainPracticeView: Returned from background after \(Int(timeInBackground))s")
             #endif
             
-            // Always dismiss summary on background return (prevents stale data issues)
-            if store.isShowingSummary {
+            // ===============================================================
+            // DECISION: Extended background (>= 10 min) from ANY state
+            // ACTION: Full reset to home (Practice page, Read Only mode)
+            // ===============================================================
+            if timeInBackground >= sessionBackgroundTimeout {
                 #if DEBUG
-                print("[DEBUG] MainPracticeView: Dismissing summary after background return")
+                print("[DEBUG] MainPracticeView: Full reset after \(Int(timeInBackground))s in background")
                 #endif
-                store.send(.dismissSummary)
-                backgroundedAt = nil
+                
+                // Navigate to Practice page
+                currentPage = .practice
+                
+                // Full state reset via centralized event
+                store.send(.resetToHome)
                 return
             }
             
-            // Check if active session should be reset (10 minute timeout)
-            if store.isSessionActive, let backgroundTime = backgroundedAt {
-                let timeInBackground = Date().timeIntervalSince(backgroundTime)
-                
-                if timeInBackground >= sessionBackgroundTimeout {
-                    #if DEBUG
-                    print("[DEBUG] MainPracticeView: Exiting session after \(Int(timeInBackground))s in background (threshold: \(Int(sessionBackgroundTimeout))s)")
-                    #endif
-                    store.send(.exitSession)
-                }
+            // ===============================================================
+            // DECISION: Short background (<10 min) during summary
+            // ACTION: Dismiss summary (prevents stale SwiftData)
+            // ===============================================================
+            if store.isShowingSummary {
+                #if DEBUG
+                print("[DEBUG] MainPracticeView: Dismissing summary after short background")
+                #endif
+                store.send(.dismissSummary)
+                return
             }
             
-            backgroundedAt = nil
+            // ===============================================================
+            // DECISION: Short background (<10 min) during active session
+            // ACTION: Resume session, restart current segment from beginning
+            // ===============================================================
+            if store.isSessionActive {
+                #if DEBUG
+                print("[DEBUG] MainPracticeView: Resuming session after \(Int(timeInBackground))s in background")
+                #endif
+                store.send(.resumeSession)
+                return
+            }
+            
+            // No action needed for other states (home, profile, prompts)
             
         case .inactive:
             // No action needed for inactive state

@@ -74,6 +74,9 @@ extension PracticeStore {
         case .exitSession:
             handleExitSession()
             
+        case .resetToHome:
+            handleResetToHome()
+            
         case .startFlow:
             startFlowForCurrentAffirmation()
             
@@ -82,6 +85,27 @@ extension PracticeStore {
             
         case .resumeFlow:
             if isSessionActive {
+                startFlowForCurrentAffirmation()
+            }
+            
+        case .pauseSession:
+            // Pause when app enters background - cancel active work and set to idle
+            // Setting to idle makes isAnimating=false, which the dock observes
+            cancelCurrentActivity()
+            resetToIdle()  // Critical: sets isAnimating=false so resume triggers fresh start
+            #if DEBUG
+            print("[DEBUG] PracticeStore: Session paused (app backgrounded)")
+            #endif
+            
+        case .resumeSession:
+            // Resume when app returns from background - restart flow from beginning of current segment
+            if isSessionActive {
+                #if DEBUG
+                print("[DEBUG] PracticeStore: Session resumed (app foregrounded)")
+                #endif
+                // Increment generation to signal dock to reset its timer
+                incrementSegmentGeneration()
+                // Restart flow from beginning of current affirmation
                 startFlowForCurrentAffirmation()
             }
             

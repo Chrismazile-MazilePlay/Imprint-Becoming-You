@@ -21,16 +21,16 @@ import SwiftUI
 ///
 /// ### Timed Mode (Read Aloud)
 /// ```
-/// segmentIndex < currentIndex  → 1.0 (complete)
-/// segmentIndex == currentIndex → timerProgress (0.0→1.0 animated)
-/// segmentIndex > currentIndex  → 0.0 (upcoming)
+/// segmentIndex < currentIndex  -> 1.0 (complete)
+/// segmentIndex == currentIndex -> timerProgress (0.0 -> 1.0 animated)
+/// segmentIndex > currentIndex  -> 0.0 (upcoming)
 /// ```
 ///
 /// ### Event Mode (Read & Speak, Speak Only)
 /// ```
-/// segmentIndex < currentIndex  → 1.0 (complete)
-/// segmentIndex == currentIndex → 1.0 (active = filled)
-/// segmentIndex > currentIndex  → 0.0 (upcoming)
+/// segmentIndex < currentIndex  -> 1.0 (complete)
+/// segmentIndex == currentIndex -> 1.0 (active = filled)
+/// segmentIndex > currentIndex  -> 0.0 (upcoming)
 /// ```
 ///
 /// ## Bug Prevention
@@ -105,6 +105,9 @@ public struct DockSegmentsView: View {
         .onChange(of: segments.isAnimating) { wasAnimating, isAnimating in
             handleAnimatingChanged(from: wasAnimating, to: isAnimating)
         }
+        .onChange(of: segments.generation) { _, _ in
+            handleGenerationChanged()
+        }
         .onAppear {
             initializeTimerState()
         }
@@ -132,16 +135,16 @@ public struct DockSegmentsView: View {
     ///
     /// ## Timed Mode (Read Aloud)
     /// ```
-    /// index < currentIndex  → 1.0 (complete)
-    /// index == currentIndex → timerProgress (animated 0.0→1.0, validated)
-    /// index > currentIndex  → 0.0 (upcoming)
+    /// index < currentIndex  -> 1.0 (complete)
+    /// index == currentIndex -> timerProgress (animated 0.0 -> 1.0, validated)
+    /// index > currentIndex  -> 0.0 (upcoming)
     /// ```
     ///
     /// ## Event Mode (Read & Speak, Speak Only)
     /// ```
-    /// index < currentIndex  → 1.0 (complete)
-    /// index == currentIndex → 1.0 (ALWAYS filled once current)
-    /// index > currentIndex  → 0.0 (upcoming)
+    /// index < currentIndex  -> 1.0 (complete)
+    /// index == currentIndex -> 1.0 (ALWAYS filled once current)
+    /// index > currentIndex  -> 0.0 (upcoming)
     /// ```
     ///
     /// ## Race Condition Prevention
@@ -213,6 +216,27 @@ public struct DockSegmentsView: View {
             // Note: We do NOT reset timerProgress here
             // If stopping due to completion, we want to show 100%
             // The next segment change will reset it
+        }
+    }
+    
+    /// Called when the generation counter changes (host-triggered reset).
+    ///
+    /// This is the host's explicit signal to restart the current segment's timer.
+    /// Used when returning from background, retrying, or any interruption.
+    private func handleGenerationChanged() {
+        #if DEBUG
+        print("[DEBUG] DockSegmentsView: Generation changed, resetting timer")
+        #endif
+        
+        // Stop existing timer and reset all state
+        stopTimer()
+        timerProgress = 0
+        timerSegmentIndex = segments.currentIndex
+        timerGeneration += 1
+        
+        // Restart timer if we should be animating in timed mode
+        if segments.isAnimating && segments.usesTimedProgress {
+            startTimer(for: segments.currentIndex)
         }
     }
     

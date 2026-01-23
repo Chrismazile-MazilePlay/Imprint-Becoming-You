@@ -42,6 +42,12 @@ final class PracticeStore {
     /// Progress through current segment (0.0 - 1.0)
     private(set) var segmentProgress: CGFloat = 0
     
+    /// Generation counter for segment reset signaling.
+    ///
+    /// Increment this to signal DockSegmentsView to restart its timer.
+    /// The dock observes this via the adapter and resets when it changes.
+    private(set) var segmentGeneration: Int = 0
+    
     /// Pending auto-advance direction (triggers VerticalPager animation)
     var pendingAutoAdvance: NavigationDirection? = nil
     
@@ -106,6 +112,9 @@ final class PracticeStore {
     
     /// Title of the saved session currently being played (if any)
     private(set) var playingSavedSessionTitle: String? = nil
+    
+    /// Whether the current session was started from Favorites
+    private(set) var isFavoritesSession: Bool = false
     
     // MARK: - Loop Computed Properties
     
@@ -343,6 +352,19 @@ final class PracticeStore {
         segmentProgress = progress
     }
     
+    /// Increments the segment generation counter to trigger a timer reset.
+    ///
+    /// Call this when the current segment should restart from the beginning:
+    /// - Returning from background
+    /// - Retrying after timeout
+    /// - Any interruption requiring a fresh start
+    func incrementSegmentGeneration() {
+        segmentGeneration += 1
+        #if DEBUG
+        print("[DEBUG] PracticeStore: Segment generation incremented to \(segmentGeneration)")
+        #endif
+    }
+    
     /// Updates navigation lock
     func setNavigationLocked(_ locked: Bool) {
         isNavigationLocked = locked
@@ -477,6 +499,12 @@ final class PracticeStore {
     func clearSavedSessionContext() {
         playingSavedSessionId = nil
         playingSavedSessionTitle = nil
+        isFavoritesSession = false
+    }
+    
+    /// Sets favorites session flag
+    func setFavoritesSession(_ value: Bool) {
+        isFavoritesSession = value
     }
     
     /// Clears original session affirmation IDs (for new session)

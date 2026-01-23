@@ -116,7 +116,8 @@ final class PracticeDockAdapter: DockAdapterProtocol {
             configs: configs,
             currentIndex: store.displayCurrentIndex,
             isAnimating: isAnimating,
-            usesTimedProgress: usesTimedProgress
+            usesTimedProgress: usesTimedProgress,
+            generation: store.segmentGeneration
         )
     }
     

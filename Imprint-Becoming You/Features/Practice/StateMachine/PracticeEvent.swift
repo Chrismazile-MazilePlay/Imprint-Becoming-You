@@ -70,6 +70,12 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     /// Exit active session, return to home
     case exitSession
     
+    /// Full app-level reset after extended background (>10 min).
+    ///
+    /// Resets from ANY state (summary, profile, active session) back to
+    /// home (Practice page, Read Only mode). Clears all session state.
+    case resetToHome
+    
     /// Start/restart the flow for current affirmation
     case startFlow
     
@@ -78,6 +84,12 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     
     /// Resume a paused flow
     case resumeFlow
+    
+    /// Pause session when app enters background (stops TTS/listening, preserves state)
+    case pauseSession
+    
+    /// Resume session when app returns from background
+    case resumeSession
     
     // MARK: - Session Summary Events
     
@@ -93,7 +105,7 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     
     // MARK: - Loop & Shuffle Events
     
-    /// User cycled the loop count (1 → 3 → 5 → 1)
+    /// User cycled the loop count (1 -> 3 -> 5 -> 1)
     case cycleLoopCount
     
     /// User toggled shuffle on/off
@@ -302,7 +314,7 @@ extension PracticeEvent {
     /// Whether this event cancels current activity
     var cancelsCurrentActivity: Bool {
         switch self {
-        case .userNavigated, .navigateViaButton, .goToIndex, .exitSession:
+        case .userNavigated, .navigateViaButton, .goToIndex, .exitSession, .resetToHome:
             return true
         case .ttsCancelled, .listeningCancelled:
             return true
@@ -340,7 +352,7 @@ extension PracticeEvent {
     /// Whether this event is a flow lifecycle event
     var isFlowEvent: Bool {
         switch self {
-        case .startFlow, .pauseFlow, .resumeFlow:
+        case .startFlow, .pauseFlow, .resumeFlow, .pauseSession, .resumeSession:
             return true
         case .ttsStarted, .ttsProgress, .ttsCompleted, .ttsFailed, .ttsCancelled:
             return true
@@ -415,6 +427,8 @@ extension PracticeEvent: CustomStringConvertible {
             return "goToIndex(\(idx))"
         case .exitSession:
             return "exitSession"
+        case .resetToHome:
+            return "resetToHome"
         case .dismissSummary:
             return "dismissSummary"
         case .repeatSession:
@@ -439,6 +453,10 @@ extension PracticeEvent: CustomStringConvertible {
             return "pauseFlow"
         case .resumeFlow:
             return "resumeFlow"
+        case .pauseSession:
+            return "pauseSession"
+        case .resumeSession:
+            return "resumeSession"
         case .ttsStarted:
             return "ttsStarted"
         case .ttsProgress(let p):

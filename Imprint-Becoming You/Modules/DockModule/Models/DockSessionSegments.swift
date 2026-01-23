@@ -21,7 +21,7 @@ import Foundation
 ///
 /// | Mode | `usesTimedProgress` | Behavior |
 /// |------|---------------------|----------|
-/// | Read Aloud | `true` | Animates 0%→100% over duration, timer triggers auto-advance |
+/// | Read Aloud | `true` | Animates 0% -> 100% over duration, timer triggers auto-advance |
 /// | Read & Speak | `false` | Toggles instantly, score completion triggers auto-advance |
 /// | Speak Only | `false` | Toggles instantly, score completion triggers auto-advance |
 ///
@@ -29,7 +29,7 @@ import Foundation
 ///
 /// ```
 /// Segment 0    Segment 1    Segment 2    Segment 3    Segment 4
-/// [████████]   [████████]   [█████░░░]   [░░░░░░░░]   [░░░░░░░░]
+/// [========]   [========]   [=====...]   [........]   [........]
 ///  complete     complete     animating    upcoming     upcoming
 /// ```
 ///
@@ -37,7 +37,7 @@ import Foundation
 ///
 /// ```
 /// Segment 0    Segment 1    Segment 2    Segment 3    Segment 4
-/// [████████]   [████████]   [████████]   [░░░░░░░░]   [░░░░░░░░]
+/// [========]   [========]   [========]   [........]   [........]
 ///  complete     complete     current      upcoming     upcoming
 /// ```
 ///
@@ -88,13 +88,25 @@ public struct DockSessionSegments: Equatable, Sendable {
     /// Whether segments use timed progression or instant toggling.
     ///
     /// - `true`: Timer-driven (Read Aloud mode)
-    ///   - Current segment animates 0%→100% over its configured duration
+    ///   - Current segment animates 0% -> 100% over its configured duration
     ///   - Timer completion triggers `segmentAnimationCompleted()`
     ///
     /// - `false`: Event-driven (Read & Speak, Speak Only modes)
     ///   - Current segment shows as filled when active
     ///   - Auto-advance triggered by score completion, not timer
     public let usesTimedProgress: Bool
+    
+    /// Generation counter for reset signaling.
+    ///
+    /// When this value changes, the segment timer should reset to 0 and restart.
+    /// The host increments this when:
+    /// - Returning from background (segment restart)
+    /// - Retrying a segment
+    /// - Any interruption requiring a fresh start
+    ///
+    /// This provides explicit host control over timer resets without the dock
+    /// needing to understand business logic.
+    public let generation: Int
     
     // MARK: - Initialization
     
@@ -105,16 +117,19 @@ public struct DockSessionSegments: Equatable, Sendable {
     ///   - currentIndex: Index of the active segment (0-based)
     ///   - isAnimating: Whether the current segment is active
     ///   - usesTimedProgress: Whether to use timer-driven or event-driven progression
+    ///   - generation: Reset generation counter (increment to force timer restart)
     public init(
         configs: [DockSegmentConfig],
         currentIndex: Int,
         isAnimating: Bool,
-        usesTimedProgress: Bool = true
+        usesTimedProgress: Bool = true,
+        generation: Int = 0
     ) {
         self.configs = configs
         self.currentIndex = currentIndex
         self.isAnimating = isAnimating
         self.usesTimedProgress = usesTimedProgress
+        self.generation = generation
     }
 }
 
@@ -163,16 +178,19 @@ public extension DockSessionSegments {
     /// - Parameters:
     ///   - configs: Configuration for each segment
     ///   - usesTimedProgress: Whether to use timer-driven progression
+    ///   - generation: Reset generation counter
     /// - Returns: Segments at index 0, not animating
     static func start(
         configs: [DockSegmentConfig],
-        usesTimedProgress: Bool = true
+        usesTimedProgress: Bool = true,
+        generation: Int = 0
     ) -> DockSessionSegments {
         DockSessionSegments(
             configs: configs,
             currentIndex: 0,
             isAnimating: false,
-            usesTimedProgress: usesTimedProgress
+            usesTimedProgress: usesTimedProgress,
+            generation: generation
         )
     }
     
@@ -182,18 +200,21 @@ public extension DockSessionSegments {
     ///   - count: Number of segments
     ///   - duration: Duration for each segment (default: 8 seconds)
     ///   - usesTimedProgress: Whether to use timer-driven progression
+    ///   - generation: Reset generation counter
     /// - Returns: Segments with uniform configuration
     static func uniform(
         count: Int,
         duration: TimeInterval = 8,
-        usesTimedProgress: Bool = true
+        usesTimedProgress: Bool = true,
+        generation: Int = 0
     ) -> DockSessionSegments {
         let configs = Array(repeating: DockSegmentConfig(animationDuration: duration), count: count)
         return DockSessionSegments(
             configs: configs,
             currentIndex: 0,
             isAnimating: false,
-            usesTimedProgress: usesTimedProgress
+            usesTimedProgress: usesTimedProgress,
+            generation: generation
         )
     }
 }

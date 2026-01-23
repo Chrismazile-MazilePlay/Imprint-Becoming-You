@@ -204,13 +204,57 @@ extension PracticeStore {
             isBinauralSelectorExpanded = false
         }
     }
+    
+    /// Full app-level reset after extended background (>10 min).
+    ///
+    /// Resets from ANY state back to home:
+    /// - Dismisses summary if showing
+    /// - Exits active session
+    /// - Clears all session state
+    /// - Returns to Read Only home mode
+    ///
+    /// Called by MainPracticeView when returning from background after 10+ minutes.
+    func handleResetToHome() {
+        #if DEBUG
+        print("[DEBUG] PracticeStore: Full reset to home (extended background)")
+        #endif
+        
+        // Cancel any active work
+        cancelCurrentActivity()
+        
+        // Dismiss summary if showing (no animation needed since we're resetting)
+        if isShowingSummary {
+            setShowingSummary(false)
+        }
+        
+        // Dismiss any alerts
+        setShowingTimeoutAlert(false)
+        setPermissionAlert(showing: false)
+        
+        // Reset loop configuration
+        resetLoopConfiguration()
+        clearSavedSessionContext()
+        clearOriginalSessionAffirmationIds()
+        
+        // Clear session state
+        setSessionState(affirmations: [], index: 0)
+        setSessionResults([])
+        
+        // Reset session mode to default
+        sessionMode = .readOnly
+        
+        // Reset flow to home
+        setFlow(.home)
+        isModeSelectorExpanded = false
+        isBinauralSelectorExpanded = false
+    }
 }
 
 // MARK: - Loop & Shuffle Handlers
 
 extension PracticeStore {
     
-    /// Cycles loop count: 1 â†’ 3 â†’ 5 â†’ 1
+    /// Cycles loop count: 1 -> 3 -> 5 -> 1
     func handleCycleLoopCount() {
         var config = loopConfiguration
         config.cycleLoopCount()

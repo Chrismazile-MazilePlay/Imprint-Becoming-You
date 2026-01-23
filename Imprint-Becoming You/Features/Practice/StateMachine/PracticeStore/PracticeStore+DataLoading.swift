@@ -92,6 +92,9 @@ extension PracticeStore {
             // Clear any saved session context (this is not a saved session playback)
             clearSavedSessionContext()
             
+            // Mark this as a favorites session
+            setFavoritesSession(true)
+            
             // Clear original IDs so setSessionState captures fresh ones
             clearOriginalSessionAffirmationIds()
             

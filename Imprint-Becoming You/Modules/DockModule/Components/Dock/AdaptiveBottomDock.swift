@@ -11,7 +11,7 @@ import SwiftUI
 
 /// The unified morphing bottom dock that adapts its content based on configuration.
 ///
-/// This component is a **pure dock row** — it renders only the dock content and has
+/// This component is a **pure dock row** - it renders only the dock content and has
 /// no knowledge of expanded menus. Menu handling is delegated to `AdaptiveDockContainer`.
 ///
 /// ## Configurations
@@ -42,7 +42,15 @@ public struct AdaptiveBottomDock: View {
     
     // MARK: - Animation State
     
+    /// Whether a selector animation is currently in progress.
+    /// Buttons are disabled during animation to prevent double-taps.
     @State private var isAnimatingSelector = false
+    
+    /// The currently running animation delay Task.
+    /// Tracked for cancellation on view disappear or new animation start.
+    @State private var animationTask: Task<Void, Never>?
+    
+    /// Duration for selector animations (matches spring response).
     private let animationDuration: TimeInterval = 0.35
     
     // MARK: - Initialization
@@ -59,6 +67,11 @@ public struct AdaptiveBottomDock: View {
             .padding(.vertical, tokens.spacingMD)
             .background(dockBackground)
             .animation(tokens.standardAnimation, value: adapter.configuration)
+            .onDisappear {
+                // Cancel any pending animation task to prevent state updates on deallocated view
+                animationTask?.cancel()
+                animationTask = nil
+            }
     }
     
     // MARK: - Background
@@ -224,6 +237,10 @@ private extension AdaptiveBottomDock {
 
 private extension AdaptiveBottomDock {
     
+    /// Toggles the mode selector menu with animation.
+    ///
+    /// Uses a guard to prevent double-taps during animation.
+    /// The animation Task is tracked and cancelled on view disappear.
     func toggleModeSelector() {
         guard !isAnimatingSelector else { return }
         isAnimatingSelector = true
@@ -235,12 +252,21 @@ private extension AdaptiveBottomDock {
             adapter.isModeSelectorExpanded.toggle()
         }
         
-        Task { @MainActor in
+        // Cancel any existing task before starting a new one
+        animationTask?.cancel()
+        animationTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(animationDuration))
-            isAnimatingSelector = false
+            // Only reset if task wasn't cancelled
+            if !Task.isCancelled {
+                isAnimatingSelector = false
+            }
         }
     }
     
+    /// Toggles the binaural selector menu with animation.
+    ///
+    /// Uses a guard to prevent double-taps during animation.
+    /// The animation Task is tracked and cancelled on view disappear.
     func toggleBinauralSelector() {
         guard !isAnimatingSelector else { return }
         isAnimatingSelector = true
@@ -252,9 +278,14 @@ private extension AdaptiveBottomDock {
             adapter.isBinauralSelectorExpanded.toggle()
         }
         
-        Task { @MainActor in
+        // Cancel any existing task before starting a new one
+        animationTask?.cancel()
+        animationTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(animationDuration))
-            isAnimatingSelector = false
+            // Only reset if task wasn't cancelled
+            if !Task.isCancelled {
+                isAnimatingSelector = false
+            }
         }
     }
 }

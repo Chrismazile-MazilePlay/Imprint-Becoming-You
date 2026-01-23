@@ -46,7 +46,7 @@ import SwiftUI
 ///
 /// ## Interactive Previews
 ///
-/// The mock adapter is fully interactive — buttons work, selectors expand,
+/// The mock adapter is fully interactive - buttons work, selectors expand,
 /// and state changes propagate to the UI:
 ///
 /// ```swift
@@ -133,7 +133,9 @@ public final class MockDockAdapter: DockAdapterProtocol {
     public func selectMode(_ mode: DockMode) {
         currentMode = mode
         isModeSelectorExpanded = false
+        #if DEBUG
         print("[MockDockAdapter] Selected mode: \(mode.displayName)")
+        #endif
     }
     
     // MARK: - Binaural Actions
@@ -142,7 +144,9 @@ public final class MockDockAdapter: DockAdapterProtocol {
     public func selectBinaural(_ preset: DockBinauralPreset) {
         binauralPreset = preset
         isBinauralSelectorExpanded = false
+        #if DEBUG
         print("[MockDockAdapter] Selected binaural: \(preset.displayName)")
+        #endif
     }
     
     // MARK: - Navigation Actions
@@ -160,7 +164,9 @@ public final class MockDockAdapter: DockAdapterProtocol {
         )
         
         updateNavigationStateForSegments()
+        #if DEBUG
         print("[MockDockAdapter] Navigated to previous: \(newIndex + 1) of \(segments.totalCount)")
+        #endif
     }
     
     /// Handles next navigation.
@@ -176,7 +182,9 @@ public final class MockDockAdapter: DockAdapterProtocol {
         )
         
         updateNavigationStateForSegments()
+        #if DEBUG
         print("[MockDockAdapter] Navigated to next: \(newIndex + 1) of \(segments.totalCount)")
+        #endif
     }
     
     /// Closes all selector menus.
@@ -203,7 +211,9 @@ public final class MockDockAdapter: DockAdapterProtocol {
             updateNavigationStateForSegments()
         }
         
+        #if DEBUG
         print("[MockDockAdapter] Segment animation completed, moved to index \(newIndex)")
+        #endif
     }
     
     // MARK: - Configuration Mode Actions
@@ -215,18 +225,24 @@ public final class MockDockAdapter: DockAdapterProtocol {
         case 3: loopCount = 5
         default: loopCount = 1
         }
+        #if DEBUG
         print("[MockDockAdapter] Loop count: \(loopCount)")
+        #endif
     }
     
     /// Toggles shuffle state.
     public func toggleShuffle() {
         isShuffleEnabled.toggle()
+        #if DEBUG
         print("[MockDockAdapter] Shuffle: \(isShuffleEnabled)")
+        #endif
     }
     
     /// Handles play button tap.
     public func play() {
+        #if DEBUG
         print("[MockDockAdapter] Play tapped - Mode: \(currentMode.displayName), Loops: \(loopCount), Shuffle: \(isShuffleEnabled)")
+        #endif
     }
     
     // MARK: - Private Helpers

@@ -140,16 +140,6 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
     /// Only used when `configuration == .session`.
     var sessionSegments: DockSessionSegments? { get }
     
-    /// Legacy progress information for backwards compatibility.
-    ///
-    /// - Note: Prefer using `sessionSegments` for session progress.
-    ///   This property is maintained for non-session configurations.
-    ///
-    /// Returns `nil` when not in an active session or when progress
-    /// should not be displayed.
-    @available(*, deprecated, message: "Use sessionSegments instead for session progress")
-    var progress: DockProgress? { get }
-    
     /// Whether backward navigation is available.
     ///
     /// When `false`, the previous button is disabled.
@@ -295,5 +285,14 @@ public extension DockAdapterProtocol {
     /// Override in adapters that use session segments.
     func segmentAnimationCompleted() {
         // No-op by default
+    }
+    
+    /// Legacy progress information for backwards compatibility.
+    ///
+    /// - Note: This property is deprecated. Use `sessionSegments` instead.
+    ///   Provided as a default implementation to avoid breaking existing conformers.
+    @available(*, deprecated, message: "Use sessionSegments instead for session progress")
+    var progress: DockProgress? {
+        nil
     }
 }

@@ -33,16 +33,6 @@
         }
       }
     },
-    "%@: %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@: %2$@"
-          }
-        }
-      }
-    },
     "%lld" : {
 
     },
@@ -96,12 +86,6 @@
     "All loops complete!" : {
 
     },
-    "Already at first affirmation" : {
-
-    },
-    "Already at last affirmation" : {
-
-    },
     "Are you sure you want to delete" : {
 
     },
@@ -109,9 +93,6 @@
 
     },
     "Begin Your Journey" : {
-
-    },
-    "Binaural beats: %@" : {
 
     },
     "Cancel" : {
@@ -184,18 +165,6 @@
 
     },
     "Done" : {
-
-    },
-    "Double tap to advance" : {
-
-    },
-    "Double tap to change binaural preset" : {
-
-    },
-    "Double tap to change mode" : {
-
-    },
-    "Double tap to go back" : {
 
     },
     "Double tap to navigate to the practice page" : {
@@ -274,13 +243,7 @@
     "Loop count: %lld" : {
 
     },
-    "Loop count: %lld. Tap to cycle." : {
-
-    },
     "Microphone Access Required" : {
-
-    },
-    "Next affirmation" : {
 
     },
     "No Favorites Yet" : {
@@ -326,9 +289,6 @@
     "Preparing your practice..." : {
 
     },
-    "Previous affirmation" : {
-
-    },
     "Profile" : {
 
     },
@@ -341,9 +301,6 @@
           }
         }
       }
-    },
-    "Randomizes affirmation order each loop" : {
-
     },
     "Read each affirmation aloud so we can personalize your experience" : {
 
@@ -358,9 +315,6 @@
 
     },
     "Resonance score: %@" : {
-
-    },
-    "Resonance score: %lld" : {
 
     },
     "Save" : {
@@ -405,9 +359,6 @@
     "Session info" : {
 
     },
-    "Session mode: %@" : {
-
-    },
     "Session name" : {
 
     },
@@ -421,9 +372,6 @@
 
     },
     "Shuffle" : {
-
-    },
-    "Shuffle: %@" : {
 
     },
     "Skip" : {

@@ -12,9 +12,9 @@ import SwiftUI
 /// Adapter for configuration mode dock used in list and results views.
 ///
 /// This adapter is used by:
-/// - `FavoritesFullListView` — label: "Practice X affirmations"
-/// - `SavedSessionsFullListView` — label: "" (empty)
-/// - `ResultsSummaryView` — label: "Repeat Session"
+/// - `FavoritesFullListView` - label: "Practice X affirmations"
+/// - `SavedSessionsFullListView` - label: "" (empty)
+/// - `ResultsSummaryView` - label: "Repeat Session"
 ///
 /// Unlike `PracticeDockAdapter`, this adapter owns its state directly rather than
 /// reading from `PracticeStore`. The parent view configures it at initialization.
@@ -78,24 +78,27 @@ final class ConfigurationDockAdapter: DockAdapterProtocol {
     
     // MARK: - Binaural State (Not Used in Configuration Mode)
     
-    /// Always `.off` — binaural selector not shown in configuration mode.
+    /// Always `.off` - binaural selector not shown in configuration mode.
     var binauralPreset: DockBinauralPreset = .off
     
-    /// Always `false` — binaural selector not shown in configuration mode.
+    /// Always `false` - binaural selector not shown in configuration mode.
     var isBinauralSelectorExpanded: Bool = false
     
     // MARK: - Session State (Not Used in Configuration Mode)
     
-    /// Always `.hidden` — no center content in configuration mode.
+    /// Always `.hidden` - no center content in configuration mode.
     var centerContentState: DockCenterContentState = .hidden
     
-    /// Always `nil` — no progress in configuration mode.
+    /// Always `nil` - no session segments in configuration mode.
+    var sessionSegments: DockSessionSegments? = nil
+    
+    /// Always `nil` - no progress in configuration mode.
     var progress: DockProgress? = nil
     
-    /// Always `false` — no navigation in configuration mode.
+    /// Always `false` - no navigation in configuration mode.
     var canNavigatePrevious: Bool = false
     
-    /// Always `false` — no navigation in configuration mode.
+    /// Always `false` - no navigation in configuration mode.
     var canNavigateNext: Bool = false
     
     // MARK: - Configuration Mode State
@@ -127,7 +130,7 @@ final class ConfigurationDockAdapter: DockAdapterProtocol {
     ///   - initialShuffle: Starting shuffle state (default: `false`)
     ///   - labelText: Text displayed below the dock (e.g., "Practice 9 affirmations")
     ///   - isPlayEnabled: Whether the play button should be enabled
-    ///   - onPlay: Callback when play is tapped — receives (mode, loopCount, isShuffleEnabled)
+    ///   - onPlay: Callback when play is tapped - receives (mode, loopCount, isShuffleEnabled)
     init(
         initialMode: DockMode = .readAndSpeak,
         initialLoopCount: Int = 1,

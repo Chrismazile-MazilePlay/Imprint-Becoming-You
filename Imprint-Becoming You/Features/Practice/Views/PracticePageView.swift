@@ -115,6 +115,8 @@ struct PracticePageView: View {
                 // Background with smooth color morphing
                 morphingBackground(currentIndex: currentIndex, progress: progress)
             }
+            .dismissesDockMenuOnTouch(adapter: dockAdapter)
+
             
             VStack {
                 // Top HUD (doesn't move with gesture)
@@ -124,6 +126,7 @@ struct PracticePageView: View {
                     onPromptsTap: onNavigateToPrompts,
                     onCategoriesTap: { showCategories = true }
                 )
+                .dismissesDockMenuOnTouch(adapter: dockAdapter)
                 
                 Spacer()
                 
@@ -135,7 +138,6 @@ struct PracticePageView: View {
             .ignoresSafeArea(edges: .bottom)
         }
         .gesture(horizontalBlockingGesture)
-        .dismissesDockMenuOnTouch(adapter: dockAdapter)
         .fullScreenCover(isPresented: $showCategories) {
             CategoriesFullScreenView(store: store)
         }

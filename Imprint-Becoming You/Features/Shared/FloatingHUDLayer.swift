@@ -221,7 +221,6 @@ struct FloatingHUDLayer: View {
     
     private var profileButton: some View {
         Button {
-            store.send(.closeSelectors)
             onProfileTap()
             HapticFeedback.impact(.light)
         } label: {

@@ -116,18 +116,17 @@ struct PracticePageView: View {
                 morphingBackground(currentIndex: currentIndex, progress: progress)
             }
             
-            // Top HUD (doesn't move with gesture)
-            FloatingHUDLayer(
-                store: store,
-                onProfileTap: onNavigateToProfile,
-                onPromptsTap: onNavigateToPrompts,
-                onCategoriesTap: { showCategories = true }
-            )
-        }
-        .dismissesDockMenuOnTouch(adapter: dockAdapter)
-        .overlay {
             VStack {
+                // Top HUD (doesn't move with gesture)
+                FloatingHUDLayer(
+                    store: store,
+                    onProfileTap: onNavigateToProfile,
+                    onPromptsTap: onNavigateToPrompts,
+                    onCategoriesTap: { showCategories = true }
+                )
+                
                 Spacer()
+                
                 AdaptiveDockContainer(adapter: dockAdapter) {
                     AdaptiveBottomDock(adapter: dockAdapter)
                 }
@@ -136,6 +135,7 @@ struct PracticePageView: View {
             .ignoresSafeArea(edges: .bottom)
         }
         .gesture(horizontalBlockingGesture)
+        .dismissesDockMenuOnTouch(adapter: dockAdapter)
         .fullScreenCover(isPresented: $showCategories) {
             CategoriesFullScreenView(store: store)
         }
@@ -397,7 +397,9 @@ struct PracticePageView: View {
     
     /// Blocks horizontal swipes from reaching parent TabView when in active mode
     private var horizontalBlockingGesture: some Gesture {
-        DragGesture(minimumDistance: store.isSessionActive ? 0 : 10000)
+        DragGesture(minimumDistance: store.isSessionActive ||
+                    dockAdapter.isBinauralSelectorExpanded ||
+                    dockAdapter.isModeSelectorExpanded ? 0 : 10000)
             .onChanged { _ in
                 // Consume the gesture - do nothing
                 // This prevents horizontal swipes from propagating to TabView

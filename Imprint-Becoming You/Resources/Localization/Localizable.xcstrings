@@ -200,6 +200,9 @@
     "Favorites" : {
 
     },
+    "Free" : {
+
+    },
     "Free tier: %lld of %lld saved sessions used." : {
       "localizations" : {
         "en" : {
@@ -284,6 +287,9 @@
 
     },
     "Practice" : {
+
+    },
+    "Premium" : {
 
     },
     "Preparing your practice..." : {
@@ -402,6 +408,9 @@
 
     },
     "Track your journey" : {
+
+    },
+    "Trial" : {
 
     },
     "Try Again" : {

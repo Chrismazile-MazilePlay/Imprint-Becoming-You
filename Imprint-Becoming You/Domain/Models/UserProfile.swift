@@ -83,6 +83,21 @@ final class UserProfile {
     /// - TODO: Phase 9 - Add Settings UI for changing this preference
     var includeFaithContent: Bool?
     
+    /// Expiration date for trial subscription.
+    ///
+    /// - `nil`: User has not started a trial or trial has expired
+    /// - Non-nil: Trial is active if date is in the future
+    ///
+    /// Used in conjunction with `isPremium` and `premiumExpiresAt` to determine
+    /// the user's `subscriptionTier`.
+    var trialExpiresAt: Date?
+    
+    /// ID of the user's currently selected TTS voice.
+    ///
+    /// References a `Voice.id` value. If `nil`, the app uses the default voice.
+    /// Can be a preset voice ID (e.g., "kokoro_af_heart") or a custom voice ID.
+    var selectedVoiceId: String?
+    
     // MARK: - Initialization
     
     /// Creates a new user profile with default values
@@ -102,7 +117,9 @@ final class UserProfile {
         lastSyncedAt: Date? = nil,
         firebaseUserId: String? = nil,
         hasCompletedOnboarding: Bool = false,
-        includeFaithContent: Bool? = nil
+        includeFaithContent: Bool? = nil,
+        trialExpiresAt: Date? = nil,
+        selectedVoiceId: String? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -120,12 +137,85 @@ final class UserProfile {
         self.firebaseUserId = firebaseUserId
         self.hasCompletedOnboarding = hasCompletedOnboarding
         self.includeFaithContent = includeFaithContent
+        self.trialExpiresAt = trialExpiresAt
+        self.selectedVoiceId = selectedVoiceId
     }
 }
 
 // MARK: - Computed Properties
 
 extension UserProfile {
+    
+    // MARK: - Subscription Tier
+    
+    /// The user's current subscription tier.
+    ///
+    /// Computed from the stored subscription state:
+    /// - `.premium` if `isPremium` is true and not expired
+    /// - `.trial` if `trialExpiresAt` is in the future
+    /// - `.free` otherwise
+    ///
+    /// Use this property to gate premium features throughout the app.
+    ///
+    /// ```swift
+    /// if userProfile.subscriptionTier.hasPremiumAccess {
+    ///     showAllVoices()
+    /// }
+    /// ```
+    var subscriptionTier: SubscriptionTier {
+        // Check premium first (highest priority)
+        if isPremium {
+            if let expiresAt = premiumExpiresAt {
+                if expiresAt > Date() {
+                    return .premium
+                }
+                // Premium expired, fall through to check trial
+            } else {
+                // No expiration = lifetime premium
+                return .premium
+            }
+        }
+        
+        // Check trial
+        if let trialExpires = trialExpiresAt, trialExpires > Date() {
+            return .trial
+        }
+        
+        // Default to free
+        return .free
+    }
+    
+    /// Whether the user is currently in a trial period.
+    var isInTrial: Bool {
+        subscriptionTier == .trial
+    }
+    
+    /// Days remaining in trial, or `nil` if not in trial.
+    var trialDaysRemaining: Int? {
+        guard let trialExpires = trialExpiresAt, trialExpires > Date() else {
+            return nil
+        }
+        let days = Calendar.current.dateComponents([.day], from: Date(), to: trialExpires).day
+        return max(0, days ?? 0)
+    }
+    
+    /// Whether the user has ever had a trial (regardless of expiration).
+    var hasHadTrial: Bool {
+        trialExpiresAt != nil
+    }
+    
+    /// Starts a trial for the specified duration.
+    ///
+    /// - Parameter days: Number of days for the trial (default: 7)
+    func startTrial(days: Int = 7) {
+        trialExpiresAt = Calendar.current.date(
+            byAdding: .day,
+            value: days,
+            to: Date()
+        )
+    }
+    
+    // MARK: - Voice Profile
     
     /// Whether the user has a voice profile configured (cloned or system)
     var hasVoiceProfile: Bool {

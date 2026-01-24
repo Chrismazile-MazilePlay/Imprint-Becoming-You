@@ -9,37 +9,85 @@ import Foundation
 
 // MARK: - Voice Clone Service
 
-/// Production implementation of voice cloning service.
+/// Production implementation of voice cloning via Qwen DashScope API.
 ///
-/// Manages voice clone lifecycle with ElevenLabs API.
-/// Will be implemented in Phase 5.
+/// ## Implementation Status
+/// - Phase 7: Full Qwen Cloud integration
+/// - Currently: Stub implementation (throws `.notImplemented`)
 ///
 /// ## Features (Planned)
-/// - Voice clone creation from user recordings
-/// - Clone validation and management
+/// - Voice clone creation from user recordings (3+ seconds)
+/// - Preview clones during onboarding (no subscription required)
+/// - Clone management and validation
 /// - Firebase proxy for secure API access
-/// - Keychain storage for voice IDs
 final class VoiceCloneService: VoiceCloneServiceProtocol, @unchecked Sendable {
     
-    // MARK: - VoiceCloneServiceProtocol
+    // MARK: - Clone Creation
     
-    func createVoiceClone(from audioData: Data, name: String) async throws -> String {
-        // TODO: Phase 5 - ElevenLabs API integration
-        throw AppError.notImplemented(feature: "Voice Cloning")
+    func createClone(
+        from audioData: Data,
+        name: String,
+        languageCode: String
+    ) async throws -> Voice {
+        // TODO: Phase 7 - Qwen DashScope API integration
+        throw TTSError.cloningFailed(reason: "Voice cloning not yet implemented")
     }
     
-    func deleteVoiceClone(voiceId: String) async throws {
-        // TODO: Phase 5 - ElevenLabs API integration
+    func previewClone(audioData: Data, sampleText: String) async throws -> TTSResult {
+        // TODO: Phase 7 - Qwen DashScope API integration
+        throw TTSError.cloningFailed(reason: "Voice clone preview not yet implemented")
+    }
+    
+    // MARK: - Clone Management
+    
+    func deleteClone(voiceId: String) async throws {
+        // TODO: Phase 7 - Qwen DashScope API integration
         // No-op for now
     }
     
-    func validateVoiceClone(voiceId: String) async -> Bool {
-        // TODO: Phase 5 - ElevenLabs API validation
-        false
+    func getCloneStatus(voiceId: String) async throws -> VoiceCloneStatus {
+        // No clones exist yet
+        throw TTSError.voiceNotAvailable(voiceId: voiceId)
     }
     
-    func getVoicePreview(voiceId: String) async throws -> Data {
-        // TODO: Phase 5 - ElevenLabs API integration
-        throw AppError.notImplemented(feature: "Voice Preview")
+    func listClones() async throws -> [Voice] {
+        // No clones exist yet
+        return []
+    }
+    
+    // MARK: - Audio Validation
+    
+    func validateAudio(_ audioData: Data) async -> CloneAudioValidation {
+        // Basic validation based on data size
+        // Rough estimate: 16kHz mono 16-bit = ~32KB/sec
+        let estimatedDuration = Double(audioData.count) / 32000.0
+        
+        var issues: [CloneAudioIssue] = []
+        
+        if estimatedDuration < VoiceCloneConfiguration.minimumDuration {
+            issues.append(CloneAudioIssue(
+                type: .tooShort,
+                severity: .error,
+                message: "Audio must be at least \(Int(VoiceCloneConfiguration.minimumDuration)) seconds"
+            ))
+        }
+        
+        if estimatedDuration > VoiceCloneConfiguration.maximumDuration {
+            issues.append(CloneAudioIssue(
+                type: .tooLong,
+                severity: .warning,
+                message: "Audio will be trimmed to \(Int(VoiceCloneConfiguration.maximumDuration)) seconds"
+            ))
+        }
+        
+        let isValid = !issues.contains { $0.severity == .error }
+        
+        return CloneAudioValidation(
+            isValid: isValid,
+            duration: estimatedDuration,
+            qualityScore: isValid ? 0.7 : 0.0,
+            issues: issues,
+            suggestions: issues.map { $0.suggestion }
+        )
     }
 }

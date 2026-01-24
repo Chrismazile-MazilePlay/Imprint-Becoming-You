@@ -33,12 +33,12 @@ import SwiftData
 /// ```
 ///
 /// ## Repository Pattern
-/// For SwiftData-dependent services like `AffirmationRepository`, use the factory methods:
+/// For SwiftData-dependent services, use the factory methods:
 /// ```swift
 /// @Environment(\.modelContext) private var modelContext
 ///
 /// let repository = dependencies.makeAffirmationRepository(modelContext: modelContext)
-/// let savedSessionRepo = dependencies.makeSavedSessionRepository(modelContext: modelContext)
+/// let voiceRepo = dependencies.makeVoiceRepository(modelContext: modelContext)
 /// ```
 @MainActor
 final class DependencyContainer: Sendable {
@@ -65,6 +65,18 @@ final class DependencyContainer: Sendable {
             _audioService = isPreview ? MockAudioService() : AudioService()
         }
         return _audioService!
+    }
+    
+    /// Audio player service for TTS playback
+    ///
+    /// Separate from `audioService` - this handles TTS audio playback
+    /// while `audioService` handles binaural beats and ambient audio.
+    private var _audioPlayerService: AudioPlayerService?
+    var audioPlayerService: AudioPlayerService {
+        if _audioPlayerService == nil {
+            _audioPlayerService = AudioPlayerService()
+        }
+        return _audioPlayerService!
     }
     
     /// Speech recognition and analysis service
@@ -134,7 +146,7 @@ final class DependencyContainer: Sendable {
     private var _audioCacheService: (any AudioCacheServiceProtocol)?
     var audioCacheService: any AudioCacheServiceProtocol {
         if _audioCacheService == nil {
-            _audioCacheService = isPreview ? MockAudioCacheService() : AudioCacheService()
+            _audioCacheService = isPreview ? MockAudioCacheService() : AudioCacheManager.shared
         }
         return _audioCacheService!
     }
@@ -175,6 +187,20 @@ final class DependencyContainer: Sendable {
         return SavedSessionRepository(modelContext: modelContext)
     }
     
+    /// Creates a voice repository for the given model context.
+    ///
+    /// For production, returns a real `VoiceRepository`.
+    /// For previews, returns a `MockVoiceRepository`.
+    ///
+    /// - Parameter modelContext: SwiftData model context
+    /// - Returns: Repository conforming to `VoiceRepositoryProtocol`
+    func makeVoiceRepository(modelContext: ModelContext) -> any VoiceRepositoryProtocol {
+        if isPreview {
+            return MockVoiceRepository()
+        }
+        return VoiceRepository(modelContext: modelContext)
+    }
+    
     /// Creates an offline content loader.
     ///
     /// Note: The loader should be created ad-hoc when needed since its methods
@@ -210,6 +236,11 @@ final class DependencyContainer: Sendable {
     /// Registers a custom auth service
     func register(authService: any AuthServiceProtocol) {
         _authService = authService
+    }
+    
+    /// Registers a custom audio cache service
+    func register(audioCacheService: any AudioCacheServiceProtocol) {
+        _audioCacheService = audioCacheService
     }
 }
 
@@ -262,7 +293,9 @@ func previewModelContainer() -> ModelContainer {
         Affirmation.self,
         CustomPrompt.self,
         ProgressData.self,
-        SavedSession.self
+        SavedSession.self,
+        VoiceRecord.self,
+        VoiceUsageRecord.self
     ])
     
     let configuration = ModelConfiguration(

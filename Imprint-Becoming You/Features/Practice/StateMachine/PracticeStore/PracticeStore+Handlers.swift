@@ -137,15 +137,39 @@ extension PracticeStore {
             guard canGoPrevious else { return }
         }
         
+        // Cancel current activity (stops TTS, listening, etc.)
         cancelCurrentActivity()
-        resetToIdle()
+        
+        // Handle segment progress based on direction:
+        // - Forward: Fill current segment to 100% - segment we're leaving appears complete
+        // - Backward: Reset current segment to 0% - segment we're leaving appears incomplete
+        switch direction {
+        case .next:
+            setSegmentProgress(1.0)
+        case .previous:
+            setSegmentProgress(0)
+        }
+        
+        // NOTE: We intentionally do NOT change the flow to .idle here.
+        // Changing to .idle would make isAnimating=false, which causes the dock
+        // to visually reset the segment, ignoring our segmentProgress value.
+        // The flow will naturally transition when startFlowForCurrentAffirmation()
+        // is called after the pager animation completes.
+        
         setNavigationLocked(false)
         
+        // Trigger pager animation to new index
         pendingAutoAdvance = direction
     }
     
     func handleAutoAdvanceCompleted() {
         pendingAutoAdvance = nil
+        
+        // Reset segment progress for the new segment (starts at 0%)
+        setSegmentProgress(0)
+        
+        // Increment segment generation to signal dock to restart its timer
+        incrementSegmentGeneration()
         
         if isSessionActive {
             recordEngagement(.view)
@@ -179,30 +203,45 @@ extension PracticeStore {
     }
     
     func handleExitSession() {
-        cancelCurrentActivity()
-        resetToIdle()
+        #if DEBUG
+        print("[DEBUG] PracticeStore: Exit session initiated")
+        #endif
         
+        // 1. Cancel all active work immediately
+        cancelCurrentActivity()
+        flowGeneration += 1  // Ensure any stale async work sees generation mismatch and stops
+        
+        // 2. Dismiss any alerts
         setShowingTimeoutAlert(false)
         setPermissionAlert(showing: false)
         
-        // Reset loop configuration on exit
+        // 3. CRITICAL: Set mode and flow to home FIRST
+        //    This makes isSessionActive = false BEFORE we clear session data.
+        //    Without this order, there's a brief moment where:
+        //    - sessionAffirmations is empty
+        //    - flow is still active mode (isSessionActive = true)
+        //    - currentAffirmation returns nil
+        //    - UI shows inconsistent state (text/buttons disappear)
+        sessionMode = .readOnly
+        setFlow(.home)
+        setSegmentProgress(0)
+        
+        // 4. Now safe to clear session state (isSessionActive is already false)
         resetLoopConfiguration()
         clearSavedSessionContext()
         clearOriginalSessionAffirmationIds()
-        
         setSessionState(affirmations: [], index: 0)
         setSessionResults([])
         
-        // CRITICAL: Reset session mode to default browse mode on exit
-        // Without this, the dock's mode selector retains the previous session mode
-        // when returning to home (e.g., showing "Read & Speak" instead of "Read Only")
-        sessionMode = .readOnly
-        
+        // 5. Close any open menus with animation
         withAnimation(AppTheme.Animation.standard) {
-            setFlow(.home)
             isModeSelectorExpanded = false
             isBinauralSelectorExpanded = false
         }
+        
+        #if DEBUG
+        print("[DEBUG] PracticeStore: Exit session completed - now in home mode")
+        #endif
     }
     
     /// Full app-level reset after extended background (>10 min).

@@ -10,61 +10,91 @@ import CryptoKit
 
 // MARK: - AudioCacheManager
 
-/// Manages cached audio files for TTS playback.
-///
-/// Implements LRU (Least Recently Used) eviction when the cache exceeds
-/// the maximum size limit. Audio files are stored with content-based
-/// hashing to avoid duplicates.
+/// Manages cached TTS audio files with LRU eviction.
 ///
 /// ## Cache Policy
-/// - Maximum size: 500 MB
-/// - Expiration: 30 days
+/// - Maximum size: 500 MB (configurable)
+/// - Expiration: 30 days since last access
 /// - Eviction: LRU when size limit exceeded
+/// - Storage: App's Caches directory
 ///
 /// ## Usage
 /// ```swift
 /// let cache = AudioCacheManager.shared
-/// let fileName = try await cache.cacheAudio(data, forText: "I am confident", voiceId: "abc123")
-/// let data = await cache.getCachedAudio(forText: "I am confident", voiceId: "abc123")
+/// let key = cache.cacheKey(for: "Hello", voice: voice, speed: 1.0)
+///
+/// if let result = await cache.get(key: key) {
+///     // Use cached result
+/// } else {
+///     let result = try await ttsService.synthesize(text: "Hello", voice: voice)
+///     try await cache.store(key: key, result: result)
+/// }
 /// ```
 actor AudioCacheManager: AudioCacheServiceProtocol {
     
     // MARK: - Singleton
     
-    /// Shared instance for app-wide cache management
     static let shared = AudioCacheManager()
     
     // MARK: - Properties
     
-    /// File manager for file operations
     private let fileManager = FileManager.default
-    
-    /// Cache directory URL
     private let cacheDirectory: URL
-    
-    /// Metadata file URL
     private let metadataURL: URL
-    
-    /// Cache metadata (maps cache keys to file info)
     private var metadata: CacheMetadata
+    private var pregenerationTask: Task<Void, Never>?
     
-    /// Maximum cache size in bytes
-    let maxCacheSize: Int64 = Constants.Cache.maxAudioCacheSize
+    /// Statistics tracking
+    private var hitCount: Int = 0
+    private var missCount: Int = 0
     
-    /// Current cache size in bytes
-    var cacheSize: Int64 {
-        get async {
-            metadata.totalSize
+    // MARK: - Protocol Properties
+    
+    /// Maximum cache size - nonisolated for frequent reads, modified via setMaxSize()
+    nonisolated(unsafe) private(set) var maxSize: Int64
+    
+    var currentSize: Int64 {
+        get async { metadata.totalSize }
+    }
+    
+    var itemCount: Int {
+        get async { metadata.entries.count }
+    }
+    
+    // MARK: - File Access
+    
+    /// Gets the file URL for a cached audio file by filename.
+    ///
+    /// Used by `AudioPlayerService` to play cached files directly.
+    ///
+    /// - Parameter fileName: The filename (returned from `store()`)
+    /// - Returns: URL to the file, or `nil` if not found
+    func fileURL(forFileName fileName: String) -> URL? {
+        let url = cacheDirectory.appendingPathComponent(fileName)
+        return fileManager.fileExists(atPath: url.path) ? url : nil
+    }
+    
+    /// Gets the file URL for a cached entry by key.
+    ///
+    /// - Parameter key: The cache key
+    /// - Returns: URL to the file, or `nil` if not cached
+    func fileURL(forKey key: String) -> URL? {
+        guard let entry = metadata.entries[key], !entry.isExpired else {
+            return nil
         }
+        return fileURL(forFileName: entry.fileName)
     }
     
     // MARK: - Initialization
     
     private init() {
-        // Setup cache directory
         let cachesDirectory = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        cacheDirectory = cachesDirectory.appendingPathComponent(Constants.Cache.audioCacheDirectory, isDirectory: true)
-        metadataURL = cacheDirectory.appendingPathComponent("metadata.json")
+        cacheDirectory = cachesDirectory.appendingPathComponent(
+            AudioCacheConfiguration.directoryName,
+            isDirectory: true
+        )
+        metadataURL = cacheDirectory.appendingPathComponent(AudioCacheConfiguration.metadataFileName)
+        maxSize = AudioCacheConfiguration.defaultMaxSize
         
         // Create directory if needed
         try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
@@ -73,88 +103,89 @@ actor AudioCacheManager: AudioCacheServiceProtocol {
         metadata = CacheMetadata.load(from: metadataURL) ?? CacheMetadata()
         
         // Clean expired entries on startup
-        Task {
-            await cleanExpiredEntries()
-        }
+        Task { await cleanExpiredEntries() }
     }
     
-    // MARK: - Public Methods
+    // MARK: - Cache Key Generation
     
-    /// Retrieves cached audio for the given text and voice
-    /// - Parameters:
-    ///   - text: The affirmation text
-    ///   - voiceId: The voice identifier
-    /// - Returns: Audio data if cached and not expired, nil otherwise
-    func getCachedAudio(forText text: String, voiceId: String) async -> Data? {
-        let key = cacheKey(forText: text, voiceId: voiceId)
-        
-        guard let entry = metadata.entries[key],
-              !entry.isExpired else {
-            // Remove expired entry if exists
+    nonisolated func cacheKey(for text: String, voice: Voice, speed: Float) -> String {
+        let normalized = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let combined = "\(normalized)|\(voice.id)|\(speed)"
+        let hash = SHA256.hash(data: Data(combined.utf8))
+        return hash.compactMap { String(format: "%02x", $0) }.joined().prefix(32).description
+    }
+    
+    // MARK: - Cache Operations
+    
+    func get(key: String) async -> TTSResult? {
+        guard let entry = metadata.entries[key], !entry.isExpired else {
             if metadata.entries[key] != nil {
                 await removeEntry(forKey: key)
             }
+            missCount += 1
             return nil
         }
         
         let fileURL = cacheDirectory.appendingPathComponent(entry.fileName)
         
         guard fileManager.fileExists(atPath: fileURL.path) else {
-            // File missing - remove metadata entry
             await removeEntry(forKey: key)
+            missCount += 1
             return nil
         }
         
-        // Update last accessed time
-        metadata.entries[key]?.lastAccessedAt = Date()
-        await saveMetadata()
-        
         do {
-            return try Data(contentsOf: fileURL)
+            let audioData = try Data(contentsOf: fileURL)
+            
+            // Update access time and count
+            metadata.entries[key]?.lastAccessedAt = Date()
+            metadata.entries[key]?.accessCount += 1
+            await saveMetadata()
+            
+            hitCount += 1
+            
+            return reconstructResult(from: entry, audioData: audioData)
         } catch {
-            print("⚠️ Failed to read cached audio: \(error.localizedDescription)")
+            missCount += 1
             return nil
         }
     }
     
-    /// Caches audio data for the given text and voice
-    /// - Parameters:
-    ///   - data: The audio data to cache
-    ///   - text: The affirmation text
-    ///   - voiceId: The voice identifier
-    /// - Returns: The filename of the cached file
     @discardableResult
-    func cacheAudio(_ data: Data, forText text: String, voiceId: String) async throws -> String {
-        let key = cacheKey(forText: text, voiceId: voiceId)
-        let fileName = "\(key).mp3"
+    func store(key: String, result: TTSResult) async throws -> String {
+        let fileName = "\(key).\(result.audioFormat.fileExtension)"
         let fileURL = cacheDirectory.appendingPathComponent(fileName)
         
-        // Check if we need to evict to make room
-        let dataSize = Int64(data.count)
+        let dataSize = Int64(result.audioData.count)
         await evictIfNeeded(forNewDataSize: dataSize)
         
-        // Write file
+        // Write audio file
         do {
-            try data.write(to: fileURL, options: .atomic)
+            try result.audioData.write(to: fileURL, options: .atomic)
         } catch {
-            throw AppError.cacheError(reason: "Failed to write audio file: \(error.localizedDescription)")
+            throw TTSError.audioEncodingError(message: "Failed to cache audio: \(error.localizedDescription)")
         }
         
         // Create metadata entry
-        let expirationDate = Date().addingTimeInterval(
-            TimeInterval(Constants.Cache.expirationDays * 24 * 60 * 60)
-        )
-        
-        let entry = CacheEntry(
+        let entry = CacheEntryMetadata(
             key: key,
             fileName: fileName,
-            size: dataSize,
-            createdAt: Date(),
+            text: result.originalText,
+            voiceId: result.voice.id,
+            speed: 1.0,
+            audioFormat: result.audioFormat,
+            duration: result.duration,
+            sizeBytes: dataSize,
+            createdAt: result.synthesizedAt,
             lastAccessedAt: Date(),
-            expiresAt: expirationDate,
-            text: text,
-            voiceId: voiceId
+            accessCount: 1,
+            wordTimings: result.wordTimings.isEmpty ? nil : result.wordTimings
         )
+        
+        // Update total size if replacing existing entry
+        if let existingEntry = metadata.entries[key] {
+            metadata.totalSize -= existingEntry.sizeBytes
+        }
         
         metadata.entries[key] = entry
         metadata.totalSize += dataSize
@@ -164,71 +195,98 @@ actor AudioCacheManager: AudioCacheServiceProtocol {
         return fileName
     }
     
-    /// Removes a cached audio file
-    /// - Parameter fileName: The filename to remove
-    func removeCachedAudio(fileName: String) async {
-        let fileURL = cacheDirectory.appendingPathComponent(fileName)
-        
-        // Find and remove metadata entry
-        if let entry = metadata.entries.first(where: { $0.value.fileName == fileName }) {
-            metadata.entries.removeValue(forKey: entry.key)
-            metadata.totalSize -= entry.value.size
-        }
-        
-        // Delete file
-        try? fileManager.removeItem(at: fileURL)
-        
-        await saveMetadata()
+    func remove(key: String) async {
+        await removeEntry(forKey: key)
     }
     
-    /// Clears the entire cache
-    func clearCache() async {
-        // Remove all files
+    func clearAll() async {
+        // Cancel ongoing pregeneration
+        pregenerationTask?.cancel()
+        pregenerationTask = nil
+        
+        // Remove all files except metadata
         if let files = try? fileManager.contentsOfDirectory(at: cacheDirectory, includingPropertiesForKeys: nil) {
-            for file in files where file.lastPathComponent != "metadata.json" {
+            for file in files where file.lastPathComponent != AudioCacheConfiguration.metadataFileName {
                 try? fileManager.removeItem(at: file)
             }
         }
         
-        // Reset metadata
+        // Reset state
         metadata = CacheMetadata()
+        hitCount = 0
+        missCount = 0
         await saveMetadata()
     }
     
-    /// Gets the file URL for a cached audio file
-    /// - Parameter fileName: The filename
-    /// - Returns: URL to the file, or nil if not found
-    func fileURL(forFileName fileName: String) -> URL? {
-        let url = cacheDirectory.appendingPathComponent(fileName)
-        return fileManager.fileExists(atPath: url.path) ? url : nil
+    // MARK: - Pre-generation
+    
+    func pregenerate(
+        texts: [String],
+        voice: Voice,
+        speed: Float,
+        using synthesizer: TTSServiceProtocol
+    ) async {
+        // Cancel existing pregeneration
+        pregenerationTask?.cancel()
+        
+        pregenerationTask = Task(priority: .background) {
+            for text in texts {
+                guard !Task.isCancelled else { break }
+                
+                let key = cacheKey(for: text, voice: voice, speed: speed)
+                
+                // Skip if already cached
+                if let entry = metadata.entries[key], !entry.isExpired {
+                    continue
+                }
+                
+                do {
+                    let result = try await synthesizer.synthesize(text: text, voice: voice, speed: speed)
+                    try await store(key: key, result: result)
+                } catch {
+                    // Continue with next text on failure
+                    continue
+                }
+            }
+        }
+        
+        await pregenerationTask?.value
     }
     
-    /// Checks if audio is cached for the given text and voice
-    /// - Parameters:
-    ///   - text: The affirmation text
-    ///   - voiceId: The voice identifier
-    /// - Returns: True if cached and not expired
-    func isCached(forText text: String, voiceId: String) -> Bool {
-        let key = cacheKey(forText: text, voiceId: voiceId)
-        guard let entry = metadata.entries[key] else { return false }
-        return !entry.isExpired
+    func cancelPregeneration() async {
+        pregenerationTask?.cancel()
+        pregenerationTask = nil
+    }
+    
+    // MARK: - Cache Management
+    
+    func setMaxSize(_ bytes: Int64) async {
+        let clampedSize = max(
+            AudioCacheConfiguration.minimumSize,
+            min(bytes, AudioCacheConfiguration.maximumSize)
+        )
+        maxSize = clampedSize
+        await evictIfNeeded(forNewDataSize: 0)
+    }
+    
+    func statistics() async -> AudioCacheStatistics {
+        AudioCacheStatistics(
+            totalSize: metadata.totalSize,
+            maxSize: maxSize,
+            itemCount: metadata.entries.count,
+            hitCount: hitCount,
+            missCount: missCount,
+            oldestEntry: metadata.entries.values.min(by: { $0.createdAt < $1.createdAt })?.createdAt,
+            newestEntry: metadata.entries.values.max(by: { $0.createdAt < $1.createdAt })?.createdAt
+        )
     }
     
     // MARK: - Private Methods
     
-    /// Generates a cache key from text and voice ID
-    private func cacheKey(forText text: String, voiceId: String) -> String {
-        let combined = "\(text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines))|\(voiceId)"
-        let data = Data(combined.utf8)
-        let hash = SHA256.hash(data: data)
-        return hash.compactMap { String(format: "%02x", $0) }.joined().prefix(32).description
-    }
-    
-    /// Removes an entry from the cache
     private func removeEntry(forKey key: String) async {
         guard let entry = metadata.entries.removeValue(forKey: key) else { return }
         
-        metadata.totalSize -= entry.size
+        metadata.totalSize -= entry.sizeBytes
         
         let fileURL = cacheDirectory.appendingPathComponent(entry.fileName)
         try? fileManager.removeItem(at: fileURL)
@@ -236,7 +294,6 @@ actor AudioCacheManager: AudioCacheServiceProtocol {
         await saveMetadata()
     }
     
-    /// Cleans expired entries from the cache
     private func cleanExpiredEntries() async {
         let expiredKeys = metadata.entries
             .filter { $0.value.isExpired }
@@ -247,129 +304,114 @@ actor AudioCacheManager: AudioCacheServiceProtocol {
         }
     }
     
-    /// Evicts entries if needed to make room for new data
     private func evictIfNeeded(forNewDataSize newSize: Int64) async {
-        let targetSize = maxCacheSize - newSize
+        let targetSize = maxSize - newSize
         
         guard metadata.totalSize > targetSize else { return }
         
-        // Sort by last accessed time (oldest first)
+        // Sort by last accessed time (oldest first) for LRU eviction
         let sortedEntries = metadata.entries.values
             .sorted { $0.lastAccessedAt < $1.lastAccessedAt }
         
         for entry in sortedEntries {
-            if metadata.totalSize <= targetSize {
-                break
-            }
+            if metadata.totalSize <= targetSize { break }
             await removeEntry(forKey: entry.key)
         }
     }
     
-    /// Saves metadata to disk
     private func saveMetadata() async {
         do {
-            let data = try JSONEncoder().encode(metadata)
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            let data = try encoder.encode(metadata)
             try data.write(to: metadataURL, options: .atomic)
         } catch {
-            print("⚠️ Failed to save cache metadata: \(error.localizedDescription)")
+            // Silent failure - cache still works, just won't persist
         }
     }
-}
-
-// MARK: - CacheMetadata
-
-/// Metadata for the audio cache
-private struct CacheMetadata: Codable {
-    /// Cache entries indexed by key
-    var entries: [String: CacheEntry] = [:]
     
-    /// Total size of all cached files
-    var totalSize: Int64 = 0
-    
-    /// Last cleanup date
-    var lastCleanupAt: Date?
-    
-    /// Loads metadata from a file
-    static func load(from url: URL) -> CacheMetadata? {
-        guard let data = try? Data(contentsOf: url),
-              let metadata = try? JSONDecoder().decode(CacheMetadata.self, from: data) else {
+    private func reconstructResult(from entry: CacheEntryMetadata, audioData: Data) -> TTSResult? {
+        guard let voice = VoiceCatalog.findVoice(id: entry.voiceId) else {
             return nil
         }
-        return metadata
-    }
-}
-
-// MARK: - CacheEntry
-
-/// Individual cache entry metadata
-private struct CacheEntry: Codable {
-    /// Unique key for this entry
-    let key: String
-    
-    /// Filename on disk
-    let fileName: String
-    
-    /// File size in bytes
-    let size: Int64
-    
-    /// When the entry was created
-    let createdAt: Date
-    
-    /// When the entry was last accessed
-    var lastAccessedAt: Date
-    
-    /// When the entry expires
-    let expiresAt: Date
-    
-    /// Original affirmation text
-    let text: String
-    
-    /// Voice ID used for synthesis
-    let voiceId: String
-    
-    /// Whether this entry has expired
-    var isExpired: Bool {
-        Date() > expiresAt
-    }
-}
-
-// MARK: - Cache Statistics
-
-extension AudioCacheManager {
-    
-    /// Returns cache statistics for debugging/settings display
-    func getStatistics() async -> CacheStatistics {
-        CacheStatistics(
-            totalSize: metadata.totalSize,
-            maxSize: maxCacheSize,
-            entryCount: metadata.entries.count,
-            oldestEntry: metadata.entries.values.min(by: { $0.createdAt < $1.createdAt })?.createdAt,
-            newestEntry: metadata.entries.values.max(by: { $0.createdAt < $1.createdAt })?.createdAt
+        
+        return TTSResult(
+            audioData: audioData,
+            audioFormat: entry.audioFormat,
+            duration: entry.duration,
+            originalText: entry.text,
+            voice: voice,
+            wordTimings: entry.wordTimings ?? [],
+            source: .cached,
+            synthesizedAt: entry.createdAt
         )
     }
 }
 
-/// Cache statistics for display
-struct CacheStatistics: Sendable {
-    let totalSize: Int64
-    let maxSize: Int64
-    let entryCount: Int
-    let oldestEntry: Date?
-    let newestEntry: Date?
+// MARK: - Cache Metadata
+
+private struct CacheMetadata: Codable {
+    var entries: [String: CacheEntryMetadata] = [:]
+    var totalSize: Int64 = 0
+    var lastCleanupAt: Date?
     
-    /// Formatted total size
-    var formattedSize: String {
-        ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file)
+    static func load(from url: URL) -> CacheMetadata? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode(CacheMetadata.self, from: data)
     }
+}
+
+// MARK: - Cache Entry Metadata
+
+private struct CacheEntryMetadata: Codable {
+    let key: String
+    let fileName: String
+    let text: String
+    let voiceId: String
+    let speed: Float
+    let audioFormat: TTSAudioFormat
+    let duration: TimeInterval
+    let sizeBytes: Int64
+    let createdAt: Date
+    var lastAccessedAt: Date
+    var accessCount: Int
+    let wordTimings: [WordTiming]?
     
-    /// Formatted max size
-    var formattedMaxSize: String {
-        ByteCountFormatter.string(fromByteCount: maxSize, countStyle: .file)
+    var isExpired: Bool {
+        let expirationInterval = TimeInterval(AudioCacheConfiguration.expirationDays * 24 * 60 * 60)
+        return Date().timeIntervalSince(lastAccessedAt) > expirationInterval
     }
+}
+
+// MARK: - Voice Catalog Helper
+
+/// Helper for looking up voices by ID.
+enum VoiceCatalog {
     
-    /// Usage percentage (0.0 - 1.0)
-    var usagePercentage: Double {
-        guard maxSize > 0 else { return 0 }
-        return Double(totalSize) / Double(maxSize)
+    static func findVoice(id: String) -> Voice? {
+        // Check free Kokoro voices
+        if let voice = Voice.freeKokoroVoices.first(where: { $0.id == id }) {
+            return voice
+        }
+        
+        // Check premium Kokoro voices
+        if let voice = Voice.premiumKokoroVoices.first(where: { $0.id == id }) {
+            return voice
+        }
+        
+        // Check Qwen preset voices
+        if let voice = Voice.qwenPresetVoices.first(where: { $0.id == id }) {
+            return voice
+        }
+        
+        // Handle system voices
+        if id.hasPrefix("system_") {
+            let systemId = String(id.dropFirst(7))
+            return Voice.systemVoice(identifier: systemId, name: "System", languageCode: "en-US")
+        }
+        
+        return nil
     }
 }

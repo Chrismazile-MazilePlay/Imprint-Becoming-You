@@ -54,6 +54,29 @@ extension PracticeStore {
     }
 }
 
+// MARK: - TTS Helpers
+
+extension PracticeStore {
+    
+    /// Synthesizes and plays text using system TTS.
+    ///
+    /// Uses direct AVSpeechSynthesizer playback for real-time audio.
+    /// Future Kokoro integration will add voice selection.
+    ///
+    /// - Parameter text: The text to speak
+    /// - Throws: `TTSError` if synthesis or playback fails
+    private func speakText(_ text: String) async throws {
+        // Use TTS service's direct playback method
+        // This uses AVSpeechSynthesizer.speak() which plays through device speakers
+        try await dependencies.ttsService.speakText(text, voice: nil)
+    }
+    
+    /// Stops any ongoing TTS playback.
+    private func stopTTSPlayback() {
+        dependencies.ttsService.stopSpeaking()
+    }
+}
+
 // MARK: - Read Aloud Flow
 
 extension PracticeStore {
@@ -88,7 +111,7 @@ extension PracticeStore {
                 }
             }
             
-            try await dependencies.ttsService.speakText(affirmationText.strippingTrailingCitation, voiceId: nil)
+            try await speakText(affirmationText.strippingTrailingCitation)
             progressTask.cancel()
             
             guard !Task.isCancelled else { return }
@@ -124,11 +147,11 @@ extension PracticeStore {
         
         #if DEBUG
         if affirmationText != textForListening {
-            print("[DEBUG] 📖 Citation STRIPPED:")
+            print("[DEBUG] Citation STRIPPED:")
             print("[DEBUG]   Original: '\(affirmationText.suffix(50))'")
             print("[DEBUG]   Stripped: '\(textForListening.suffix(50))'")
         } else {
-            print("[DEBUG] 📖 No citation found to strip (original text unchanged)")
+            print("[DEBUG] No citation found to strip (original text unchanged)")
         }
         #endif
         
@@ -171,7 +194,7 @@ extension PracticeStore {
                 }
             }
             
-            try await dependencies.ttsService.speakText(affirmationText.strippingTrailingCitation, voiceId: nil)
+            try await speakText(affirmationText.strippingTrailingCitation)
             progressTask.cancel()
             
             guard !Task.isCancelled else { return }
@@ -208,11 +231,11 @@ extension PracticeStore {
         
         #if DEBUG
         if affirmationText != textForListening {
-            print("[DEBUG] 📖 Citation STRIPPED (SpeakOnly):")
+            print("[DEBUG] Citation STRIPPED (SpeakOnly):")
             print("[DEBUG]   Original: '\(affirmationText.suffix(50))'")
             print("[DEBUG]   Stripped: '\(textForListening.suffix(50))'")
         } else {
-            print("[DEBUG] 📖 No citation found to strip (SpeakOnly, original text unchanged)")
+            print("[DEBUG] No citation found to strip (SpeakOnly, original text unchanged)")
         }
         #endif
         
@@ -351,26 +374,26 @@ extension PracticeStore {
                     if lastTranscription.isEmpty {
                         if silenceDuration >= PracticeTiming.incompleteSilenceTimeout {
                             #if DEBUG
-                            print("[DEBUG] 🔇 Breaking: Empty transcription + silence \(String(format: "%.1f", silenceDuration))s >= \(PracticeTiming.incompleteSilenceTimeout)s")
+                            print("[DEBUG] Breaking: Empty transcription + silence \(String(format: "%.1f", silenceDuration))s >= \(PracticeTiming.incompleteSilenceTimeout)s")
                             #endif
                             break captureLoop
                         }
                     } else {
                         let completion = TextAccuracyCalculator.evaluateCompletion(expected: affirmationText, recognized: lastTranscription)
                         #if DEBUG
-                        print("[DEBUG] 🔇 Silence \(String(format: "%.1f", silenceDuration))s - Words: \(completion.matchedWordCount)/\(completion.expectedWordCount), Complete: \(completion.isComplete)")
+                        print("[DEBUG] Silence \(String(format: "%.1f", silenceDuration))s - Words: \(completion.matchedWordCount)/\(completion.expectedWordCount), Complete: \(completion.isComplete)")
                         #endif
                         if completion.isComplete {
                             if silenceDuration >= PracticeTiming.completedAffirmationSilenceThreshold {
                                 #if DEBUG
-                                print("[DEBUG] ✅ Breaking: Complete + silence \(String(format: "%.1f", silenceDuration))s >= \(PracticeTiming.completedAffirmationSilenceThreshold)s")
+                                print("[DEBUG] Breaking: Complete + silence \(String(format: "%.1f", silenceDuration))s >= \(PracticeTiming.completedAffirmationSilenceThreshold)s")
                                 #endif
                                 break captureLoop
                             }
                         } else {
                             if silenceDuration >= PracticeTiming.incompleteSilenceTimeout {
                                 #if DEBUG
-                                print("[DEBUG] ❌ Breaking: Incomplete + silence \(String(format: "%.1f", silenceDuration))s >= \(PracticeTiming.incompleteSilenceTimeout)s")
+                                print("[DEBUG] Breaking: Incomplete + silence \(String(format: "%.1f", silenceDuration))s >= \(PracticeTiming.incompleteSilenceTimeout)s")
                                 #endif
                                 break captureLoop
                             }
@@ -416,7 +439,7 @@ extension PracticeStore {
         
         if lastTranscription.isEmpty {
             #if DEBUG
-            print("[DEBUG] ❌ TIMEOUT: No transcription received")
+            print("[DEBUG] TIMEOUT: No transcription received")
             #endif
             send(.listeningTimedOut)
             return
@@ -434,7 +457,7 @@ extension PracticeStore {
         print("[DEBUG] wordsCovered: \(String(format: "%.2f", completion.wordsCovered)) (\(completion.matchedWordCount)/\(completion.expectedWordCount) words)")
         print("[DEBUG] Threshold needed: 0.75 (75%)")
         if !completion.isComplete {
-            print("[DEBUG] ⚠️ NOT COMPLETE - Need \(Int(0.75 * Float(completion.expectedWordCount))) words, got \(completion.matchedWordCount)")
+            print("[DEBUG] NOT COMPLETE - Need \(Int(0.75 * Float(completion.expectedWordCount))) words, got \(completion.matchedWordCount)")
         }
         print("═══════════════════════════════════════════════════════")
         #endif
@@ -495,8 +518,8 @@ extension PracticeStore {
         listeningTask = nil
         listeningStartTime = nil
         
-        // Stop TTS using DI service (synchronous)
-        dependencies.ttsService.stopSpeaking()
+        // Stop TTS playback
+        stopTTSPlayback()
         
         // Stop speech capture (synchronous)
         speechCaptureService.cancelCapture()

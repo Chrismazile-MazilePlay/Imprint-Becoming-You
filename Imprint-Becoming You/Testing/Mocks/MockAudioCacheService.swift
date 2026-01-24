@@ -9,46 +9,129 @@ import Foundation
 
 // MARK: - Mock Audio Cache Service
 
-/// Mock implementation of audio cache service for previews and testing.
-///
-/// Simulates audio caching without actual file system operations.
-final class MockAudioCacheService: AudioCacheServiceProtocol, @unchecked Sendable {
+/// Mock implementation of AudioCacheServiceProtocol for testing and previews.
+actor MockAudioCacheService: AudioCacheServiceProtocol {
     
-    // MARK: - Configuration
+    // MARK: - Properties
     
-    /// Maximum cache size (from Constants)
-    var maxCacheSize: Int64 = Constants.Cache.maxAudioCacheSize
+    private var cache: [String: TTSResult] = [:]
     
-    /// Simulated current cache size
-    var simulatedCacheSize: Int64 = 0
+    /// Maximum cache size - nonisolated for protocol conformance
+    nonisolated(unsafe) private(set) var maxSize: Int64 = AudioCacheConfiguration.defaultMaxSize
     
-    /// In-memory cache for testing
-    private var cache: [String: Data] = [:]
+    private var hitCount: Int = 0
+    private var missCount: Int = 0
     
-    // MARK: - AudioCacheServiceProtocol
+    // Test hooks
+    var shouldFailOnStore: Bool = false
+    var storeDelay: TimeInterval = 0
     
-    var cacheSize: Int64 {
-        get async { simulatedCacheSize }
+    // MARK: - Protocol Properties
+    
+    var currentSize: Int64 {
+        get async {
+            Int64(cache.values.reduce(0) { $0 + $1.audioData.count })
+        }
     }
     
-    func getCachedAudio(forText text: String, voiceId: String) async -> Data? {
-        let key = "\(text)-\(voiceId)"
-        return cache[key]
+    var itemCount: Int {
+        get async { cache.count }
     }
     
-    func cacheAudio(_ data: Data, forText text: String, voiceId: String) async throws -> String {
-        let key = "\(text)-\(voiceId)"
-        cache[key] = data
-        simulatedCacheSize += Int64(data.count)
-        return "cached-\(UUID().uuidString).mp3"
+    // MARK: - Cache Key
+    
+    nonisolated func cacheKey(for text: String, voice: Voice, speed: Float) -> String {
+        "\(text.hashValue)_\(voice.id)_\(speed)"
     }
     
-    func removeCachedAudio(fileName: String) async {
-        // No-op for mock - we don't track by filename
+    // MARK: - Cache Operations
+    
+    func get(key: String) async -> TTSResult? {
+        if let result = cache[key] {
+            hitCount += 1
+            return result
+        }
+        missCount += 1
+        return nil
     }
     
-    func clearCache() async {
+    @discardableResult
+    func store(key: String, result: TTSResult) async throws -> String {
+        if shouldFailOnStore {
+            throw TTSError.audioEncodingError(message: "Mock store failure")
+        }
+        
+        if storeDelay > 0 {
+            try await Task.sleep(nanoseconds: UInt64(storeDelay * 1_000_000_000))
+        }
+        
+        cache[key] = result
+        return "\(key).mp3"
+    }
+    
+    func remove(key: String) async {
+        cache.removeValue(forKey: key)
+    }
+    
+    func clearAll() async {
         cache.removeAll()
-        simulatedCacheSize = 0
+        hitCount = 0
+        missCount = 0
+    }
+    
+    // MARK: - Pre-generation
+    
+    func pregenerate(
+        texts: [String],
+        voice: Voice,
+        speed: Float,
+        using synthesizer: TTSServiceProtocol
+    ) async {
+        for text in texts {
+            let key = cacheKey(for: text, voice: voice, speed: speed)
+            if cache[key] == nil {
+                if let result = try? await synthesizer.synthesize(text: text, voice: voice, speed: speed) {
+                    cache[key] = result
+                }
+            }
+        }
+    }
+    
+    func cancelPregeneration() async {
+        // No-op for mock
+    }
+    
+    // MARK: - Cache Management
+    
+    func setMaxSize(_ bytes: Int64) async {
+        maxSize = bytes
+    }
+    
+    func statistics() async -> AudioCacheStatistics {
+        AudioCacheStatistics(
+            totalSize: await currentSize,
+            maxSize: maxSize,
+            itemCount: cache.count,
+            hitCount: hitCount,
+            missCount: missCount,
+            oldestEntry: nil,
+            newestEntry: nil
+        )
+    }
+    
+    // MARK: - Test Helpers
+    
+    func reset() {
+        cache.removeAll()
+        hitCount = 0
+        missCount = 0
+        shouldFailOnStore = false
+        storeDelay = 0
+    }
+    
+    func seedCache(with results: [String: TTSResult]) {
+        for (key, result) in results {
+            cache[key] = result
+        }
     }
 }

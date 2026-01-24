@@ -11,6 +11,10 @@ import AVFoundation
 
 /// Wrapper around AVSpeechSynthesizer for system text-to-speech.
 ///
+/// Provides two modes of operation:
+/// - `speak()`: Real-time playback through device speakers
+/// - `synthesizeToData()`: Offline synthesis to audio data for caching
+///
 /// Used as a fallback when:
 /// - User hasn't cloned their voice
 /// - Network is unavailable
@@ -76,7 +80,17 @@ final class SystemTTSService: NSObject, @unchecked Sendable {
             voice.language.starts(with: "en") && voice.quality == .enhanced
         }
         
-        selectedVoice = preferredVoices.first ?? AVSpeechSynthesisVoice(language: "en-US")
+        if let preferred = preferredVoices.first {
+            selectedVoice = preferred
+            #if DEBUG
+            print("🎤 Selected voice: \(preferred.name) (Enhanced)")
+            #endif
+        } else {
+            selectedVoice = AVSpeechSynthesisVoice(language: "en-US")
+            #if DEBUG
+            print("🎤 Selected voice: Default en-US")
+            #endif
+        }
     }
     
     /// Sets a specific voice by identifier
@@ -98,7 +112,13 @@ final class SystemTTSService: NSObject, @unchecked Sendable {
     
     // MARK: - Speech Control
     
-    /// Speaks the given text
+    /// Speaks the given text through device speakers.
+    ///
+    /// This method uses AVSpeechSynthesizer.speak() for real-time audio playback.
+    /// The audio plays directly through the device speakers.
+    ///
+    /// - Parameter text: The text to speak
+    /// - Throws: `AppError.audioPlaybackFailed` if speech fails to start
     func speak(_ text: String) async throws {
         // Stop any current speech
         stopSpeaking()
@@ -186,9 +206,16 @@ final class SystemTTSService: NSObject, @unchecked Sendable {
         }
     }
     
-    // MARK: - Synthesis to Audio
+    // MARK: - Synthesis to Audio Data
     
-    /// Synthesizes text to audio data (for caching)
+    /// Synthesizes text to audio data (for caching).
+    ///
+    /// This method uses AVSpeechSynthesizer.write() to generate audio data
+    /// without playing through speakers. Useful for caching synthesized audio.
+    ///
+    /// - Parameter text: The text to synthesize
+    /// - Returns: WAV audio data
+    /// - Throws: `AppError.audioPlaybackFailed` if synthesis fails
     func synthesizeToData(_ text: String) async throws -> Data {
         // Capture Sendable configuration values BEFORE the closure
         let voice = selectedVoice
@@ -197,10 +224,35 @@ final class SystemTTSService: NSObject, @unchecked Sendable {
         let vol = volume
         
         return try await withCheckedThrowingContinuation { continuation in
+            // Track if we've already resumed to prevent double-resume
+            var hasResumed = false
+            let resumeLock = NSLock()
+            
+            /// Safely resumes the continuation exactly once
+            func safeResume(with result: Result<Data, Error>) {
+                resumeLock.lock()
+                defer { resumeLock.unlock() }
+                
+                guard !hasResumed else {
+                    #if DEBUG
+                    print("⚠️ SystemTTSService: Attempted to resume continuation twice")
+                    #endif
+                    return
+                }
+                hasResumed = true
+                
+                switch result {
+                case .success(let data):
+                    continuation.resume(returning: data)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+            
             // Create utterance ON main thread to avoid Sendable capture warning
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else {
-                    continuation.resume(throwing: AppError.audioPlaybackFailed(reason: "Service deallocated"))
+                    safeResume(with: .failure(AppError.audioPlaybackFailed(reason: "Service deallocated")))
                     return
                 }
                 
@@ -214,19 +266,26 @@ final class SystemTTSService: NSObject, @unchecked Sendable {
                 var audioBuffers: [AVAudioPCMBuffer] = []
                 
                 self.synthesizer.write(utterance) { buffer in
-                    guard let pcmBuffer = buffer as? AVAudioPCMBuffer else {
+                    // End of stream is signaled by:
+                    // 1. nil buffer (cast to AVAudioPCMBuffer fails)
+                    // 2. Buffer with frameLength == 0
+                    guard let pcmBuffer = buffer as? AVAudioPCMBuffer,
+                          pcmBuffer.frameLength > 0 else {
+                        // Synthesis complete - combine buffers and return
                         if audioBuffers.isEmpty {
-                            continuation.resume(throwing: AppError.audioPlaybackFailed(reason: "No audio data generated"))
+                            safeResume(with: .failure(AppError.audioPlaybackFailed(reason: "No audio data generated")))
                         } else {
                             do {
                                 let data = try self.combineBuffers(audioBuffers)
-                                continuation.resume(returning: data)
+                                safeResume(with: .success(data))
                             } catch {
-                                continuation.resume(throwing: AppError.audioPlaybackFailed(reason: "Failed to combine audio: \(error.localizedDescription)"))
+                                safeResume(with: .failure(AppError.audioPlaybackFailed(reason: "Failed to combine audio: \(error.localizedDescription)")))
                             }
                         }
                         return
                     }
+                    
+                    // Accumulate valid buffers with actual audio data
                     audioBuffers.append(pcmBuffer)
                 }
             }
@@ -288,7 +347,7 @@ final class SystemTTSService: NSObject, @unchecked Sendable {
         // fmt chunk
         data.append(contentsOf: "fmt ".utf8)
         data.append(contentsOf: withUnsafeBytes(of: UInt32(16).littleEndian) { Array($0) })
-        data.append(contentsOf: withUnsafeBytes(of: UInt16(3).littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: UInt16(3).littleEndian) { Array($0) })  // Float format
         data.append(contentsOf: withUnsafeBytes(of: channels.littleEndian) { Array($0) })
         data.append(contentsOf: withUnsafeBytes(of: sampleRate.littleEndian) { Array($0) })
         data.append(contentsOf: withUnsafeBytes(of: byteRate.littleEndian) { Array($0) })
@@ -318,10 +377,17 @@ final class SystemTTSService: NSObject, @unchecked Sendable {
 extension SystemTTSService: AVSpeechSynthesizerDelegate {
     
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        #if DEBUG
+        print("🔊 TTS Started: \"\(utterance.speechString.prefix(50))...\"")
+        #endif
         delegate?.ttsDidStart()
     }
     
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        #if DEBUG
+        print("🔊 TTS Finished")
+        #endif
+        
         var continuation: CheckedContinuation<Void, Error>?
         
         stateQueue.sync {
@@ -336,6 +402,10 @@ extension SystemTTSService: AVSpeechSynthesizerDelegate {
     }
     
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        #if DEBUG
+        print("🔊 TTS Cancelled")
+        #endif
+        
         var continuation: CheckedContinuation<Void, Error>?
         
         stateQueue.sync {

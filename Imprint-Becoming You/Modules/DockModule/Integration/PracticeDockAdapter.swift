@@ -173,12 +173,22 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     
     // MARK: - Navigation Actions
     
+    /// Navigates to the previous affirmation via button tap.
+    ///
+    /// Uses `.navigateViaButton` to trigger VerticalPager animation.
+    /// This is different from `.userNavigated` which responds to swipe gestures
+    /// after the pager has already changed the index.
     func navigatePrevious() {
-        store.send(.userNavigated(.previous))
+        store.send(.navigateViaButton(.previous))
     }
     
+    /// Navigates to the next affirmation via button tap.
+    ///
+    /// Uses `.navigateViaButton` to trigger VerticalPager animation.
+    /// This is different from `.userNavigated` which responds to swipe gestures
+    /// after the pager has already changed the index.
     func navigateNext() {
-        store.send(.userNavigated(.next))
+        store.send(.navigateViaButton(.next))
     }
     
     // MARK: - Selector Actions

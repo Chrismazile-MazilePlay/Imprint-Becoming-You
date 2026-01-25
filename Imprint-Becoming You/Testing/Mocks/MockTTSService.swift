@@ -9,156 +9,124 @@ import Foundation
 
 // MARK: - Mock TTS Service
 
-/// Mock implementation of TTSServiceProtocol for testing and previews.
+/// Mock implementation of TTSServiceProtocol for testing.
 @MainActor
 final class MockTTSService: TTSServiceProtocol {
     
-    // MARK: - Properties
+    // MARK: - Configuration
     
-    let provider: VoiceProvider
-    var isAvailable: Bool = true
-    private(set) var isSpeaking: Bool = false
-    
-    // Test hooks
-    var synthesizeDelay: TimeInterval = 0.1
+    /// Delay before completing speakText
     var speakDelay: TimeInterval = 1.5
-    var shouldFail: Bool = false
-    var failureError: TTSError = .unknown(underlyingError: nil)
     
-    // Tracking
-    private(set) var synthesizeCallCount = 0
-    private(set) var speakCallCount = 0
-    private(set) var lastSynthesizedText: String?
+    /// Delay before completing synthesize
+    var synthesizeDelay: TimeInterval = 0.5
+    
+    /// If set, methods will throw this error
+    var errorToThrow: Error?
+    
+    /// Whether Kokoro is "ready" in the mock
+    var mockKokoroReady: Bool = true
+    
+    // MARK: - Tracking
+    
+    private(set) var speakCallCount: Int = 0
+    private(set) var synthesizeCallCount: Int = 0
+    private(set) var stopCallCount: Int = 0
+    private(set) var warmUpCallCount: Int = 0
     private(set) var lastSpokenText: String?
-    private(set) var lastUsedVoice: Voice?
+    private(set) var lastVoiceId: String?
     
-    /// Current speak task (for cancellation)
-    private var speakTask: Task<Void, Error>?
+    // MARK: - State
     
-    // MARK: - Initialization
+    private var _isSpeaking: Bool = false
+    private var currentTask: Task<Void, Error>?
     
-    init(provider: VoiceProvider = .kokoro) {
-        self.provider = provider
+    // MARK: - TTSServiceProtocol
+    
+    var isSpeaking: Bool { _isSpeaking }
+    
+    var isKokoroReady: Bool { mockKokoroReady }
+    
+    func warmUp() async {
+        warmUpCallCount += 1
+        try? await Task.sleep(for: .milliseconds(100))
     }
     
-    // MARK: - TTSServiceProtocol - Real-Time Playback
-    
-    func speakText(_ text: String, voice: Voice?) async throws {
-        if shouldFail {
-            throw failureError
+    func synthesize(text: String, voiceId: String?) async throws -> Data {
+        synthesizeCallCount += 1
+        lastSpokenText = text
+        lastVoiceId = voiceId
+        
+        if let error = errorToThrow {
+            throw error
         }
         
+        try await Task.sleep(for: .milliseconds(Int(synthesizeDelay * 1000)))
+        
+        return createMockWAVData()
+    }
+    
+    func speakText(_ text: String, voiceId: String?) async throws {
         speakCallCount += 1
         lastSpokenText = text
-        lastUsedVoice = voice
-        isSpeaking = true
+        lastVoiceId = voiceId
         
-        // Simulate speech duration
-        speakTask = Task {
-            try await Task.sleep(for: .seconds(speakDelay))
+        if let error = errorToThrow {
+            throw error
+        }
+        
+        _isSpeaking = true
+        defer { _isSpeaking = false }
+        
+        currentTask = Task {
+            try await Task.sleep(for: .milliseconds(Int(speakDelay * 1000)))
         }
         
         do {
-            try await speakTask?.value
-            isSpeaking = false
-        } catch {
-            isSpeaking = false
-            if !(error is CancellationError) {
-                throw error
-            }
-        }
-    }
-    
-    // MARK: - TTSServiceProtocol - Synthesis
-    
-    func synthesize(text: String, voice: Voice, speed: Float) async throws -> TTSResult {
-        synthesizeCallCount += 1
-        lastSynthesizedText = text
-        lastUsedVoice = voice
-        
-        if shouldFail {
-            throw failureError
+            try await currentTask?.value
+        } catch is CancellationError {
+            // Stopped early - expected
         }
         
-        isSpeaking = true
-        defer { isSpeaking = false }
-        
-        // Simulate synthesis delay
-        if synthesizeDelay > 0 {
-            try await Task.sleep(nanoseconds: UInt64(synthesizeDelay * 1_000_000_000))
-        }
-        
-        // Generate mock audio data (silence)
-        let sampleRate = 24000
-        let duration = Double(text.count) * 0.05 // ~50ms per character
-        let sampleCount = Int(duration * Double(sampleRate))
-        let mockAudioData = Data(repeating: 0, count: sampleCount * 2) // 16-bit samples
-        
-        // Generate mock word timings
-        let words = text.split(separator: " ").map(String.init)
-        var wordTimings: [WordTiming] = []
-        var currentTime: TimeInterval = 0
-        var currentChar = 0
-        
-        for word in words {
-            let wordDuration = Double(word.count) * 0.05
-            wordTimings.append(WordTiming(
-                word: word,
-                startTime: currentTime,
-                endTime: currentTime + wordDuration,
-                characterRange: currentChar..<(currentChar + word.count)
-            ))
-            currentTime += wordDuration + 0.1
-            currentChar += word.count + 1
-        }
-        
-        return TTSResult(
-            audioData: mockAudioData,
-            audioFormat: .wav,
-            duration: duration,
-            originalText: text,
-            voice: voice,
-            wordTimings: wordTimings,
-            source: .synthesized
-        )
-    }
-    
-    func availableVoices() -> [Voice] {
-        switch provider {
-        case .system:
-            return []
-        case .kokoro:
-            return Voice.allKokoroVoices
-        case .qwenCloud:
-            return Voice.qwenPresetVoices
-        }
-    }
-    
-    func prepareVoice(_ voice: Voice) async throws {
-        // No-op for mock
-    }
-    
-    func canSynthesize(voice: Voice) -> Bool {
-        voice.provider == provider
+        currentTask = nil
     }
     
     func stopSpeaking() {
-        speakTask?.cancel()
-        speakTask = nil
-        isSpeaking = false
+        stopCallCount += 1
+        currentTask?.cancel()
+        currentTask = nil
+        _isSpeaking = false
     }
     
     // MARK: - Test Helpers
     
     func reset() {
-        synthesizeCallCount = 0
         speakCallCount = 0
-        lastSynthesizedText = nil
+        synthesizeCallCount = 0
+        stopCallCount = 0
+        warmUpCallCount = 0
         lastSpokenText = nil
-        lastUsedVoice = nil
-        shouldFail = false
-        isSpeaking = false
-        speakTask?.cancel()
-        speakTask = nil
+        lastVoiceId = nil
+        errorToThrow = nil
+        _isSpeaking = false
+        currentTask = nil
+    }
+    
+    private func createMockWAVData() -> Data {
+        var data = Data()
+        data.append(contentsOf: "RIFF".utf8)
+        data.append(contentsOf: [0, 0, 0, 0])
+        data.append(contentsOf: "WAVE".utf8)
+        data.append(contentsOf: "fmt ".utf8)
+        data.append(contentsOf: [16, 0, 0, 0])
+        data.append(contentsOf: [1, 0])
+        data.append(contentsOf: [1, 0])
+        data.append(contentsOf: [0x80, 0xBB, 0, 0])
+        data.append(contentsOf: [0, 0xEE, 2, 0])
+        data.append(contentsOf: [4, 0])
+        data.append(contentsOf: [16, 0])
+        data.append(contentsOf: "data".utf8)
+        data.append(contentsOf: [0, 0, 0, 0])
+        return data
     }
 }

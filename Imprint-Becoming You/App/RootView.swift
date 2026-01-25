@@ -80,6 +80,12 @@ struct RootView: View {
         // (e.g., tapping "Yes" in faith preference) has zero latency.
         HapticFeedback.warmUp()
         
+        // Step 0.5: Warm up Kokoro TTS engine in background.
+        // This loads CoreML models so first speech has minimal latency.
+        Task {
+            await dependencies.ttsService.warmUp()
+        }
+        
         // Brief delay for launch animation
         try? await Task.sleep(for: .milliseconds(300))
         

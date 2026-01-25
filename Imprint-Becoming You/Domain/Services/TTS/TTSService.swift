@@ -7,232 +7,270 @@
 
 import Foundation
 import AVFoundation
+import iOS_TTS
 
 // MARK: - TTS Service
 
 /// Production implementation of text-to-speech service.
 ///
-/// ## Current Implementation
-/// Uses iOS system TTS (AVSpeechSynthesizer) as the default provider.
-/// Kokoro on-device TTS will be added in Phase 4.
+/// Integrates Kokoro neural TTS with System TTS fallback for reliable
+/// high-quality speech synthesis optimized for affirmation delivery.
+///
+/// ## Voice Routing
+/// - `nil` / empty / `kokoro_*`: Kokoro neural TTS (falls back to System if unavailable)
+/// - `system`: System AVSpeechSynthesizer
 ///
 /// ## Architecture
 /// ```
 /// TTSService
-/// ├── SystemTTSService (on-device AVSpeechSynthesizer)
-/// ├── AudioCacheManager (caching synthesized audio)
-/// └── Future: KokoroTTSEngine (on-device neural TTS)
-/// ```
-///
-/// ## Usage
-/// ```swift
-/// let tts = dependencies.ttsService
-///
-/// // Real-time playback (for practice sessions)
-/// try await tts.speakText("I am confident and capable")
-///
-/// // Synthesis with caching (for offline use)
-/// let result = try await tts.synthesize(
-///     text: "I am confident",
-///     voice: Voice.defaultVoice,
-///     speed: 1.0
-/// )
+/// ├── KokoroTTSEngine (primary - high quality neural TTS)
+/// │   └── Falls back to SystemTTS if:
+/// │       - Engine not initialized
+/// │       - Synthesis fails
+/// │       - Invalid voice ID
+/// └── SystemTTSService (fallback - always available)
 /// ```
 @MainActor
 final class TTSService: TTSServiceProtocol {
     
-    // MARK: - Properties
-    
-    let provider: VoiceProvider = .system  // Will change to .kokoro in Phase 4
-    
-    var isAvailable: Bool {
-        // System TTS is always available on iOS
-        true
-    }
-    
-    var isSpeaking: Bool {
-        systemTTS.isSpeaking
-    }
-    
     // MARK: - Dependencies
     
-    /// System TTS service for on-device speech synthesis
+    /// Kokoro neural TTS engine (primary)
+    private let kokoroEngine: KokoroTTSEngine
+    
+    /// System TTS service for fallback
     private let systemTTS: SystemTTSService
+    
+    /// Audio player for Kokoro output
+    private var audioPlayer: AVAudioPlayer?
+    
+    /// Audio player delegate (must be retained)
+    private var playerDelegate: TTSAudioPlayerDelegate?
     
     /// Audio cache manager
     private let cacheManager: AudioCacheManager
     
+    // MARK: - State
+    
+    /// Whether Kokoro or System TTS is currently speaking
+    private var _isSpeaking: Bool = false
+    
+    /// Whether Kokoro engine is ready
+    private var _isKokoroReady: Bool = false
+    
     // MARK: - Initialization
     
-    /// Creates a new TTS service with default dependencies.
     init() {
+        self.kokoroEngine = KokoroTTSEngine()
+        
         let systemTTS = SystemTTSService()
         systemTTS.speechRate = TTSConfiguration.speechRate
         systemTTS.pitchMultiplier = TTSConfiguration.pitchMultiplier
-        
         self.systemTTS = systemTTS
+        
         self.cacheManager = AudioCacheManager.shared
     }
     
     /// Creates a TTS service with injected dependencies (for testing).
-    init(systemTTS: SystemTTSService, cacheManager: AudioCacheManager) {
+    init(kokoroEngine: KokoroTTSEngine, systemTTS: SystemTTSService, cacheManager: AudioCacheManager) {
+        self.kokoroEngine = kokoroEngine
+        
         systemTTS.speechRate = TTSConfiguration.speechRate
         systemTTS.pitchMultiplier = TTSConfiguration.pitchMultiplier
-        
         self.systemTTS = systemTTS
+        
         self.cacheManager = cacheManager
     }
     
-    // MARK: - TTSServiceProtocol - Real-Time Playback
+    // MARK: - TTSServiceProtocol
     
-    func speakText(_ text: String, voice: Voice?) async throws {
-        // For system TTS, use direct speak() method for real-time playback
-        // This uses AVSpeechSynthesizer.speak() which plays audio directly
-        // and properly handles the audio session
-        try await systemTTS.speak(text)
+    var isSpeaking: Bool {
+        _isSpeaking || systemTTS.isSpeaking || (audioPlayer?.isPlaying ?? false)
     }
     
-    // MARK: - TTSServiceProtocol - Synthesis
-    
-    func synthesize(text: String, voice: Voice, speed: Float) async throws -> TTSResult {
-        // Check cache first
-        let cacheKey = cacheManager.cacheKey(for: text, voice: voice, speed: speed)
-        if let cached = await cacheManager.get(key: cacheKey) {
-            return cached
-        }
-        
-        // Route to appropriate synthesizer based on voice provider
-        let result: TTSResult
-        
-        switch voice.provider {
-        case .system:
-            result = try await synthesizeWithSystem(text: text, voice: voice, speed: speed)
-            
-        case .kokoro:
-            // TODO: Phase 4 - Kokoro CoreML integration
-            // For now, fall back to system TTS
-            result = try await synthesizeWithSystem(text: text, voice: voice, speed: speed)
-            
-        case .qwenCloud:
-            // TODO: Phase 7 - Qwen cloud integration
-            throw TTSError.voiceNotAvailable(voiceId: voice.id)
-        }
-        
-        // Cache the result (ignore errors - caching is non-critical)
-        if TTSConfiguration.enableCaching {
-            _ = try? await cacheManager.store(key: cacheKey, result: result)
-        }
-        
-        return result
+    var isKokoroReady: Bool {
+        _isKokoroReady
     }
     
-    func availableVoices() -> [Voice] {
-        // For now, return system voices
-        // Phase 4 will add Kokoro voices
-        var voices: [Voice] = []
+    func warmUp() async {
+        #if DEBUG
+        print("🎤 TTSService: Warming up Kokoro engine...")
+        #endif
         
-        // Add available system voices
-        let systemVoices = AVSpeechSynthesisVoice.speechVoices()
-        for avVoice in systemVoices where avVoice.language.starts(with: "en") {
-            voices.append(Voice.systemVoice(
-                identifier: avVoice.identifier,
-                name: avVoice.name,
-                languageCode: avVoice.language
-            ))
-        }
-        
-        return voices
-    }
-    
-    func prepareVoice(_ voice: Voice) async throws {
-        // System voices don't need preparation
-        // Kokoro voices will need model loading (Phase 4)
-        switch voice.provider {
-        case .system:
-            // No-op for system voices
-            break
+        do {
+            try await kokoroEngine.warmUp()
+            _isKokoroReady = true
             
-        case .kokoro:
-            // TODO: Phase 4 - Load Kokoro model if not loaded
-            break
+            #if DEBUG
+            print("✅ TTSService: Kokoro engine ready")
+            #endif
+        } catch {
+            _isKokoroReady = false
             
-        case .qwenCloud:
-            // Cloud voices don't need local preparation
-            break
+            #if DEBUG
+            print("⚠️ TTSService: Kokoro warm-up failed, will use System TTS fallback - \(error)")
+            #endif
         }
     }
     
-    func canSynthesize(voice: Voice) -> Bool {
-        switch voice.provider {
-        case .system:
-            // Extract system identifier from Voice.id (strips "system_" prefix)
-            if let identifier = extractSystemVoiceIdentifier(from: voice) {
-                return AVSpeechSynthesisVoice(identifier: identifier) != nil
-            }
-            return true  // Default system voice always available
-            
-        case .kokoro:
-            // TODO: Phase 4 - Check if Kokoro model is available
-            return false  // Not yet implemented
-            
-        case .qwenCloud:
-            // TODO: Phase 7 - Check network and subscription
-            return false  // Not yet implemented
+    func synthesize(text: String, voiceId: String?) async throws -> Data {
+        // Route based on voiceId
+        if voiceId == TTSConfiguration.systemVoiceId {
+            return try await systemTTS.synthesizeToData(text)
         }
+        
+        // Try Kokoro for nil, empty, or kokoro_* voice IDs
+        return try await synthesizeWithKokoro(text: text, voiceId: voiceId)
+    }
+    
+    func speakText(_ text: String, voiceId: String?) async throws {
+        stopSpeaking()
+        
+        _isSpeaking = true
+        defer { _isSpeaking = false }
+        
+        // Route based on voiceId
+        if voiceId == TTSConfiguration.systemVoiceId {
+            try await systemTTS.speak(text)
+            return
+        }
+        
+        // Try Kokoro for nil, empty, or kokoro_* voice IDs
+        try await speakWithKokoro(text: text, voiceId: voiceId)
     }
     
     func stopSpeaking() {
+        audioPlayer?.stop()
+        audioPlayer = nil
+        playerDelegate = nil
         systemTTS.stopSpeaking()
+        _isSpeaking = false
     }
     
-    // MARK: - Private Methods
+    // MARK: - Kokoro Synthesis
     
-    /// Extracts the AVSpeechSynthesisVoice identifier from a Voice.
-    ///
-    /// System voices have IDs like "system_com.apple.ttsbundle.Samantha-compact"
-    /// This extracts "com.apple.ttsbundle.Samantha-compact"
-    private func extractSystemVoiceIdentifier(from voice: Voice) -> String? {
-        guard voice.provider == .system else { return nil }
-        
-        let prefix = "system_"
-        if voice.id.hasPrefix(prefix) {
-            return String(voice.id.dropFirst(prefix.count))
+    private func synthesizeWithKokoro(text: String, voiceId: String?) async throws -> Data {
+        guard _isKokoroReady else {
+            #if DEBUG
+            print("⚠️ TTSService: Kokoro not ready, falling back to System TTS")
+            #endif
+            return try await systemTTS.synthesizeToData(text)
         }
-        return voice.id
+        
+        // Resolve voice style
+        let voiceStyle = resolveVoiceStyle(voiceId: voiceId)
+        
+        do {
+            return try await kokoroEngine.synthesizeToData(
+                text: text,
+                voiceStyle: voiceStyle,
+                speed: TTSConfiguration.kokoroSpeed
+            )
+        } catch {
+            #if DEBUG
+            print("⚠️ TTSService: Kokoro synthesis failed, falling back to System TTS - \(error)")
+            #endif
+            return try await systemTTS.synthesizeToData(text)
+        }
     }
     
-    /// Synthesizes text using system TTS (AVSpeechSynthesizer)
-    private func synthesizeWithSystem(text: String, voice: Voice, speed: Float) async throws -> TTSResult {
-        // Configure system TTS speech rate
-        systemTTS.speechRate = TTSConfiguration.speechRate * speed
+    private func speakWithKokoro(text: String, voiceId: String?) async throws {
+        guard _isKokoroReady else {
+            #if DEBUG
+            print("⚠️ TTSService: Kokoro not ready, falling back to System TTS")
+            #endif
+            try await systemTTS.speak(text)
+            return
+        }
         
-        // Note: SystemTTSService uses its internal selectedVoice.
-        // For custom voice selection, we would need to extend SystemTTSService
-        // to accept a voice identifier. For now, use default enhanced voice.
+        // Resolve voice style
+        let voiceStyle = resolveVoiceStyle(voiceId: voiceId)
         
-        // Synthesize to audio data
-        let startTime = Date()
-        let audioData = try await systemTTS.synthesizeToData(text)
-        let duration = estimateDuration(for: text, speed: speed)
-        
-        return TTSResult(
-            audioData: audioData,
-            audioFormat: .linearPCM,
-            duration: duration,
-            originalText: text,
-            voice: voice,
-            wordTimings: [],  // System TTS doesn't provide word timings via this API
-            source: .synthesized,
-            synthesizedAt: startTime
-        )
+        do {
+            let audioData = try await kokoroEngine.synthesizeToData(
+                text: text,
+                voiceStyle: voiceStyle,
+                speed: TTSConfiguration.kokoroSpeed
+            )
+            
+            try await playAudioData(audioData)
+            
+        } catch {
+            #if DEBUG
+            print("⚠️ TTSService: Kokoro playback failed, falling back to System TTS - \(error)")
+            #endif
+            try await systemTTS.speak(text)
+        }
     }
     
-    /// Estimates speech duration based on text length and speed
-    private func estimateDuration(for text: String, speed: Float) -> TimeInterval {
-        // Rough estimate: ~150 words per minute at normal speed
-        let wordCount = text.split(separator: " ").count
-        let baseMinutes = Double(wordCount) / 150.0
-        let adjustedMinutes = baseMinutes / Double(speed)
-        return adjustedMinutes * 60.0
+    /// Resolves voiceId to iOS_TTS VoiceStyle, using default if not found.
+    private func resolveVoiceStyle(voiceId: String?) -> VoiceStyle {
+        guard let voiceId = voiceId, !voiceId.isEmpty else {
+            return .afHeart // Default voice
+        }
+        
+        // Remove "kokoro_" prefix if present
+        let styleString = voiceId.hasPrefix(TTSConfiguration.kokoroPrefix)
+            ? String(voiceId.dropFirst(TTSConfiguration.kokoroPrefix.count))
+            : voiceId
+        
+        // Try to match VoiceStyle case
+        return VoiceStyle(rawValue: styleString) ?? .afHeart
+    }
+    
+    // MARK: - Audio Playback
+    
+    private func playAudioData(_ data: Data) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            do {
+                let player = try AVAudioPlayer(data: data)
+                self.audioPlayer = player
+                
+                let delegate = TTSAudioPlayerDelegate { [weak self] success in
+                    self?.audioPlayer = nil
+                    self?.playerDelegate = nil
+                    if success {
+                        continuation.resume()
+                    } else {
+                        continuation.resume(throwing: AppError.ttsError("Audio playback interrupted"))
+                    }
+                }
+                
+                self.playerDelegate = delegate
+                player.delegate = delegate
+                
+                // Configure audio session
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.playback, mode: .default, options: [.duckOthers])
+                try session.setActive(true)
+                
+                if !player.play() {
+                    continuation.resume(throwing: AppError.ttsError("Failed to start audio playback"))
+                }
+                
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+}
+
+// MARK: - Audio Player Delegate
+
+/// Helper class to handle AVAudioPlayer delegate callbacks.
+private final class TTSAudioPlayerDelegate: NSObject, AVAudioPlayerDelegate {
+    
+    private let completion: (Bool) -> Void
+    
+    init(completion: @escaping (Bool) -> Void) {
+        self.completion = completion
+    }
+    
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        completion(flag)
+    }
+    
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        completion(false)
     }
 }

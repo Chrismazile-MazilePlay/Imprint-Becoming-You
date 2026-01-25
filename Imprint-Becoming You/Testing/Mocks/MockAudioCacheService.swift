@@ -9,129 +9,86 @@ import Foundation
 
 // MARK: - Mock Audio Cache Service
 
-/// Mock implementation of AudioCacheServiceProtocol for testing and previews.
+/// Mock implementation of AudioCacheServiceProtocol for testing.
 actor MockAudioCacheService: AudioCacheServiceProtocol {
     
     // MARK: - Properties
     
-    private var cache: [String: TTSResult] = [:]
+    private var cache: [String: Data] = [:]
+    private var sizes: [String: Int64] = [:]
+    private var _cacheSize: Int64 = 0
     
-    /// Maximum cache size - nonisolated for protocol conformance
-    nonisolated(unsafe) private(set) var maxSize: Int64 = AudioCacheConfiguration.defaultMaxSize
+    let maxCacheSize: Int64 = 100 * 1024 * 1024
     
-    private var hitCount: Int = 0
-    private var missCount: Int = 0
+    // MARK: - Test Hooks
     
-    // Test hooks
-    var shouldFailOnStore: Bool = false
-    var storeDelay: TimeInterval = 0
+    var cacheError: Error?
+    private(set) var getCacheCallCount: Int = 0
+    private(set) var cacheCallCount: Int = 0
     
-    // MARK: - Protocol Properties
+    // MARK: - AudioCacheServiceProtocol
     
-    var currentSize: Int64 {
-        get async {
-            Int64(cache.values.reduce(0) { $0 + $1.audioData.count })
-        }
+    var cacheSize: Int64 {
+        get async { _cacheSize }
     }
     
-    var itemCount: Int {
-        get async { cache.count }
-    }
-    
-    // MARK: - Cache Key
-    
-    nonisolated func cacheKey(for text: String, voice: Voice, speed: Float) -> String {
-        "\(text.hashValue)_\(voice.id)_\(speed)"
-    }
-    
-    // MARK: - Cache Operations
-    
-    func get(key: String) async -> TTSResult? {
-        if let result = cache[key] {
-            hitCount += 1
-            return result
-        }
-        missCount += 1
-        return nil
+    func getCachedAudio(forText text: String, voiceId: String) async -> Data? {
+        getCacheCallCount += 1
+        let key = cacheKey(for: text, voiceId: voiceId)
+        return cache[key]
     }
     
     @discardableResult
-    func store(key: String, result: TTSResult) async throws -> String {
-        if shouldFailOnStore {
-            throw TTSError.audioEncodingError(message: "Mock store failure")
+    func cacheAudio(_ data: Data, forText text: String, voiceId: String) async throws -> String {
+        if let error = cacheError {
+            throw error
         }
         
-        if storeDelay > 0 {
-            try await Task.sleep(nanoseconds: UInt64(storeDelay * 1_000_000_000))
+        cacheCallCount += 1
+        let key = cacheKey(for: text, voiceId: voiceId)
+        
+        if let existingSize = sizes[key] {
+            _cacheSize -= existingSize
         }
         
-        cache[key] = result
-        return "\(key).mp3"
+        cache[key] = data
+        sizes[key] = Int64(data.count)
+        _cacheSize += Int64(data.count)
+        
+        return "\(key).wav"
     }
     
-    func remove(key: String) async {
+    func removeCachedAudio(fileName: String) async {
+        let key = fileName.replacingOccurrences(of: ".wav", with: "")
+            .replacingOccurrences(of: ".mp3", with: "")
+        
+        if let size = sizes[key] {
+            _cacheSize -= size
+        }
         cache.removeValue(forKey: key)
+        sizes.removeValue(forKey: key)
     }
     
-    func clearAll() async {
+    func clearCache() async {
         cache.removeAll()
-        hitCount = 0
-        missCount = 0
+        sizes.removeAll()
+        _cacheSize = 0
     }
     
-    // MARK: - Pre-generation
+    // MARK: - Private
     
-    func pregenerate(
-        texts: [String],
-        voice: Voice,
-        speed: Float,
-        using synthesizer: TTSServiceProtocol
-    ) async {
-        for text in texts {
-            let key = cacheKey(for: text, voice: voice, speed: speed)
-            if cache[key] == nil {
-                if let result = try? await synthesizer.synthesize(text: text, voice: voice, speed: speed) {
-                    cache[key] = result
-                }
-            }
-        }
-    }
-    
-    func cancelPregeneration() async {
-        // No-op for mock
-    }
-    
-    // MARK: - Cache Management
-    
-    func setMaxSize(_ bytes: Int64) async {
-        maxSize = bytes
-    }
-    
-    func statistics() async -> AudioCacheStatistics {
-        AudioCacheStatistics(
-            totalSize: await currentSize,
-            maxSize: maxSize,
-            itemCount: cache.count,
-            hitCount: hitCount,
-            missCount: missCount,
-            oldestEntry: nil,
-            newestEntry: nil
-        )
+    private func cacheKey(for text: String, voiceId: String) -> String {
+        "\(text.hashValue)_\(voiceId)"
     }
     
     // MARK: - Test Helpers
     
-    func reset() {
+    func reset() async {
         cache.removeAll()
-        hitCount = 0
-        missCount = 0
-        shouldFailOnStore = false
-        storeDelay = 0
-    }
-    
-    func seedCache(with results: [String: TTSResult]) {
-        for (key, result) in results {
-            cache[key] = result
-        }
+        sizes.removeAll()
+        _cacheSize = 0
+        getCacheCallCount = 0
+        cacheCallCount = 0
+        cacheError = nil
     }
 }

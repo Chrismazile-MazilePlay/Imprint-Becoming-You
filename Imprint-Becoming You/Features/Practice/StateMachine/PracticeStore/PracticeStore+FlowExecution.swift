@@ -68,7 +68,7 @@ extension PracticeStore {
     private func speakText(_ text: String) async throws {
         // Use TTS service's direct playback method
         // This uses AVSpeechSynthesizer.speak() which plays through device speakers
-        try await dependencies.ttsService.speakText(text, voice: nil)
+        try await dependencies.ttsService.speakText(text, voiceId: nil)
     }
     
     /// Stops any ongoing TTS playback.

@@ -48,6 +48,7 @@ struct ProfilePageView: View {
     @State private var showSavedSessions = false
     @State private var savedSessionCount: Int = 0
     @State private var showWaveformSelection = false
+    @State private var showVoiceSettings = false
     
     // MARK: - Body
     
@@ -120,6 +121,11 @@ struct ProfilePageView: View {
                     store: store,
                     onNavigateToCenter: onNavigateToCenter
                 )
+            }
+        }
+        .fullScreenCover(isPresented: $showVoiceSettings) {
+            NavigationStack {
+                TTSTestView()
             }
         }
         .sheet(isPresented: $showWaveformSelection) {
@@ -347,9 +353,9 @@ struct ProfilePageView: View {
                     icon: "waveform",
                     iconColor: AppColors.accentSecondary,
                     title: "Voice Profile",
-                    subtitle: appState.userProfile?.voiceProfileId != nil ? "Custom voice" : "System voice"
+                    subtitle: voiceProfileSubtitle
                 ) {
-                    // TODO: Navigate to voice settings
+                    showVoiceSettings = true
                 }
                 
                 // Waveform Style
@@ -418,6 +424,26 @@ struct ProfilePageView: View {
         } else {
             return "\(goals.count) goals selected"
         }
+    }
+    
+    private var voiceProfileSubtitle: String {
+        if let selectedVoiceId = appState.userProfile?.selectedVoiceId {
+            // Extract display name from voice ID
+            if selectedVoiceId.hasPrefix("kokoro_") {
+                let voiceKey = String(selectedVoiceId.dropFirst(7))
+                // Convert camelCase to display name (e.g., "afHeart" -> "Af Heart")
+                let displayName = voiceKey.replacingOccurrences(
+                    of: "([a-z])([A-Z])",
+                    with: "$1 $2",
+                    options: .regularExpression
+                )
+                return displayName.capitalized
+            } else if selectedVoiceId == "system" {
+                return "System Voice"
+            }
+            return selectedVoiceId
+        }
+        return "Default (Heart)"
     }
     
     private func loadStats() async {

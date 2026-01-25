@@ -1,0 +1,409 @@
+//
+//  TTSTestView.swift
+//  Imprint-Becoming You
+//
+//  Created by Christopher Mazile on 1/24/26.
+//
+
+import SwiftUI
+import iOS_TTS
+
+// MARK: - TTS Test View
+
+/// Temporary test view for verifying Kokoro TTS integration.
+///
+/// This view allows manual testing of:
+/// - Kokoro warm-up status
+/// - Voice selection from available voices
+/// - Speech synthesis and playback
+/// - System TTS fallback behavior
+///
+/// ## Usage
+/// Navigate here from Profile > Voice Profile to test TTS before
+/// connecting to PracticeStore.
+///
+/// - Note: This is a development/testing view. It will be replaced with
+///   a production-ready Voice Selection UI after verification.
+struct TTSTestView: View {
+    
+    // MARK: - Environment
+    
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dependencies) private var dependencies
+    
+    // MARK: - State
+    
+    @State private var selectedVoiceId: String = TTSConfiguration.defaultVoiceId
+    @State private var testText: String = "I am confident, capable, and worthy of success."
+    @State private var isSpeaking: Bool = false
+    @State private var isKokoroReady: Bool = false
+    @State private var statusMessage: String = "Checking Kokoro status..."
+    @State private var lastSynthesisTime: TimeInterval = 0
+    @State private var usedEngine: String = ""
+    
+    // Voice categories for picker
+    private let voiceCategories: [(name: String, voices: [(id: String, name: String)])] = [
+        ("American Female", [
+            ("afHeart", "Heart (Default)"),
+            ("afBella", "Bella"),
+            ("afJessica", "Jessica"),
+            ("afNicole", "Nicole"),
+            ("afNova", "Nova"),
+            ("afSarah", "Sarah"),
+            ("afSky", "Sky")
+        ]),
+        ("American Male", [
+            ("amAdam", "Adam"),
+            ("amEcho", "Echo"),
+            ("amEric", "Eric"),
+            ("amLiam", "Liam"),
+            ("amMichael", "Michael"),
+            ("amOnyx", "Onyx")
+        ]),
+        ("British Female", [
+            ("bfAlice", "Alice"),
+            ("bfEmma", "Emma"),
+            ("bfIsabella", "Isabella"),
+            ("bfLily", "Lily")
+        ]),
+        ("British Male", [
+            ("bmDaniel", "Daniel"),
+            ("bmFable", "Fable"),
+            ("bmGeorge", "George"),
+            ("bmLewis", "Lewis")
+        ]),
+        ("System", [
+            ("system", "System TTS (Fallback)")
+        ])
+    ]
+    
+    // MARK: - Body
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: AppTheme.Spacing.xl) {
+                // Status Section
+                statusSection
+                
+                // Voice Selection
+                voiceSelectionSection
+                
+                // Test Text Input
+                testTextSection
+                
+                // Playback Controls
+                playbackSection
+                
+                // Results
+                resultsSection
+                
+                Spacer(minLength: AppTheme.Spacing.xxl)
+            }
+            .padding(.horizontal, AppTheme.Spacing.lg)
+            .padding(.top, AppTheme.Spacing.lg)
+        }
+        .background(AppColors.backgroundPrimary.ignoresSafeArea())
+        .navigationTitle("TTS Test")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Close") {
+                    dismiss()
+                }
+                .foregroundStyle(AppColors.accent)
+            }
+        }
+        .task {
+            await checkKokoroStatus()
+        }
+    }
+    
+    // MARK: - Status Section
+    
+    private var statusSection: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+            sectionHeader("ENGINE STATUS")
+            
+            HStack(spacing: AppTheme.Spacing.md) {
+                // Status indicator
+                Circle()
+                    .fill(isKokoroReady ? AppColors.success : AppColors.warning)
+                    .frame(width: 12, height: 12)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(isKokoroReady ? "Kokoro Ready" : "Kokoro Not Ready")
+                        .font(AppTypography.headline)
+                        .foregroundStyle(AppColors.textPrimary)
+                    
+                    Text(statusMessage)
+                        .font(AppTypography.caption1)
+                        .foregroundStyle(AppColors.textSecondary)
+                }
+                
+                Spacer()
+                
+                // Refresh button
+                Button {
+                    Task { await checkKokoroStatus() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(AppColors.accent)
+                }
+            }
+            .padding(AppTheme.Spacing.md)
+            .background(AppColors.surfaceSecondary)
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium))
+        }
+    }
+    
+    // MARK: - Voice Selection Section
+    
+    private var voiceSelectionSection: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+            sectionHeader("VOICE SELECTION")
+            
+            VStack(spacing: AppTheme.Spacing.sm) {
+                ForEach(voiceCategories, id: \.name) { category in
+                    VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
+                        Text(category.name)
+                            .font(AppTypography.caption2)
+                            .foregroundStyle(AppColors.textTertiary)
+                            .padding(.leading, AppTheme.Spacing.sm)
+                        
+                        FlowLayout(spacing: AppTheme.Spacing.xs) {
+                            ForEach(category.voices, id: \.id) { voice in
+                                voiceChip(id: voice.id, name: voice.name)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(AppTheme.Spacing.md)
+            .background(AppColors.surfaceSecondary)
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium))
+        }
+    }
+    
+    private func voiceChip(id: String, name: String) -> some View {
+        let isSelected = selectedVoiceId == id
+        
+        return Button {
+            selectedVoiceId = id
+        } label: {
+            Text(name)
+                .font(AppTypography.caption1)
+                .foregroundStyle(isSelected ? AppColors.textInverted : AppColors.textPrimary)
+                .padding(.horizontal, AppTheme.Spacing.sm)
+                .padding(.vertical, AppTheme.Spacing.xs)
+                .background(isSelected ? AppColors.accent : AppColors.surfaceTertiary)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+    
+    // MARK: - Test Text Section
+    
+    private var testTextSection: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+            sectionHeader("TEST TEXT")
+            
+            VStack(spacing: AppTheme.Spacing.sm) {
+                TextEditor(text: $testText)
+                    .font(AppTypography.body)
+                    .foregroundStyle(AppColors.textPrimary)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 80)
+                    .padding(AppTheme.Spacing.sm)
+                    .background(AppColors.surfaceTertiary)
+                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small))
+                
+                // Quick test phrases
+                HStack(spacing: AppTheme.Spacing.xs) {
+                    quickPhraseButton("Short", "I am enough.")
+                    quickPhraseButton("Medium", "I am confident, capable, and worthy of success.")
+                    quickPhraseButton("Long", "Every day I am becoming stronger, wiser, and more aligned with my highest purpose. I trust the journey.")
+                }
+            }
+            .padding(AppTheme.Spacing.md)
+            .background(AppColors.surfaceSecondary)
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium))
+        }
+    }
+    
+    private func quickPhraseButton(_ label: String, _ text: String) -> some View {
+        Button {
+            testText = text
+        } label: {
+            Text(label)
+                .font(AppTypography.caption2)
+                .foregroundStyle(AppColors.accent)
+                .padding(.horizontal, AppTheme.Spacing.sm)
+                .padding(.vertical, AppTheme.Spacing.xs)
+                .background(AppColors.accent.opacity(0.1))
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+    
+    // MARK: - Playback Section
+    
+    private var playbackSection: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+            sectionHeader("PLAYBACK")
+            
+            HStack(spacing: AppTheme.Spacing.md) {
+                // Speak button
+                Button {
+                    Task { await speak() }
+                } label: {
+                    HStack(spacing: AppTheme.Spacing.sm) {
+                        if isSpeaking {
+                            ProgressView()
+                                .tint(AppColors.textInverted)
+                        } else {
+                            Image(systemName: "play.fill")
+                        }
+                        Text(isSpeaking ? "Speaking..." : "Speak")
+                    }
+                    .font(AppTypography.headline)
+                    .foregroundStyle(AppColors.textInverted)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, AppTheme.Spacing.md)
+                    .background(isSpeaking ? AppColors.accent.opacity(0.6) : AppColors.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium))
+                }
+                .disabled(isSpeaking || testText.isEmpty)
+                .buttonStyle(.plain)
+                
+                // Stop button
+                Button {
+                    stopSpeaking()
+                } label: {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(AppColors.error)
+                        .frame(width: 50, height: 50)
+                        .background(AppColors.error.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium))
+                }
+                .disabled(!isSpeaking)
+                .buttonStyle(.plain)
+            }
+        }
+    }
+    
+    // MARK: - Results Section
+    
+    private var resultsSection: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+            sectionHeader("RESULTS")
+            
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
+                resultRow("Engine Used", usedEngine.isEmpty ? "-" : usedEngine)
+                resultRow("Synthesis Time", lastSynthesisTime > 0 ? String(format: "%.2fs", lastSynthesisTime) : "-")
+                resultRow("Voice ID", selectedVoiceId)
+                resultRow("Text Length", "\(testText.count) chars")
+            }
+            .padding(AppTheme.Spacing.md)
+            .background(AppColors.surfaceSecondary)
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium))
+        }
+    }
+    
+    private func resultRow(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label)
+                .font(AppTypography.caption1)
+                .foregroundStyle(AppColors.textSecondary)
+            Spacer()
+            Text(value)
+                .font(AppTypography.caption1)
+                .foregroundStyle(AppColors.textPrimary)
+        }
+    }
+    
+    // MARK: - Helpers
+    
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(AppTypography.caption2)
+            .fontWeight(.medium)
+            .tracking(1.2)
+            .foregroundStyle(AppColors.textTertiary)
+    }
+    
+    // MARK: - Actions
+    
+    private func checkKokoroStatus() async {
+        statusMessage = "Checking..."
+        
+        let ttsService = dependencies.ttsService
+        isKokoroReady = ttsService.isKokoroReady
+        
+        if isKokoroReady {
+            statusMessage = "Neural TTS engine loaded and ready"
+        } else {
+            statusMessage = "Will use System TTS fallback"
+            
+            // Try warming up
+            statusMessage = "Warming up Kokoro..."
+            await ttsService.warmUp()
+            isKokoroReady = ttsService.isKokoroReady
+            
+            if isKokoroReady {
+                statusMessage = "Neural TTS engine loaded and ready"
+            } else {
+                statusMessage = "Kokoro failed to load - using System TTS"
+            }
+        }
+    }
+    
+    private func speak() async {
+        guard !testText.isEmpty else { return }
+        
+        isSpeaking = true
+        usedEngine = ""
+        lastSynthesisTime = 0
+        
+        let startTime = CFAbsoluteTimeGetCurrent()
+        
+        // Determine which voice ID to pass
+        let voiceId: String? = selectedVoiceId == "system" ? "system" : "kokoro_\(selectedVoiceId)"
+        
+        do {
+            try await dependencies.ttsService.speakText(testText, voiceId: voiceId)
+            
+            let endTime = CFAbsoluteTimeGetCurrent()
+            lastSynthesisTime = endTime - startTime
+            
+            // Determine which engine was used
+            if selectedVoiceId == "system" {
+                usedEngine = "System AVSpeech"
+            } else if isKokoroReady {
+                usedEngine = "Kokoro Neural TTS"
+            } else {
+                usedEngine = "System AVSpeech (Fallback)"
+            }
+            
+        } catch {
+            usedEngine = "Error: \(error.localizedDescription)"
+        }
+        
+        isSpeaking = false
+    }
+    
+    private func stopSpeaking() {
+        dependencies.ttsService.stopSpeaking()
+        isSpeaking = false
+    }
+}
+
+// MARK: - Preview
+
+#Preview("TTS Test View") {
+    NavigationStack {
+        TTSTestView()
+    }
+    .previewEnvironment()
+}

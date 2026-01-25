@@ -1,5 +1,5 @@
 {
-  "originHash" : "c63c63846d9c539229e96de38d6af51417e28c0ee9a0bc48bd0f0f19d923c329",
+  "originHash" : "9d87dd39b12294cf8a523c36e3ac646da8c417c7a7dcdbec9079c8a18846fe80",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -92,6 +92,15 @@
       }
     },
     {
+      "identity" : "kokorotts-ios",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Otosaku/KokoroTTS-iOS",
+      "state" : {
+        "revision" : "7016a7bf263d3cbfc35961ea9d2f2a3311e3c6c6",
+        "version" : "1.0.0"
+      }
+    },
+    {
       "identity" : "leveldb",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/firebase/leveldb.git",
@@ -110,12 +119,48 @@
       }
     },
     {
+      "identity" : "otosakupostagger-ios",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Otosaku/OtosakuPOSTagger-iOS",
+      "state" : {
+        "revision" : "919f182bbc37a2328e797a75de19e31b2e718908",
+        "version" : "1.0.0"
+      }
+    },
+    {
+      "identity" : "plain-pocketfft",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/dhrebeniuk/plain-pocketfft.git",
+      "state" : {
+        "revision" : "b9633be41ad61e40a93f58abafed9fb5e281ed18",
+        "version" : "0.0.9"
+      }
+    },
+    {
+      "identity" : "pocketfft",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/dhrebeniuk/pocketfft.git",
+      "state" : {
+        "revision" : "f7f2ac6085d9123ab130bb8daebcc11acd72d52c",
+        "version" : "0.0.1"
+      }
+    },
+    {
       "identity" : "promises",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/google/promises.git",
       "state" : {
         "revision" : "540318ecedd63d883069ae7f1ed811a2df00b6ac",
         "version" : "2.4.0"
+      }
+    },
+    {
+      "identity" : "rosakit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/dhrebeniuk/RosaKit.git",
+      "state" : {
+        "revision" : "47aa0f5a2a6cc1fbc6f18f5734fb6fde0bda6215",
+        "version" : "0.0.11"
       }
     },
     {

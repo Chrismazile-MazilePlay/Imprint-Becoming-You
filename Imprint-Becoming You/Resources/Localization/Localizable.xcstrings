@@ -228,6 +228,12 @@
     "Imprint needs microphone access to calibrate your voice. Please enable it in Settings." : {
 
     },
+    "Kokoro Not Ready" : {
+
+    },
+    "Kokoro Ready" : {
+
+    },
     "Let's Learn Your Voice" : {
 
     },
@@ -392,6 +398,12 @@
     "Soon" : {
 
     },
+    "Speak" : {
+
+    },
+    "Speaking..." : {
+
+    },
     "Start Calibration" : {
 
     },
@@ -414,6 +426,9 @@
 
     },
     "Try Again" : {
+
+    },
+    "TTS Test" : {
 
     },
     "Upgrade to Save More" : {

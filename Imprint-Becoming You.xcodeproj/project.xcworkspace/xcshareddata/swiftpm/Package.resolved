@@ -1,5 +1,5 @@
 {
-  "originHash" : "9d87dd39b12294cf8a523c36e3ac646da8c417c7a7dcdbec9079c8a18846fe80",
+  "originHash" : "29a8a0d19a101c31523df30a5b3de47c0d682f9d3a2775e88ccb5ffbf0b5c96d",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -89,15 +89,6 @@
       "state" : {
         "revision" : "040d087ac2267d2ddd4cca36c757d1c6a05fdbfe",
         "version" : "101.0.0"
-      }
-    },
-    {
-      "identity" : "kokorotts-ios",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/Otosaku/KokoroTTS-iOS",
-      "state" : {
-        "revision" : "7016a7bf263d3cbfc35961ea9d2f2a3311e3c6c6",
-        "version" : "1.0.0"
       }
     },
     {

@@ -17,7 +17,8 @@ import iOS_TTS
 /// high-quality speech synthesis optimized for affirmation delivery.
 ///
 /// ## Voice Routing
-/// - `nil` / empty / `kokoro_*`: Kokoro neural TTS (falls back to System if unavailable)
+/// - `nil` / empty: Kokoro with default voice (af_heart)
+/// - `af_heart`, `am_adam`, etc.: Kokoro with specified voice
 /// - `system`: System AVSpeechSynthesizer
 ///
 /// ## Architecture
@@ -114,16 +115,24 @@ final class TTSService: TTSServiceProtocol {
     }
     
     func synthesize(text: String, voiceId: String?) async throws -> Data {
+        #if DEBUG
+        print("🎤 TTSService.synthesize: voiceId = \(voiceId ?? "nil")")
+        #endif
+        
         // Route based on voiceId
         if voiceId == TTSConfiguration.systemVoiceId {
             return try await systemTTS.synthesizeToData(text)
         }
         
-        // Try Kokoro for nil, empty, or kokoro_* voice IDs
+        // Try Kokoro for nil, empty, or voice style IDs
         return try await synthesizeWithKokoro(text: text, voiceId: voiceId)
     }
     
     func speakText(_ text: String, voiceId: String?) async throws {
+        #if DEBUG
+        print("🎤 TTSService.speakText: voiceId = \(voiceId ?? "nil")")
+        #endif
+        
         stopSpeaking()
         
         _isSpeaking = true
@@ -131,11 +140,14 @@ final class TTSService: TTSServiceProtocol {
         
         // Route based on voiceId
         if voiceId == TTSConfiguration.systemVoiceId {
+            #if DEBUG
+            print("🎤 TTSService: Routing to System TTS")
+            #endif
             try await systemTTS.speak(text)
             return
         }
         
-        // Try Kokoro for nil, empty, or kokoro_* voice IDs
+        // Try Kokoro for nil, empty, or voice style IDs
         try await speakWithKokoro(text: text, voiceId: voiceId)
     }
     
@@ -160,6 +172,10 @@ final class TTSService: TTSServiceProtocol {
         // Resolve voice style
         let voiceStyle = resolveVoiceStyle(voiceId: voiceId)
         
+        #if DEBUG
+        print("🎤 TTSService: Resolved voice style: \(voiceStyle.rawValue)")
+        #endif
+        
         do {
             return try await kokoroEngine.synthesizeToData(
                 text: text,
@@ -175,6 +191,10 @@ final class TTSService: TTSServiceProtocol {
     }
     
     private func speakWithKokoro(text: String, voiceId: String?) async throws {
+        #if DEBUG
+        print("🎤 TTSService.speakWithKokoro: voiceId = \(voiceId ?? "nil")")
+        #endif
+        
         guard _isKokoroReady else {
             #if DEBUG
             print("⚠️ TTSService: Kokoro not ready, falling back to System TTS")
@@ -186,12 +206,20 @@ final class TTSService: TTSServiceProtocol {
         // Resolve voice style
         let voiceStyle = resolveVoiceStyle(voiceId: voiceId)
         
+        #if DEBUG
+        print("🎤 TTSService: Resolved voice style: \(voiceStyle.rawValue)")
+        #endif
+        
         do {
             let audioData = try await kokoroEngine.synthesizeToData(
                 text: text,
                 voiceStyle: voiceStyle,
                 speed: TTSConfiguration.kokoroSpeed
             )
+            
+            #if DEBUG
+            print("🎤 TTSService: Kokoro synthesized \(audioData.count) bytes")
+            #endif
             
             try await playAudioData(audioData)
             
@@ -204,18 +232,39 @@ final class TTSService: TTSServiceProtocol {
     }
     
     /// Resolves voiceId to iOS_TTS VoiceStyle, using default if not found.
+    ///
+    /// Voice ID format: VoiceStyle.rawValue (e.g., "af_heart", "am_adam")
     private func resolveVoiceStyle(voiceId: String?) -> VoiceStyle {
         guard let voiceId = voiceId, !voiceId.isEmpty else {
+            #if DEBUG
+            print("🎤 TTSService.resolveVoiceStyle: nil/empty -> default af_heart")
+            #endif
             return .afHeart // Default voice
         }
         
-        // Remove "kokoro_" prefix if present
-        let styleString = voiceId.hasPrefix(TTSConfiguration.kokoroPrefix)
-            ? String(voiceId.dropFirst(TTSConfiguration.kokoroPrefix.count))
-            : voiceId
+        // Voice ID should match VoiceStyle.rawValue directly (e.g., "af_heart")
+        if let voiceStyle = VoiceStyle(rawValue: voiceId) {
+            #if DEBUG
+            print("🎤 TTSService.resolveVoiceStyle: \(voiceId) -> \(voiceStyle.rawValue)")
+            #endif
+            return voiceStyle
+        }
         
-        // Try to match VoiceStyle case
-        return VoiceStyle(rawValue: styleString) ?? .afHeart
+        // Legacy support: remove "kokoro_" prefix if present
+        if voiceId.hasPrefix(TTSConfiguration.kokoroPrefix) {
+            let styleString = String(voiceId.dropFirst(TTSConfiguration.kokoroPrefix.count))
+            if let voiceStyle = VoiceStyle(rawValue: styleString) {
+                #if DEBUG
+                print("🎤 TTSService.resolveVoiceStyle: \(voiceId) (legacy) -> \(voiceStyle.rawValue)")
+                #endif
+                return voiceStyle
+            }
+        }
+        
+        #if DEBUG
+        print("⚠️ TTSService.resolveVoiceStyle: \(voiceId) not found, using default af_heart")
+        #endif
+        return .afHeart
     }
     
     // MARK: - Audio Playback

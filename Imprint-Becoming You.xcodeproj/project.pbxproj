@@ -7,15 +7,17 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		2A6CADF72F25706B002725A1 /* iOS-TTS in Frameworks */ = {isa = PBXBuildFile; productRef = 2A6CADF62F25706B002725A1 /* iOS-TTS */; };
 		2A88C0BA2EF71632001DAE89 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 2A88C0B92EF71632001DAE89 /* FirebaseAuth */; };
 		2A88C0BC2EF71632001DAE89 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 2A88C0BB2EF71632001DAE89 /* FirebaseFirestore */; };
 		2A88C0BE2EF71632001DAE89 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = 2A88C0BD2EF71632001DAE89 /* FirebaseFunctions */; };
 		2A88C0C02EF71632001DAE89 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 2A88C0BF2EF71632001DAE89 /* FirebaseStorage */; };
+		2ADBC7322F26BD2F00C3D543 /* iOS-TTS in Frameworks */ = {isa = PBXBuildFile; productRef = 2ADBC7312F26BD2F00C3D543 /* iOS-TTS */; };
+		2ADBCBE42F26C41400C3D543 /* Kokoro in Resources */ = {isa = PBXBuildFile; fileRef = 2ADBCBE32F26C41300C3D543 /* Kokoro */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		2A88C09B2EF60D8E001DAE89 /* Imprint-Becoming You.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Imprint-Becoming You.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		2ADBCBE32F26C41300C3D543 /* Kokoro */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Kokoro; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -46,7 +48,7 @@
 			files = (
 				2A88C0BE2EF71632001DAE89 /* FirebaseFunctions in Frameworks */,
 				2A88C0C02EF71632001DAE89 /* FirebaseStorage in Frameworks */,
-				2A6CADF72F25706B002725A1 /* iOS-TTS in Frameworks */,
+				2ADBC7322F26BD2F00C3D543 /* iOS-TTS in Frameworks */,
 				2A88C0BA2EF71632001DAE89 /* FirebaseAuth in Frameworks */,
 				2A88C0BC2EF71632001DAE89 /* FirebaseFirestore in Frameworks */,
 			);
@@ -58,6 +60,7 @@
 		2A88C0922EF60D8E001DAE89 = {
 			isa = PBXGroup;
 			children = (
+				2ADBCBE32F26C41300C3D543 /* Kokoro */,
 				2A88C09D2EF60D8E001DAE89 /* Imprint-Becoming You */,
 				2A88C09C2EF60D8E001DAE89 /* Products */,
 			);
@@ -95,7 +98,7 @@
 				2A88C0BB2EF71632001DAE89 /* FirebaseFirestore */,
 				2A88C0BD2EF71632001DAE89 /* FirebaseFunctions */,
 				2A88C0BF2EF71632001DAE89 /* FirebaseStorage */,
-				2A6CADF62F25706B002725A1 /* iOS-TTS */,
+				2ADBC7312F26BD2F00C3D543 /* iOS-TTS */,
 			);
 			productName = "Imprint-Becoming You";
 			productReference = 2A88C09B2EF60D8E001DAE89 /* Imprint-Becoming You.app */;
@@ -127,7 +130,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				2A88C0B82EF71632001DAE89 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
-				2A6CADF52F25706B002725A1 /* XCRemoteSwiftPackageReference "KokoroTTS-iOS" */,
+				2ADBC7302F26BD2F00C3D543 /* XCLocalSwiftPackageReference "../Developer/KokoroTTS-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2A88C09C2EF60D8E001DAE89 /* Products */;
@@ -144,6 +147,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2ADBCBE42F26C41400C3D543 /* Kokoro in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -366,15 +370,14 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		2A6CADF52F25706B002725A1 /* XCRemoteSwiftPackageReference "KokoroTTS-iOS" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/Otosaku/KokoroTTS-iOS";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.0.0;
-			};
+/* Begin XCLocalSwiftPackageReference section */
+		2ADBC7302F26BD2F00C3D543 /* XCLocalSwiftPackageReference "../Developer/KokoroTTS-iOS" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../Developer/KokoroTTS-iOS";
 		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
 		2A88C0B82EF71632001DAE89 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
@@ -386,11 +389,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		2A6CADF62F25706B002725A1 /* iOS-TTS */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 2A6CADF52F25706B002725A1 /* XCRemoteSwiftPackageReference "KokoroTTS-iOS" */;
-			productName = "iOS-TTS";
-		};
 		2A88C0B92EF71632001DAE89 /* FirebaseAuth */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 2A88C0B82EF71632001DAE89 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
@@ -410,6 +408,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 2A88C0B82EF71632001DAE89 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseStorage;
+		};
+		2ADBC7312F26BD2F00C3D543 /* iOS-TTS */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = "iOS-TTS";
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

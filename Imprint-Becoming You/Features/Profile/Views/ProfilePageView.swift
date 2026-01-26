@@ -124,9 +124,7 @@ struct ProfilePageView: View {
             }
         }
         .fullScreenCover(isPresented: $showVoiceSettings) {
-            NavigationStack {
-                TTSTestView()
-            }
+            VoiceSettingsView()
         }
         .sheet(isPresented: $showWaveformSelection) {
             WaveformSelectionSheet(
@@ -427,23 +425,9 @@ struct ProfilePageView: View {
     }
     
     private var voiceProfileSubtitle: String {
-        if let selectedVoiceId = appState.userProfile?.selectedVoiceId {
-            // Extract display name from voice ID
-            if selectedVoiceId.hasPrefix("kokoro_") {
-                let voiceKey = String(selectedVoiceId.dropFirst(7))
-                // Convert camelCase to display name (e.g., "afHeart" -> "Af Heart")
-                let displayName = voiceKey.replacingOccurrences(
-                    of: "([a-z])([A-Z])",
-                    with: "$1 $2",
-                    options: .regularExpression
-                )
-                return displayName.capitalized
-            } else if selectedVoiceId == "system" {
-                return "System Voice"
-            }
-            return selectedVoiceId
-        }
-        return "Default (Heart)"
+        let selectedId = appState.userProfile?.selectedVoiceId
+        let voice = Voice.voice(forId: selectedId)
+        return voice.displayNameWithDefault
     }
     
     private func loadStats() async {

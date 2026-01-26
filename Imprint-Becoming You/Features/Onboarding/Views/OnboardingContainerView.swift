@@ -15,8 +15,9 @@ import SwiftUI
 /// 1. Welcome screen
 /// 2. Faith preference selection
 /// 3. Goal selection
-/// 4. Voice calibration
-/// 5. Completion
+/// 4. Voice selection
+/// 5. Voice calibration
+/// 6. Completion
 ///
 /// ## Usage
 /// ```swift
@@ -51,25 +52,17 @@ struct OnboardingContainerView: View {
                         .padding(.top, AppTheme.Spacing.md)
                 }
                 
-                // Content
-                TabView(selection: $viewModel.currentStep) {
-                    WelcomeView(viewModel: viewModel)
-                        .tag(OnboardingStep.welcome)
-                    
-                    FaithPreferenceView(viewModel: viewModel)
-                        .tag(OnboardingStep.faithPreference)
-                    
-                    GoalSelectionView(viewModel: viewModel)
-                        .tag(OnboardingStep.goalSelection)
-                    
-                    VoiceCalibrationView(viewModel: viewModel)
-                        .tag(OnboardingStep.calibration)
-                    
-                    OnboardingCompleteView(viewModel: viewModel)
-                        .tag(OnboardingStep.complete)
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .animation(AppTheme.Animation.standard, value: viewModel.currentStep)
+                // Content - Direct view switching (no swipe gestures)
+                contentView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle()) // Make entire area tappable for gesture blocking
+                    .gesture(
+                        // Block horizontal drag gestures to prevent swiping
+                        DragGesture(minimumDistance: 30, coordinateSpace: .local)
+                            .onChanged { _ in }
+                            .onEnded { _ in }
+                    )
+                    .animation(AppTheme.Animation.standard, value: viewModel.currentStep)
             }
         }
         .alert(
@@ -82,6 +75,57 @@ struct OnboardingContainerView: View {
             }
         } message: { message in
             Text(message)
+        }
+    }
+    
+    // MARK: - Content View
+    
+    /// Direct view switching based on current step.
+    /// This replaces TabView to prevent horizontal swiping.
+    @ViewBuilder
+    private var contentView: some View {
+        switch viewModel.currentStep {
+        case .welcome:
+            WelcomeView(viewModel: viewModel)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
+            
+        case .faithPreference:
+            FaithPreferenceView(viewModel: viewModel)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
+            
+        case .goalSelection:
+            GoalSelectionView(viewModel: viewModel)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
+            
+        case .voiceSelection:
+            VoiceSelectionOnboardingView(viewModel: viewModel)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
+            
+        case .calibration:
+            VoiceCalibrationView(viewModel: viewModel)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
+            
+        case .complete:
+            OnboardingCompleteView(viewModel: viewModel)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
         }
     }
 }

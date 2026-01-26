@@ -103,32 +103,18 @@ extension PracticeStore {
             setSessionResults([])
             setSegmentProgress(0)
             sessionStartTime = Date()
-            sessionMode = mode
             
             // Shuffle AFTER setting session state (preserves original order in originalSessionAffirmationIds)
             if shuffle {
                 shuffleSessionAffirmations()
             }
             
-            // Set initial flow state based on mode
-            switch mode {
-            case .readAloud:
-                setFlow(.readAloud(.idle))
-            case .readThenSpeak:
-                setFlow(.readAndSpeak(.idle))
-            case .speakOnly:
-                setFlow(.speakOnly(.idle))
-            default:
-                setFlow(.home)
-                return
-            }
-            
-            // Start the session
-            startFlowForCurrentAffirmation()
-            
             #if DEBUG
-            print("[OK] PracticeStore: Started favorites session with \(favorites.count) affirmations, mode: \(mode.displayName)")
+            print("[OK] PracticeStore: Starting favorites session with \(favorites.count) affirmations, mode: \(mode.displayName)")
             #endif
+            
+            // Use preparation flow for TTS modes
+            prepareAndStartSession(mode: mode)
             
         } catch {
             send(.affirmationsLoadFailed(.dataLoadError(error.localizedDescription)))

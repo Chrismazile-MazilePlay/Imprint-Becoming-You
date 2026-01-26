@@ -58,22 +58,83 @@ extension PracticeStore {
 
 extension PracticeStore {
     
-    /// Synthesizes and plays text using system TTS.
+    /// Plays audio for the current affirmation using the TTS queue cache.
     ///
-    /// Uses direct AVSpeechSynthesizer playback for real-time audio.
-    /// Future Kokoro integration will add voice selection.
+    /// If audio is cached (from session preparation), plays immediately.
+    /// If not cached, synthesizes on-demand (with potential delay).
     ///
-    /// - Parameter text: The text to speak
+    /// - Parameter text: The text to speak (used for on-demand synthesis fallback)
     /// - Throws: `TTSError` if synthesis or playback fails
     private func speakText(_ text: String) async throws {
-        // Use TTS service's direct playback method
-        // This uses AVSpeechSynthesizer.speak() which plays through device speakers
-        try await dependencies.ttsService.speakText(text, voiceId: nil)
+        let queueService = dependencies.sessionTTSQueueService
+        let playerService = dependencies.audioPlayerService
+        
+        // Notify queue of current playback position
+        if isSessionActive {
+            queueService.notifyPlaying(index: sessionIndex)
+        }
+        
+        // Try to get cached audio first
+        if isSessionActive, let cachedAudio = queueService.getAudio(for: sessionIndex) {
+            #if DEBUG
+            print("🎵 PracticeStore: Playing cached audio for index \(sessionIndex)")
+            #endif
+            
+            // Play raw PCM Float32 data at 24000 Hz (Kokoro TTS output format)
+            try await playerService.playRawPCMData(cachedAudio, sampleRate: 24000)
+            return
+        }
+        
+        // Try on-demand synthesis if in session
+        if isSessionActive {
+            #if DEBUG
+            print("🎵 PracticeStore: On-demand synthesis for index \(sessionIndex)")
+            #endif
+            
+            do {
+                let audioData = try await queueService.synthesizeOnDemand(index: sessionIndex)
+                // Play raw PCM Float32 data at 24000 Hz (Kokoro TTS output format)
+                try await playerService.playRawPCMData(audioData, sampleRate: 24000)
+                return
+            } catch {
+                #if DEBUG
+                print("⚠️ PracticeStore: On-demand synthesis failed, falling back to TTS service")
+                #endif
+                // Fall through to direct TTS
+            }
+        }
+        
+        // Fallback: Direct TTS synthesis (browse mode or cache miss)
+        try await dependencies.ttsService.speakText(text, voiceId: selectedVoiceId)
     }
     
     /// Stops any ongoing TTS playback.
     private func stopTTSPlayback() {
         dependencies.ttsService.stopSpeaking()
+        
+        // AudioPlayerService is an actor - call stop asynchronously
+        Task {
+            await dependencies.audioPlayerService.stop()
+        }
+    }
+    
+    /// Pre-synthesizes the next affirmation for faster playback.
+    ///
+    /// This is now handled by SessionTTSQueueService for sessions.
+    /// Only used for browse mode where the queue isn't active.
+    private func preSynthesizeNextAffirmation() {
+        // Queue handles this automatically for sessions
+        guard !isSessionActive else { return }
+        
+        // Only pre-synthesize if there's a next affirmation in browse mode
+        let nextIndex = browseIndex + 1
+        guard nextIndex < browseAffirmations.count else { return }
+        
+        let nextText = browseAffirmations[nextIndex].text.strippingTrailingCitation
+        
+        Task {
+            await dependencies.ttsService.preSynthesize(text: nextText, voiceId: selectedVoiceId)
+        }
     }
 }
 
@@ -110,6 +171,9 @@ extension PracticeStore {
                     if elapsed >= estimatedDuration * 0.95 { break }
                 }
             }
+            
+            // Pre-synthesize next affirmation while this one plays
+            preSynthesizeNextAffirmation()
             
             try await speakText(affirmationText.strippingTrailingCitation)
             progressTask.cancel()
@@ -193,6 +257,9 @@ extension PracticeStore {
                     if elapsed >= estimatedDuration * 0.95 { break }
                 }
             }
+            
+            // Pre-synthesize next affirmation while this one plays
+            preSynthesizeNextAffirmation()
             
             try await speakText(affirmationText.strippingTrailingCitation)
             progressTask.cancel()
@@ -287,14 +354,14 @@ extension PracticeStore {
     /// 5. Complete with result
     func executeListeningPhase(generation: Int, affirmationText: String, mode: ListeningMode) async {
         #if DEBUG
-        print("═══════════════════════════════════════════════════════")
+        print("â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•")
         print("[DEBUG] executeListeningPhase STARTED")
         print("[DEBUG] Mode: \(mode)")
         print("[DEBUG] Expected text: '\(affirmationText)'")
         print("[DEBUG] Word count: \(affirmationText.split(separator: " ").count)")
         print("[DEBUG] Ends with ')': \(affirmationText.hasSuffix(")"))")
         print("[DEBUG] Last 30 chars: '\(String(affirmationText.suffix(30)))'")
-        print("═══════════════════════════════════════════════════════")
+        print("â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•")
         #endif
         
         let startTime = Date()
@@ -448,7 +515,7 @@ extension PracticeStore {
         let completion = TextAccuracyCalculator.evaluateCompletion(expected: affirmationText, recognized: lastTranscription)
         
         #if DEBUG
-        print("═══════════════════════════════════════════════════════")
+        print("â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•")
         print("[DEBUG] FINAL COMPLETION CHECK")
         print("[DEBUG] Expected text: '\(affirmationText)'")
         print("[DEBUG] Recognized text: '\(lastTranscription)'")
@@ -459,7 +526,7 @@ extension PracticeStore {
         if !completion.isComplete {
             print("[DEBUG] NOT COMPLETE - Need \(Int(0.75 * Float(completion.expectedWordCount))) words, got \(completion.matchedWordCount)")
         }
-        print("═══════════════════════════════════════════════════════")
+        print("â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•")
         #endif
         
         if completion.isComplete {
@@ -520,6 +587,9 @@ extension PracticeStore {
         
         // Stop TTS playback
         stopTTSPlayback()
+        
+        // Cancel pre-synthesis
+        dependencies.ttsService.cancelPreSynthesis()
         
         // Stop speech capture (synchronous)
         speechCaptureService.cancelCapture()

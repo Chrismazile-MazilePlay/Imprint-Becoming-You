@@ -109,6 +109,16 @@ extension PracticeStore {
                 startFlowForCurrentAffirmation()
             }
             
+        // MARK: Session Preparation Events
+        case .sessionPreparationCompleted:
+            handleSessionPreparationCompleted()
+            
+        case .sessionPreparationFailed(let error):
+            handleSessionPreparationFailed(error)
+            
+        case .cancelSessionPreparation:
+            handleCancelSessionPreparation()
+            
         // MARK: Session Summary Events
         case .dismissSummary:
             handleDismissSummary()

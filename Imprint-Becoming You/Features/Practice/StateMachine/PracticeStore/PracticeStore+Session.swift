@@ -18,7 +18,7 @@ extension PracticeStore {
             #endif
             clearOriginalSessionAffirmationIds()
             setSessionState(affirmations: Array(browseAffirmations.prefix(Constants.Session.sessionSize)))
-            startSession(mode: mode)
+            prepareAndStartSession(mode: mode)
             return
         }
         
@@ -50,7 +50,85 @@ extension PracticeStore {
             setSessionState(affirmations: Array(browseAffirmations.prefix(Constants.Session.sessionSize)))
         }
         
-        startSession(mode: mode)
+        prepareAndStartSession(mode: mode)
+    }
+    
+    /// Prepares TTS for session affirmations before starting.
+    ///
+    /// For modes that use TTS (Read Aloud, Read & Speak), this:
+    /// 1. Shows preparation loading screen
+    /// 2. Pre-synthesizes first 5 affirmations
+    /// 3. Starts session when preparation completes
+    /// 4. Continues background synthesis for remaining
+    ///
+    /// For Speak Only mode, skips preparation and starts immediately.
+    func prepareAndStartSession(mode: SessionMode) {
+        // Speak Only doesn't use TTS, start immediately
+        guard mode == .readAloud || mode == .readThenSpeak else {
+            startSession(mode: mode)
+            return
+        }
+        
+        // Cancel any existing preparation
+        sessionPreparationTask?.cancel()
+        
+        // Set pending mode and show preparation UI
+        setPendingSessionMode(mode)
+        let target = min(SessionTTSQueueService.defaultInitialCount, sessionAffirmations.count)
+        setSessionPreparation(isActive: true, progress: 0, preparedCount: 0, target: target)
+        
+        #if DEBUG
+        print("🎵 PracticeStore: Starting TTS preparation for \(sessionAffirmations.count) affirmations")
+        #endif
+        
+        // Build lightweight affirmation info for queue
+        let affirmationInfos = sessionAffirmations.enumerated().map { index, affirmation in
+            SessionAffirmationInfo(affirmation: affirmation, index: index)
+        }
+        
+        let voiceId = selectedVoiceId
+        let queueService = dependencies.sessionTTSQueueService
+        
+        sessionPreparationTask = Task { [weak self] in
+            guard let self = self else { return }
+            
+            do {
+                // Start preparation with progress updates
+                let progressTask = Task { [weak self] in
+                    guard let self = self else { return }
+                    
+                    while !Task.isCancelled && self.isPreparingSession {
+                        try? await Task.sleep(for: .milliseconds(100))
+                        guard !Task.isCancelled else { return }
+                        
+                        let progress = queueService.preparationProgress
+                        let prepared = queueService.preparedCount
+                        
+                        self.setSessionPreparation(
+                            isActive: true,
+                            progress: progress,
+                            preparedCount: prepared
+                        )
+                    }
+                }
+                
+                try await queueService.prepareSession(
+                    affirmations: affirmationInfos,
+                    voiceId: voiceId,
+                    initialCount: SessionTTSQueueService.defaultInitialCount
+                )
+                
+                progressTask.cancel()
+                
+                guard !Task.isCancelled else { return }
+                
+                self.send(.sessionPreparationCompleted)
+                
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.send(.sessionPreparationFailed(.ttsError(error.localizedDescription)))
+            }
+        }
     }
     
     func startSession(mode: SessionMode) {
@@ -143,6 +221,62 @@ extension PracticeStore {
 // MARK: - Session Summary
 
 extension PracticeStore {
+    
+    // MARK: - Session Preparation Handlers
+    
+    /// Handles successful session preparation completion.
+    func handleSessionPreparationCompleted() {
+        guard let mode = pendingSessionMode else {
+            #if DEBUG
+            print("⚠️ PracticeStore: Preparation completed but no pending mode")
+            #endif
+            clearSessionPreparation()
+            return
+        }
+        
+        #if DEBUG
+        print("✅ PracticeStore: TTS preparation complete, starting session in \(mode.rawValue) mode")
+        #endif
+        
+        clearSessionPreparation()
+        startSession(mode: mode)
+    }
+    
+    /// Handles session preparation failure.
+    func handleSessionPreparationFailed(_ error: PracticeError) {
+        #if DEBUG
+        print("❌ PracticeStore: TTS preparation failed: \(error)")
+        #endif
+        
+        // Clear preparation state
+        let mode = pendingSessionMode
+        clearSessionPreparation()
+        dependencies.sessionTTSQueueService.cancelAll()
+        
+        // Still start session - TTS will synthesize on-demand (with delay)
+        if let mode = mode {
+            #if DEBUG
+            print("⚠️ PracticeStore: Starting session anyway, TTS will be on-demand")
+            #endif
+            startSession(mode: mode)
+        } else {
+            setError(error)
+        }
+    }
+    
+    /// Handles user cancellation of session preparation.
+    func handleCancelSessionPreparation() {
+        #if DEBUG
+        print("🛑 PracticeStore: User cancelled session preparation")
+        #endif
+        
+        clearSessionPreparation()
+        dependencies.sessionTTSQueueService.cancelAll()
+        
+        // Clear session state since we're not starting
+        setSessionState(affirmations: [], index: 0)
+        clearOriginalSessionAffirmationIds()
+    }
     
     func showSessionSummary() {
         cancelCurrentActivity()

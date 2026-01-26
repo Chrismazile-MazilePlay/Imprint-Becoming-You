@@ -151,6 +151,24 @@ final class DependencyContainer: Sendable {
         return _audioCacheService!
     }
     
+    /// Voice preview caching service
+    private var _voicePreviewCacheService: (any VoicePreviewCacheServiceProtocol)?
+    var voicePreviewCacheService: any VoicePreviewCacheServiceProtocol {
+        if _voicePreviewCacheService == nil {
+            _voicePreviewCacheService = isPreview ? MockVoicePreviewCacheService() : VoicePreviewCacheService(ttsService: ttsService)
+        }
+        return _voicePreviewCacheService!
+    }
+    
+    /// Session TTS pre-synthesis queue service
+    private var _sessionTTSQueueService: (any SessionTTSQueueServiceProtocol)?
+    var sessionTTSQueueService: any SessionTTSQueueServiceProtocol {
+        if _sessionTTSQueueService == nil {
+            _sessionTTSQueueService = isPreview ? MockSessionTTSQueueService() : SessionTTSQueueService(ttsService: ttsService)
+        }
+        return _sessionTTSQueueService!
+    }
+    
     // MARK: - Initialization
     
     private init(isPreview: Bool) {
@@ -241,6 +259,16 @@ final class DependencyContainer: Sendable {
     /// Registers a custom audio cache service
     func register(audioCacheService: any AudioCacheServiceProtocol) {
         _audioCacheService = audioCacheService
+    }
+    
+    /// Registers a custom voice preview cache service
+    func register(voicePreviewCacheService: any VoicePreviewCacheServiceProtocol) {
+        _voicePreviewCacheService = voicePreviewCacheService
+    }
+    
+    /// Registers a custom session TTS queue service
+    func register(sessionTTSQueueService: any SessionTTSQueueServiceProtocol) {
+        _sessionTTSQueueService = sessionTTSQueueService
     }
 }
 

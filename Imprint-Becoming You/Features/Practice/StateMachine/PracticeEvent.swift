@@ -91,6 +91,17 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     /// Resume session when app returns from background
     case resumeSession
     
+    // MARK: - Session Preparation Events
+    
+    /// Session preparation completed successfully
+    case sessionPreparationCompleted
+    
+    /// Session preparation failed
+    case sessionPreparationFailed(PracticeError)
+    
+    /// User cancelled session preparation
+    case cancelSessionPreparation
+    
     // MARK: - Session Summary Events
     
     /// User dismissed the summary, return to home
@@ -322,6 +333,8 @@ extension PracticeEvent {
             return true
         case .repeatSession, .startSavedSession:
             return true
+        case .cancelSessionPreparation:
+            return true
         default:
             return false
         }
@@ -363,6 +376,8 @@ extension PracticeEvent {
         case .analysisStarted, .scoreCalculated, .scoreFailed, .scoreDisplayCompleted:
             return true
         case .autoAdvanceCompleted, .loopIterationCompleted, .segmentTimerCompleted:
+            return true
+        case .sessionPreparationCompleted, .sessionPreparationFailed, .cancelSessionPreparation:
             return true
         default:
             return false
@@ -457,6 +472,12 @@ extension PracticeEvent: CustomStringConvertible {
             return "pauseSession"
         case .resumeSession:
             return "resumeSession"
+        case .sessionPreparationCompleted:
+            return "sessionPreparationCompleted"
+        case .sessionPreparationFailed(let err):
+            return "sessionPreparationFailed(\(err))"
+        case .cancelSessionPreparation:
+            return "cancelSessionPreparation"
         case .ttsStarted:
             return "ttsStarted"
         case .ttsProgress(let p):

@@ -9,6 +9,7 @@ import Foundation
 import SwiftData
 import SwiftUI
 import Observation
+import AVFoundation
 
 // MARK: - OnboardingViewModel
 
@@ -18,6 +19,7 @@ import Observation
 /// - Navigation between onboarding steps
 /// - Faith preference selection
 /// - Goal selection validation
+/// - Voice selection with tap-to-select + preview
 /// - Voice calibration coordination
 /// - Profile updates on completion
 ///
@@ -25,15 +27,10 @@ import Observation
 /// 1. Welcome - Introduction to the app
 /// 2. Faith Preference - Choose to include Biblical content
 /// 3. Goal Selection - Select up to 5 focus areas
-/// 4. Calibration - Voice setup (optional)
-/// 5. Complete - Ready to practice
-///
-/// ## Usage
-/// ```swift
-/// @State private var viewModel = OnboardingViewModel()
-/// OnboardingContainerView()
-///     .environment(viewModel)
-/// ```
+/// 4. Voice Selection - Choose TTS voice (tap to select + preview)
+/// 5. Calibration - Voice setup (optional)
+/// 6. Complete - Ready to practice
+@MainActor
 @Observable
 final class OnboardingViewModel {
     
@@ -72,6 +69,26 @@ final class OnboardingViewModel {
     
     /// Whether we're saving/completing
     var isCompleting: Bool = false
+    
+    // MARK: - Voice Selection State
+    
+    /// Currently selected voice ID (full Voice.id format, e.g., "kokoro_af_heart")
+    var selectedVoiceId: String = Voice.defaultVoice.id
+    
+    /// Voice currently being previewed (by full Voice.id)
+    var previewingVoiceId: String?
+    
+    /// Whether voice preview is currently playing
+    var isPreviewPlaying: Bool = false
+    
+    /// TTS service for voice preview (injected by view)
+    var ttsService: (any TTSServiceProtocol)?
+    
+    /// Voice preview cache service (injected by view)
+    var voicePreviewCacheService: (any VoicePreviewCacheServiceProtocol)?
+    
+    /// Audio player for cached preview playback
+    private var audioPlayer: AVAudioPlayer?
     
     // MARK: - Computed Properties
     
@@ -118,6 +135,11 @@ final class OnboardingViewModel {
         GoalGroup.faithBased.categories
     }
     
+    /// The currently selected Voice object
+    var selectedVoice: Voice {
+        Voice.voice(forId: selectedVoiceId)
+    }
+    
     // MARK: - Initialization
     
     init() {}
@@ -158,15 +180,7 @@ final class OnboardingViewModel {
     // MARK: - Faith Preference
     
     /// Sets the user's faith content preference.
-    ///
-    /// Uses `withAnimation` to ensure SwiftUI's animation context is engaged
-    /// from the first tap, preventing initial selection delay.
-    ///
-    /// - Parameter include: Whether to include faith-based content
     func setFaithPreference(_ include: Bool) {
-        // Wrap state change in withAnimation to engage animation context immediately.
-        // This prevents the "first tap delay" issue where the initial nil → value
-        // transition would otherwise not be tracked by the animation system.
         withAnimation(AppTheme.Animation.quick) {
             includeFaithContent = include
         }
@@ -182,9 +196,7 @@ final class OnboardingViewModel {
     // MARK: - Goal Selection
     
     /// Toggles selection of a goal category
-    /// - Parameter goal: Goal to toggle
     func toggleGoal(_ goal: GoalCategory) {
-        // Don't allow selecting faith goals if user opted out
         if goal.isFaithBased && includeFaithContent == false {
             return
         }
@@ -194,7 +206,6 @@ final class OnboardingViewModel {
         } else if selectedGoals.count < maxGoals {
             selectedGoals.insert(goal)
         }
-        // If already at max, don't add more
     }
     
     /// Whether a specific goal is selected
@@ -207,30 +218,162 @@ final class OnboardingViewModel {
         selectedGoals.removeAll()
     }
     
+    // MARK: - Voice Selection
+    
+    /// Selects a voice and plays its preview.
+    ///
+    /// - Parameter voiceId: The full voice ID (e.g., "kokoro_af_heart")
+    func selectVoice(_ voiceId: String) {
+        // Stop any current preview
+        stopPreview()
+        
+        // Select the voice
+        selectedVoiceId = voiceId
+        
+        // Haptic feedback
+        HapticFeedback.selection()
+        
+        // Play preview
+        playPreview(for: voiceId)
+        
+        #if DEBUG
+        print("🎤 OnboardingViewModel: Selected voice \(voiceId)")
+        #endif
+    }
+    
+    /// Plays preview audio for a voice.
+    ///
+    /// Uses cached audio if available, otherwise synthesizes on-demand.
+    /// CRITICAL: Captures voiceId before async work to prevent race conditions.
+    private func playPreview(for voiceId: String) {
+        // Get the raw TTS voice ID (e.g., "af_heart" from "kokoro_af_heart")
+        guard let ttsVoiceId = Voice.ttsVoiceId(from: voiceId) else {
+            #if DEBUG
+            print("⚠️ OnboardingViewModel: Could not get ttsVoiceId for \(voiceId)")
+            #endif
+            return
+        }
+        
+        // Set preview state BEFORE async work
+        previewingVoiceId = voiceId
+        isPreviewPlaying = true
+        
+        // Capture values for closure to prevent race conditions
+        let capturedVoiceId = voiceId
+        let capturedTtsVoiceId = ttsVoiceId
+        
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            
+            // Verify we're still previewing this voice (user might have tapped another)
+            guard self.previewingVoiceId == capturedVoiceId else {
+                #if DEBUG
+                print("🎤 OnboardingViewModel: Voice changed, skipping preview for \(capturedVoiceId)")
+                #endif
+                return
+            }
+            
+            do {
+                // Try to get cached audio first
+                if let cache = self.voicePreviewCacheService,
+                   let audioData = cache.getPreviewAudio(for: capturedTtsVoiceId) {
+                    // Play from cache using AVAudioPlayer
+                    #if DEBUG
+                    print("🎤 OnboardingViewModel: Playing cached audio for \(capturedTtsVoiceId)")
+                    #endif
+                    try self.playAudioData(audioData)
+                    
+                } else if let cache = self.voicePreviewCacheService {
+                    // Synthesize on-demand, cache it, then play
+                    #if DEBUG
+                    print("🎤 OnboardingViewModel: Synthesizing on-demand for \(capturedTtsVoiceId)")
+                    #endif
+                    let audioData = try await cache.synthesizeNow(capturedTtsVoiceId)
+                    
+                    // Verify still previewing same voice
+                    guard self.previewingVoiceId == capturedVoiceId else { return }
+                    
+                    try self.playAudioData(audioData)
+                    
+                } else if let tts = self.ttsService {
+                    // Fallback to direct TTS synthesis
+                    #if DEBUG
+                    print("🎤 OnboardingViewModel: Fallback to TTS for \(capturedTtsVoiceId)")
+                    #endif
+                    try await tts.speakText(Voice.previewPhrase, voiceId: capturedTtsVoiceId)
+                }
+            } catch {
+                #if DEBUG
+                print("⚠️ OnboardingViewModel: Voice preview failed for \(capturedTtsVoiceId): \(error)")
+                #endif
+            }
+            
+            // Only clear state if we're still previewing the same voice
+            if self.previewingVoiceId == capturedVoiceId {
+                self.isPreviewPlaying = false
+                self.previewingVoiceId = nil
+            }
+        }
+    }
+    
+    /// Plays audio data using AVAudioPlayer.
+    ///
+    /// - Parameter data: WAV audio data to play
+    /// - Throws: Error if audio playback fails
+    private func playAudioData(_ data: Data) throws {
+        // Stop any existing playback
+        audioPlayer?.stop()
+        audioPlayer = nil
+        
+        // Configure audio session
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playback, mode: .default, options: [.duckOthers])
+        try session.setActive(true)
+        
+        // Create and configure player
+        audioPlayer = try AVAudioPlayer(data: data)
+        audioPlayer?.prepareToPlay()
+        
+        guard audioPlayer?.play() == true else {
+            throw AppError.ttsError("Failed to start audio playback")
+        }
+        
+        #if DEBUG
+        print("🎤 OnboardingViewModel: Playing audio (\(data.count) bytes)")
+        #endif
+    }
+    
+    /// Stops any currently playing voice preview.
+    func stopPreview() {
+        // Stop AVAudioPlayer
+        audioPlayer?.stop()
+        audioPlayer = nil
+        
+        // Stop TTS service
+        ttsService?.stopSpeaking()
+        
+        // Clear state
+        isPreviewPlaying = false
+        previewingVoiceId = nil
+    }
+    
     // MARK: - Calibration
     
     /// Starts voice calibration
-    /// - Parameter speechService: The speech analysis service to use
-    @MainActor
     func startCalibration(speechService: any SpeechAnalysisServiceProtocol) async {
         isCalibrating = true
         calibrationProgress = 0
         errorMessage = nil
         
         do {
-            // Request permissions first
             let hasMic = await speechService.requestMicrophonePermission()
             guard hasMic else {
                 throw AppError.microphoneAccessDenied
             }
             
-            // Use default calibration phrases
             let phrases = VoiceCalibrationService.defaultCalibrationPhrases
-            
-            // Perform calibration
             calibrationData = try await speechService.performCalibration(with: phrases)
             
-            // Success - move to next step
             isCalibrating = false
             nextStep()
             
@@ -250,10 +393,6 @@ final class OnboardingViewModel {
     // MARK: - Completion
     
     /// Completes onboarding and saves to profile
-    /// - Parameters:
-    ///   - modelContext: SwiftData model context
-    ///   - appState: App state to update
-    @MainActor
     func completeOnboarding(
         modelContext: ModelContext,
         appState: AppState
@@ -261,7 +400,6 @@ final class OnboardingViewModel {
         isCompleting = true
         
         do {
-            // Fetch user profile
             let descriptor = FetchDescriptor<UserProfile>()
             let profiles = try modelContext.fetch(descriptor)
             
@@ -269,17 +407,14 @@ final class OnboardingViewModel {
                 throw AppError.loadFailed(reason: "No user profile found")
             }
             
-            // Update profile
             profile.selectedGoals = selectedGoals.map { $0.rawValue }
             profile.goalsLastChangedAt = Date()
             profile.calibrationData = calibrationData
             profile.hasCompletedOnboarding = true
             profile.includeFaithContent = includeFaithContent
+            profile.selectedVoiceId = selectedVoiceId
             
-            // Save
             try modelContext.save()
-            
-            // Update app state
             appState.updateProfile(profile)
             
             isCompleting = false
@@ -292,7 +427,6 @@ final class OnboardingViewModel {
     
     // MARK: - Error Handling
     
-    /// Handles errors from async operations
     private func handleError(_ error: Error) {
         if let appError = error as? AppError {
             errorMessage = appError.errorDescription
@@ -302,7 +436,6 @@ final class OnboardingViewModel {
         showError = true
     }
     
-    /// Dismisses the current error
     func dismissError() {
         errorMessage = nil
         showError = false
@@ -316,34 +449,27 @@ enum OnboardingStep: Int, CaseIterable, Identifiable, Sendable {
     case welcome = 0
     case faithPreference = 1
     case goalSelection = 2
-    case calibration = 3
-    case complete = 4
+    case voiceSelection = 3
+    case calibration = 4
+    case complete = 5
     
     var id: Int { rawValue }
     
-    /// Title for the step
     var title: String {
         switch self {
-        case .welcome:
-            return "Welcome"
-        case .faithPreference:
-            return "Faith Content"
-        case .goalSelection:
-            return "Your Goals"
-        case .calibration:
-            return "Voice Setup"
-        case .complete:
-            return "You're Ready"
+        case .welcome: return "Welcome"
+        case .faithPreference: return "Faith Content"
+        case .goalSelection: return "Your Goals"
+        case .voiceSelection: return "Your Voice"
+        case .calibration: return "Voice Setup"
+        case .complete: return "You're Ready"
         }
     }
     
-    /// Whether this step can be skipped
     var isSkippable: Bool {
         switch self {
-        case .calibration:
-            return true
-        default:
-            return false
+        case .calibration: return true
+        default: return false
         }
     }
 }

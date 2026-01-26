@@ -116,6 +116,26 @@ final class PracticeStore {
     /// Whether the current session was started from Favorites
     private(set) var isFavoritesSession: Bool = false
     
+    // MARK: - Session Preparation State
+    
+    /// Whether TTS preparation is in progress for a new session
+    private(set) var isPreparingSession: Bool = false
+    
+    /// Progress of session TTS preparation (0.0 - 1.0)
+    private(set) var sessionPreparationProgress: Float = 0
+    
+    /// Number of affirmations prepared for current session
+    private(set) var sessionPreparedCount: Int = 0
+    
+    /// Target number of affirmations to prepare before starting
+    private(set) var sessionPreparationTarget: Int = 0
+    
+    /// Mode pending for session start (set during preparation)
+    private(set) var pendingSessionMode: SessionMode? = nil
+    
+    /// Active preparation task (for cancellation)
+    var sessionPreparationTask: Task<Void, Never>?
+    
     // MARK: - Loop Computed Properties
     
     /// Progress text for loop display (e.g., "Loop 2 of 3")
@@ -210,6 +230,12 @@ final class PracticeStore {
     /// User's calibration data
     var calibrationData: CalibrationData?
     
+    // MARK: - Voice Configuration
+    
+    /// The TTS voice ID to use for playback (raw Kokoro format, e.g., "af_heart").
+    /// Set by MainPracticeView from UserProfile.selectedVoiceId.
+    var selectedVoiceId: String? = nil
+    
     // MARK: - Dependencies
     
     /// Service dependencies (injected via DependencyContainer).
@@ -246,7 +272,7 @@ final class PracticeStore {
         isSessionActive ? sessionIndex : browseIndex
     }
     
-    /// The currently displayed affirmation
+    /// The current affirmation (if any).
     var currentAffirmation: Affirmation? {
         let queue = affirmations
         let index = currentIndex
@@ -510,5 +536,36 @@ final class PracticeStore {
     /// Clears original session affirmation IDs (for new session)
     func clearOriginalSessionAffirmationIds() {
         originalSessionAffirmationIds = []
+    }
+    
+    // MARK: - Session Preparation Helpers
+    
+    /// Updates session preparation state
+    func setSessionPreparation(
+        isActive: Bool,
+        progress: Float? = nil,
+        preparedCount: Int? = nil,
+        target: Int? = nil
+    ) {
+        isPreparingSession = isActive
+        if let progress = progress { sessionPreparationProgress = progress }
+        if let preparedCount = preparedCount { sessionPreparedCount = preparedCount }
+        if let target = target { sessionPreparationTarget = target }
+    }
+    
+    /// Sets the pending session mode (during preparation)
+    func setPendingSessionMode(_ mode: SessionMode?) {
+        pendingSessionMode = mode
+    }
+    
+    /// Clears session preparation state
+    func clearSessionPreparation() {
+        isPreparingSession = false
+        sessionPreparationProgress = 0
+        sessionPreparedCount = 0
+        sessionPreparationTarget = 0
+        pendingSessionMode = nil
+        sessionPreparationTask?.cancel()
+        sessionPreparationTask = nil
     }
 }

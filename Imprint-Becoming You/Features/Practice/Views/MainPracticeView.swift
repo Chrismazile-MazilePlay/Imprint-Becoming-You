@@ -40,6 +40,10 @@ enum AppPage: Int, CaseIterable {
 /// On appear, loads affirmations from SwiftData filtered by user's selected
 /// goals using the `AffirmationRepository` smart queue algorithm.
 ///
+/// ## Voice Selection
+/// On appear, loads the user's selected voice from their profile and
+/// configures the PracticeStore to use it for TTS playback.
+///
 /// Navigation:
 /// - AI button (top-left) -> slides to Prompts page (left) [home mode only]
 /// - Profile button (top-right) -> slides to Profile page (right) [home mode only]
@@ -107,6 +111,10 @@ struct MainPracticeView: View {
                 // Generate new id to force TabView recreation with fresh gesture recognizers
                 tabViewRefreshId = UUID()
             }
+        }
+        .onChange(of: appState.userProfile?.selectedVoiceId) { _, newVoiceId in
+            // Update store voice when user changes it in settings
+            updateStoreVoice(from: newVoiceId)
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             handleScenePhaseChange(from: oldPhase, to: newPhase)
@@ -250,6 +258,20 @@ struct MainPracticeView: View {
                 )
                 .transition(.opacity)
                 .zIndex(20) // Above summary
+            }
+            
+            // Session Preparation overlay
+            if store.isPreparingSession {
+                SessionPreparationView(
+                    progress: store.sessionPreparationProgress,
+                    preparedCount: store.sessionPreparedCount,
+                    totalCount: store.sessionPreparationTarget,
+                    onCancel: {
+                        store.send(.cancelSessionPreparation)
+                    }
+                )
+                .transition(.opacity)
+                .zIndex(25) // Above everything
             }
         }
     }
@@ -406,9 +428,27 @@ struct MainPracticeView: View {
         // Initialize saved session repository
         store.savedSessionRepository = dependencies.makeSavedSessionRepository(modelContext: modelContext)
         
+        // Initialize voice selection from user profile
+        updateStoreVoice(from: appState.userProfile?.selectedVoiceId)
+        
         // Ensure we're on practice page when starting
         currentPage = .practice
         isInitialized = true
+    }
+    
+    // MARK: - Voice Configuration
+    
+    /// Updates the store's voice ID from the user profile's stored voice.
+    ///
+    /// Converts the full Voice.id (e.g., "kokoro_af_heart") to the raw
+    /// TTS voice ID (e.g., "af_heart") that the TTSService expects.
+    private func updateStoreVoice(from storedVoiceId: String?) {
+        let ttsVoiceId = Voice.ttsVoiceId(from: storedVoiceId)
+        store.selectedVoiceId = ttsVoiceId
+        
+        #if DEBUG
+        print("ðŸŽ¤ MainPracticeView: Set voice to \(ttsVoiceId ?? "default")")
+        #endif
     }
     
     // MARK: - Helpers

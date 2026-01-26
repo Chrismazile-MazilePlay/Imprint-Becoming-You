@@ -65,7 +65,6 @@ extension PracticeStore {
         // Reset position and progress, but keep same affirmations
         setSessionState(index: 0)
         setSessionResults([])
-        sessionMode = mode
         sessionStartTime = Date()
         
         // Reset loop iteration for fresh restart
@@ -73,22 +72,36 @@ extension PracticeStore {
         config.resetIteration()
         setLoopConfiguration(config)
         
-        // Transition to new mode's initial state
-        withAnimation(AppTheme.Animation.standard) {
-            switch mode {
-            case .readOnly:
-                setFlow(.home)
-            case .readAloud:
-                setFlow(.readAloud(.idle))
-            case .readThenSpeak:
-                setFlow(.readAndSpeak(.idle))
-            case .speakOnly:
-                setFlow(.speakOnly(.idle))
-            }
-        }
+        // Check if we need TTS preparation
+        let needsTTS = mode == .readAloud || mode == .readThenSpeak
+        let currentModeUsesTTS = sessionMode == .readAloud || sessionMode == .readThenSpeak
+        let hasCache = dependencies.sessionTTSQueueService.isReady(0)
         
-        // Start the flow for the first affirmation
-        startFlowForCurrentAffirmation()
+        // Prepare TTS if switching TO a TTS mode FROM a non-TTS mode (or no cache exists)
+        if needsTTS && (!currentModeUsesTTS || !hasCache) {
+            // Need to prepare TTS - use preparation flow
+            prepareAndStartSession(mode: mode)
+        } else {
+            // Can skip preparation - use direct start
+            sessionMode = mode
+            
+            // Transition to new mode's initial state
+            withAnimation(AppTheme.Animation.standard) {
+                switch mode {
+                case .readOnly:
+                    setFlow(.home)
+                case .readAloud:
+                    setFlow(.readAloud(.idle))
+                case .readThenSpeak:
+                    setFlow(.readAndSpeak(.idle))
+                case .speakOnly:
+                    setFlow(.speakOnly(.idle))
+                }
+            }
+            
+            // Start the flow for the first affirmation
+            startFlowForCurrentAffirmation()
+        }
     }
     
     func handleSelectBinaural(_ preset: BinauralPreset) {
@@ -211,11 +224,15 @@ extension PracticeStore {
         cancelCurrentActivity()
         flowGeneration += 1  // Ensure any stale async work sees generation mismatch and stops
         
-        // 2. Dismiss any alerts
+        // 2. Cancel TTS queue and clear preparation state
+        dependencies.sessionTTSQueueService.cancelAll()
+        clearSessionPreparation()
+        
+        // 3. Dismiss any alerts
         setShowingTimeoutAlert(false)
         setPermissionAlert(showing: false)
         
-        // 3. CRITICAL: Set mode and flow to home FIRST
+        // 4. CRITICAL: Set mode and flow to home FIRST
         //    This makes isSessionActive = false BEFORE we clear session data.
         //    Without this order, there's a brief moment where:
         //    - sessionAffirmations is empty
@@ -226,14 +243,14 @@ extension PracticeStore {
         setFlow(.home)
         setSegmentProgress(0)
         
-        // 4. Now safe to clear session state (isSessionActive is already false)
+        // 5. Now safe to clear session state (isSessionActive is already false)
         resetLoopConfiguration()
         clearSavedSessionContext()
         clearOriginalSessionAffirmationIds()
         setSessionState(affirmations: [], index: 0)
         setSessionResults([])
         
-        // 5. Close any open menus with animation
+        // 6. Close any open menus with animation
         withAnimation(AppTheme.Animation.standard) {
             isModeSelectorExpanded = false
             isBinauralSelectorExpanded = false
@@ -260,6 +277,10 @@ extension PracticeStore {
         
         // Cancel any active work
         cancelCurrentActivity()
+        
+        // Cancel TTS queue and clear preparation state
+        dependencies.sessionTTSQueueService.cancelAll()
+        clearSessionPreparation()
         
         // Dismiss summary if showing (no animation needed since we're resetting)
         if isShowingSummary {

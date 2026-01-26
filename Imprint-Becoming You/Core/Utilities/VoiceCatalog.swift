@@ -11,7 +11,7 @@ import Foundation
 
 /// Helper for looking up voices by ID across all voice catalogs.
 ///
-/// Searches free Kokoro voices, premium Kokoro voices, and Qwen preset voices.
+/// Searches English Kokoro voices, premium non-English voices, and Qwen preset voices.
 /// Also handles system voice ID format.
 ///
 /// ## Usage
@@ -27,12 +27,12 @@ enum VoiceCatalog {
     /// - Parameter id: The voice ID to search for
     /// - Returns: The matching `Voice`, or `nil` if not found
     static func findVoice(id: String) -> Voice? {
-        // Check free Kokoro voices
-        if let voice = Voice.freeKokoroVoices.first(where: { $0.id == id }) {
+        // Check English Kokoro voices (primary)
+        if let voice = Voice.allEnglishKokoroVoices.first(where: { $0.id == id }) {
             return voice
         }
         
-        // Check premium Kokoro voices
+        // Check premium non-English Kokoro voices
         if let voice = Voice.premiumKokoroVoices.first(where: { $0.id == id }) {
             return voice
         }
@@ -51,17 +51,17 @@ enum VoiceCatalog {
         return nil
     }
     
-    /// Returns all available voices (free + premium + cloud).
+    /// Returns all available voices (English + premium + cloud).
     static var allVoices: [Voice] {
-        Voice.freeKokoroVoices + Voice.premiumKokoroVoices + Voice.qwenPresetVoices
+        Voice.allEnglishKokoroVoices + Voice.premiumKokoroVoices + Voice.qwenPresetVoices
     }
     
-    /// Returns all free voices.
-    static var freeVoices: [Voice] {
-        Voice.freeKokoroVoices
+    /// Returns all English voices.
+    static var englishVoices: [Voice] {
+        Voice.allEnglishKokoroVoices
     }
     
-    /// Returns all premium voices.
+    /// Returns all premium voices (non-English + cloud).
     static var premiumVoices: [Voice] {
         Voice.premiumKokoroVoices + Voice.qwenPresetVoices
     }

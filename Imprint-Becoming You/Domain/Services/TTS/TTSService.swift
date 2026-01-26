@@ -21,6 +21,10 @@ import iOS_TTS
 /// - `af_heart`, `am_adam`, etc.: Kokoro with specified voice
 /// - `system`: System AVSpeechSynthesizer
 ///
+/// ## Pre-Synthesis
+/// Use `preSynthesize()` to prepare the next affirmation while the current
+/// one is playing, reducing latency for seamless transitions.
+///
 /// ## Architecture
 /// ```
 /// TTSService
@@ -50,6 +54,9 @@ final class TTSService: TTSServiceProtocol {
     
     /// Audio cache manager
     private let cacheManager: AudioCacheManager
+    
+    /// Active pre-synthesis task
+    private var preSynthesisTask: Task<Void, Never>?
     
     // MARK: - State
     
@@ -159,6 +166,36 @@ final class TTSService: TTSServiceProtocol {
         _isSpeaking = false
     }
     
+    // MARK: - Pre-Synthesis
+    
+    func preSynthesize(text: String, voiceId: String?) async {
+        #if DEBUG
+        print("🎤 TTSService: Pre-synthesizing '\(text.prefix(30))...' with voice \(voiceId ?? "default")")
+        #endif
+        
+        // Cancel any existing pre-synthesis
+        preSynthesisTask?.cancel()
+        
+        // Synthesize in background (result is cached automatically by the engine/cache manager)
+        preSynthesisTask = Task {
+            do {
+                _ = try await synthesize(text: text, voiceId: voiceId)
+                #if DEBUG
+                print("✅ TTSService: Pre-synthesis complete")
+                #endif
+            } catch {
+                #if DEBUG
+                print("⚠️ TTSService: Pre-synthesis failed: \(error)")
+                #endif
+            }
+        }
+    }
+    
+    func cancelPreSynthesis() {
+        preSynthesisTask?.cancel()
+        preSynthesisTask = nil
+    }
+    
     // MARK: - Kokoro Synthesis
     
     private func synthesizeWithKokoro(text: String, voiceId: String?) async throws -> Data {
@@ -218,7 +255,7 @@ final class TTSService: TTSServiceProtocol {
             )
             
             #if DEBUG
-            print("🎤 TTSService: Kokoro synthesized \(audioData.count) bytes")
+            print("✅ TTSService: Kokoro synthesis complete, playing \(audioData.count) bytes")
             #endif
             
             try await playAudioData(audioData)
@@ -231,9 +268,12 @@ final class TTSService: TTSServiceProtocol {
         }
     }
     
-    /// Resolves voiceId to iOS_TTS VoiceStyle, using default if not found.
+    // MARK: - Voice Style Resolution
+    
+    /// Resolves a voice ID string to a Kokoro VoiceStyle.
     ///
-    /// Voice ID format: VoiceStyle.rawValue (e.g., "af_heart", "am_adam")
+    /// - Parameter voiceId: Voice ID in snake_case (e.g., "af_heart", "am_adam")
+    /// - Returns: The corresponding VoiceStyle, or .afHeart as default
     private func resolveVoiceStyle(voiceId: String?) -> VoiceStyle {
         guard let voiceId = voiceId, !voiceId.isEmpty else {
             #if DEBUG

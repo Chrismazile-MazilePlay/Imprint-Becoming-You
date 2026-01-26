@@ -22,6 +22,10 @@ import Foundation
 /// - `system`: Uses System AVSpeechSynthesizer
 /// - Other: Reserved for future cloud voices
 ///
+/// ## Pre-Synthesis
+/// Use `preSynthesize()` to prepare audio in advance,
+/// reducing latency for sequential playback.
+///
 /// ## Architecture
 /// ```
 /// TTSServiceProtocol
@@ -42,7 +46,7 @@ import Foundation
 /// try await ttsService.speakText("I am confident", voiceId: nil)
 ///
 /// // Speak with specific Kokoro voice
-/// try await ttsService.speakText("I am capable", voiceId: "kokoro_amAdam")
+/// try await ttsService.speakText("I am capable", voiceId: "af_heart")
 ///
 /// // Force system TTS
 /// try await ttsService.speakText("Hello", voiceId: "system")
@@ -91,6 +95,37 @@ protocol TTSServiceProtocol: AnyObject {
     
     /// Stops current speech playback immediately.
     func stopSpeaking()
+    
+    // MARK: - Pre-Synthesis
+    
+    /// Pre-synthesizes text for faster subsequent playback.
+    ///
+    /// Call this to prepare the next affirmation while the current one
+    /// is playing. The result is cached for instant playback.
+    ///
+    /// - Parameters:
+    ///   - text: The text to pre-synthesize
+    ///   - voiceId: Optional voice ID
+    func preSynthesize(text: String, voiceId: String?) async
+    
+    /// Cancels any active pre-synthesis task.
+    func cancelPreSynthesis()
+}
+
+// MARK: - Default Implementations
+
+extension TTSServiceProtocol {
+    
+    /// Default implementation for pre-synthesis (synthesize and cache)
+    func preSynthesize(text: String, voiceId: String?) async {
+        // Default: synthesize and let cache handle it
+        _ = try? await synthesize(text: text, voiceId: voiceId)
+    }
+    
+    /// Default implementation for cancel (no-op for simple services)
+    func cancelPreSynthesis() {
+        // Default: no-op
+    }
 }
 
 // MARK: - TTS Configuration
@@ -125,6 +160,6 @@ enum TTSConfiguration {
     /// Voice ID for system TTS
     static let systemVoiceId = "system"
     
-    /// Default Kokoro voice ID
-    static let defaultVoiceId = "kokoro_afHeart"
+    /// Default Kokoro voice ID (raw form for TTS engine)
+    static let defaultVoiceId = "af_heart"
 }

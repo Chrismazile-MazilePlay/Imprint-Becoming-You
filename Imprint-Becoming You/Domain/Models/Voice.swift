@@ -265,7 +265,52 @@ extension Voice {
 
 extension Voice {
     
-    /// Free Kokoro voices (6 curated)
+    /// All English Kokoro voices available for selection.
+    ///
+    /// These voices are verified to exist in the iOS_TTS VoiceStyle enum.
+    /// Organized by accent and gender:
+    /// - American Female: 11 voices
+    /// - American Male: 8 voices
+    /// - British Female: 3 voices
+    /// - British Male: 4 voices
+    /// Total: 26 voices
+    static let allEnglishKokoroVoices: [Voice] = [
+        // American Female (11)
+        .kokoroVoice(id: "af_heart", name: "Heart", isPremiumOnly: false, gender: .female, style: "warm"),
+        .kokoroVoice(id: "af_bella", name: "Bella", isPremiumOnly: false, gender: .female, style: "friendly"),
+        .kokoroVoice(id: "af_alloy", name: "Alloy", isPremiumOnly: false, gender: .female, style: "neutral"),
+        .kokoroVoice(id: "af_aoede", name: "Aoede", isPremiumOnly: false, gender: .female, style: "melodic"),
+        .kokoroVoice(id: "af_jessica", name: "Jessica", isPremiumOnly: false, gender: .female, style: "casual"),
+        .kokoroVoice(id: "af_kore", name: "Kore", isPremiumOnly: false, gender: .female, style: "youthful"),
+        .kokoroVoice(id: "af_nicole", name: "Nicole", isPremiumOnly: false, gender: .female, style: "professional"),
+        .kokoroVoice(id: "af_nova", name: "Nova", isPremiumOnly: false, gender: .female, style: "energetic"),
+        .kokoroVoice(id: "af_river", name: "River", isPremiumOnly: false, gender: .female, style: "calm"),
+        .kokoroVoice(id: "af_sarah", name: "Sarah", isPremiumOnly: false, gender: .female, style: "friendly"),
+        .kokoroVoice(id: "af_sky", name: "Sky", isPremiumOnly: false, gender: .female, style: "airy"),
+        
+        // American Male (8)
+        .kokoroVoice(id: "am_adam", name: "Adam", isPremiumOnly: false, gender: .male, style: "confident"),
+        .kokoroVoice(id: "am_michael", name: "Michael", isPremiumOnly: false, gender: .male, style: "professional"),
+        .kokoroVoice(id: "am_echo", name: "Echo", isPremiumOnly: false, gender: .male, style: "resonant"),
+        .kokoroVoice(id: "am_eric", name: "Eric", isPremiumOnly: false, gender: .male, style: "authoritative"),
+        .kokoroVoice(id: "am_fenrir", name: "Fenrir", isPremiumOnly: false, gender: .male, style: "deep"),
+        .kokoroVoice(id: "am_liam", name: "Liam", isPremiumOnly: false, gender: .male, style: "friendly"),
+        .kokoroVoice(id: "am_onyx", name: "Onyx", isPremiumOnly: false, gender: .male, style: "smooth"),
+        .kokoroVoice(id: "am_puck", name: "Puck", isPremiumOnly: false, gender: .male, style: "playful"),
+        
+        // British Female (3)
+        .kokoroVoice(id: "bf_emma", name: "Emma", languageCode: "en-GB", isPremiumOnly: false, gender: .female, style: "warm"),
+        .kokoroVoice(id: "bf_alice", name: "Alice", languageCode: "en-GB", isPremiumOnly: false, gender: .female, style: "elegant"),
+        .kokoroVoice(id: "bf_lily", name: "Lily", languageCode: "en-GB", isPremiumOnly: false, gender: .female, style: "gentle"),
+        
+        // British Male (4)
+        .kokoroVoice(id: "bm_george", name: "George", languageCode: "en-GB", isPremiumOnly: false, gender: .male, style: "classic"),
+        .kokoroVoice(id: "bm_daniel", name: "Daniel", languageCode: "en-GB", isPremiumOnly: false, gender: .male, style: "refined"),
+        .kokoroVoice(id: "bm_fable", name: "Fable", languageCode: "en-GB", isPremiumOnly: false, gender: .male, style: "storyteller"),
+        .kokoroVoice(id: "bm_lewis", name: "Lewis", languageCode: "en-GB", isPremiumOnly: false, gender: .male, style: "casual")
+    ]
+    
+    /// Free Kokoro voices (6 curated) - for backwards compatibility
     static let freeKokoroVoices: [Voice] = [
         .kokoroVoice(id: "af_heart", name: "Heart", isPremiumOnly: false, gender: .female, style: "warm"),
         .kokoroVoice(id: "af_bella", name: "Bella", isPremiumOnly: false, gender: .female, style: "friendly"),
@@ -275,34 +320,8 @@ extension Voice {
         .kokoroVoice(id: "bm_george", name: "George", languageCode: "en-GB", isPremiumOnly: false, gender: .male, style: "British")
     ]
     
-    /// Premium Kokoro voices (48 additional)
+    /// Premium Kokoro voices (non-English languages)
     static let premiumKokoroVoices: [Voice] = [
-        // American Female
-        .kokoroVoice(id: "af_alloy", name: "Alloy", gender: .female, style: "neutral"),
-        .kokoroVoice(id: "af_aoede", name: "Aoede", gender: .female, style: "melodic"),
-        .kokoroVoice(id: "af_jessica", name: "Jessica", gender: .female, style: "casual"),
-        .kokoroVoice(id: "af_kore", name: "Kore", gender: .female, style: "youthful"),
-        .kokoroVoice(id: "af_nicole", name: "Nicole", gender: .female, style: "professional"),
-        .kokoroVoice(id: "af_nova", name: "Nova", gender: .female, style: "energetic"),
-        .kokoroVoice(id: "af_river", name: "River", gender: .female, style: "calm"),
-        .kokoroVoice(id: "af_sarah", name: "Sarah", gender: .female, style: "friendly"),
-        .kokoroVoice(id: "af_sky", name: "Sky", gender: .female, style: "airy"),
-        
-        // American Male
-        .kokoroVoice(id: "am_echo", name: "Echo", gender: .male, style: "resonant"),
-        .kokoroVoice(id: "am_eric", name: "Eric", gender: .male, style: "authoritative"),
-        .kokoroVoice(id: "am_fenrir", name: "Fenrir", gender: .male, style: "deep"),
-        .kokoroVoice(id: "am_liam", name: "Liam", gender: .male, style: "friendly"),
-        .kokoroVoice(id: "am_onyx", name: "Onyx", gender: .male, style: "smooth"),
-        .kokoroVoice(id: "am_puck", name: "Puck", gender: .male, style: "playful"),
-        
-        // British
-        .kokoroVoice(id: "bf_alice", name: "Alice", languageCode: "en-GB", gender: .female, style: "elegant"),
-        .kokoroVoice(id: "bf_lily", name: "Lily", languageCode: "en-GB", gender: .female, style: "warm"),
-        .kokoroVoice(id: "bm_daniel", name: "Daniel", languageCode: "en-GB", gender: .male, style: "refined"),
-        .kokoroVoice(id: "bm_fable", name: "Fable", languageCode: "en-GB", gender: .male, style: "storyteller"),
-        .kokoroVoice(id: "bm_lewis", name: "Lewis", languageCode: "en-GB", gender: .male, style: "casual"),
-        
         // French
         .kokoroVoice(id: "ff_siwis", name: "Siwis", languageCode: "fr-FR", gender: .female, style: "French"),
         
@@ -330,7 +349,7 @@ extension Voice {
     
     /// All Kokoro voices
     static var allKokoroVoices: [Voice] {
-        freeKokoroVoices + premiumKokoroVoices
+        allEnglishKokoroVoices + premiumKokoroVoices
     }
     
     /// Qwen CustomVoice presets (premium)
@@ -348,6 +367,18 @@ extension Voice {
     
     /// Default voice for new users
     static var defaultVoice: Voice {
-        freeKokoroVoices.first!
+        allEnglishKokoroVoices.first!
+    }
+    
+    /// All English voice IDs for preview cache (raw kokoroVoiceId format).
+    ///
+    /// Order determines synthesis priority:
+    /// 1. Default voice first
+    /// 2. American Female
+    /// 3. American Male
+    /// 4. British Female
+    /// 5. British Male
+    static var allEnglishVoiceIds: [String] {
+        allEnglishKokoroVoices.compactMap { $0.kokoroVoiceId }
     }
 }

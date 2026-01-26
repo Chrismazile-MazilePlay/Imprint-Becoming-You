@@ -70,11 +70,37 @@ struct ImprintApp: App {
                 .environment(\.appState, appState)
                 .withDependencies()
                 .preferredColorScheme(.dark)
+                .task {
+                    await startBackgroundServices()
+                }
         }
         .modelContainer(modelContainer)
     }
     
     // MARK: - Private Methods
+    
+    /// Starts background services including TTS warm-up and voice preview synthesis.
+    @MainActor
+    private func startBackgroundServices() async {
+        let dependencies = DependencyContainer.shared
+        
+        // Warm up TTS engine first
+        #if DEBUG
+        print("🔊 ImprintApp: Warming up TTS engine...")
+        #endif
+        let startTime = Date()
+        await dependencies.ttsService.warmUp()
+        #if DEBUG
+        let elapsed = Date().timeIntervalSince(startTime)
+        print("🔊 ImprintApp: TTS warm-up complete (\(String(format: "%.2f", elapsed))s)")
+        #endif
+        
+        // Start background voice preview synthesis
+        #if DEBUG
+        print("🔊 ImprintApp: Starting voice preview synthesis...")
+        #endif
+        await dependencies.voicePreviewCacheService.startBackgroundSynthesis()
+    }
     
     /// Configures global UI appearance for UIKit components
     private func configureAppearance() {

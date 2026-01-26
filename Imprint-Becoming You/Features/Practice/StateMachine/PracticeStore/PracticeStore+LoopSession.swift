@@ -89,8 +89,8 @@ extension PracticeStore {
             print("[OK] PracticeStore: Starting saved session '\(savedSession.name)' with \(affirmations.count) affirmations")
             #endif
             
-            // Start the session with the saved session's default mode
-            startSession(mode: savedSession.defaultMode)
+            // Start the session with TTS preparation for modes that use it
+            prepareAndStartSession(mode: savedSession.defaultMode)
             
         } catch {
             #if DEBUG

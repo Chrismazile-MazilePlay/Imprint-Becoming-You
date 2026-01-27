@@ -192,6 +192,7 @@ struct MainPracticeView: View {
                     loopConfiguration: store.loopConfiguration,
                     isPlayingSavedSession: store.isPlayingSavedSession,
                     isFavoritesSession: store.isFavoritesSession,
+                    isSessionSaved: store.hasSessionBeenSaved,
                     onClose: {
                         dismissSummary()
                     },
@@ -262,18 +263,55 @@ struct MainPracticeView: View {
             
             // Session Preparation overlay
             if store.isPreparingSession {
-                SessionPreparationView(
-                    progress: store.sessionPreparationProgress,
-                    preparedCount: store.sessionPreparedCount,
-                    totalCount: store.sessionPreparationTarget,
-                    onCancel: {
-                        store.send(.cancelSessionPreparation)
-                    }
-                )
-                .transition(.opacity)
-                .zIndex(25) // Above everything
+                sessionPreparationOverlay
+                    .transition(.opacity)
+                    .zIndex(25) // Above everything
             }
         }
+    }
+    
+    // MARK: - Computed Properties
+    
+    /// Whether the "Start Now" button should be enabled for large sessions.
+    ///
+    /// Only applicable when:
+    /// 1. Session is large (>30 affirmations)
+    /// 2. At least 15 affirmations are ready
+    private var canStartSessionEarly: Bool {
+        let isLargeSession = store.sessionPreparationTarget > Constants.SessionPreparation.largeSessionThreshold
+        guard isLargeSession else { return false }
+        return store.sessionPreparedCount >= Constants.SessionPreparation.readyToStartThreshold
+    }
+    
+    // MARK: - Session Preparation Overlay
+    
+    /// Session preparation view with phase-aware progress and fallback handling.
+    ///
+    /// Displays:
+    /// - Smooth progress bar with phase-based animation
+    /// - Game-style cycling status messages
+    /// - "Start Now" button for large sessions (when 15+ ready)
+    /// - Fallback UI on Kokoro timeout ("Continue with System Voice" / "Retry")
+    @ViewBuilder
+    private var sessionPreparationOverlay: some View {
+        SessionPreparationView(
+            phase: store.sessionPreparationPhase,
+            preparedCount: store.sessionPreparedCount,
+            totalCount: store.sessionPreparationTarget,
+            canStartEarly: canStartSessionEarly,
+            onStartNow: {
+                store.send(.sessionPreparationCompleted)
+            },
+            onContinueWithSystemVoice: {
+                store.continueWithSystemVoice()
+            },
+            onRetry: {
+                store.retrySessionPreparation()
+            },
+            onCancel: {
+                store.send(.cancelSessionPreparation)
+            }
+        )
     }
     
     // MARK: - Summary Dismissal
@@ -447,7 +485,7 @@ struct MainPracticeView: View {
         store.selectedVoiceId = ttsVoiceId
         
         #if DEBUG
-        print("ðŸŽ¤ MainPracticeView: Set voice to \(ttsVoiceId ?? "default")")
+        print("🎤 MainPracticeView: Set voice to \(ttsVoiceId ?? "default")")
         #endif
     }
     

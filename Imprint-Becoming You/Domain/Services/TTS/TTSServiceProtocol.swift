@@ -42,6 +42,11 @@ import Foundation
 /// // Warm up at app launch
 /// await ttsService.warmUp()
 ///
+/// // Check if Kokoro is ready before session
+/// if ttsService.isKokoroReady {
+///     // Proceed with neural TTS
+/// }
+///
 /// // Speak with default Kokoro voice
 /// try await ttsService.speakText("I am confident", voiceId: nil)
 ///
@@ -59,7 +64,10 @@ protocol TTSServiceProtocol: AnyObject {
     /// Whether speech is currently playing
     var isSpeaking: Bool { get }
     
-    /// Whether Kokoro engine is ready
+    /// Whether Kokoro engine is ready for synthesis.
+    ///
+    /// Check this before starting a session to determine if
+    /// the session preparation screen should wait for warm-up.
     var isKokoroReady: Bool { get }
     
     // MARK: - Initialization
@@ -70,7 +78,18 @@ protocol TTSServiceProtocol: AnyObject {
     /// Safe to call multiple times - subsequent calls are no-ops.
     ///
     /// If warm-up fails, the service falls back to System TTS automatically.
+    /// Posts `Constants.NotificationNames.kokoroTTSReady` when complete.
     func warmUp() async
+    
+    /// Retries Kokoro initialization after a failure.
+    ///
+    /// Call this when:
+    /// - User taps "Retry" in session preparation fallback UI
+    /// - Warm-up timed out and user wants to try again
+    ///
+    /// This resets the internal Kokoro state and attempts warm-up again.
+    /// Posts `Constants.NotificationNames.kokoroTTSReady` when complete.
+    func retryKokoroInitialization() async
     
     // MARK: - Synthesis
     
@@ -82,6 +101,17 @@ protocol TTSServiceProtocol: AnyObject {
     /// - Returns: Audio data (WAV format)
     /// - Throws: `AppError.ttsError` if synthesis fails
     func synthesize(text: String, voiceId: String?) async throws -> Data
+    
+    /// Synthesizes speech using System TTS regardless of Kokoro state.
+    ///
+    /// Use this when user explicitly chooses "Continue with System Voice"
+    /// in the session preparation fallback UI.
+    ///
+    /// - Parameters:
+    ///   - text: Text to synthesize
+    /// - Returns: Audio data (WAV format)
+    /// - Throws: `AppError.ttsError` if synthesis fails
+    func synthesizeWithSystemTTS(text: String) async throws -> Data
     
     /// Synthesizes and plays speech immediately.
     ///
@@ -125,6 +155,17 @@ extension TTSServiceProtocol {
     /// Default implementation for cancel (no-op for simple services)
     func cancelPreSynthesis() {
         // Default: no-op
+    }
+    
+    /// Default implementation for retry (just call warmUp again)
+    func retryKokoroInitialization() async {
+        await warmUp()
+    }
+    
+    /// Default implementation for system TTS fallback
+    func synthesizeWithSystemTTS(text: String) async throws -> Data {
+        // Default: use regular synthesize with system voice
+        return try await synthesize(text: text, voiceId: TTSConfiguration.systemVoiceId)
     }
 }
 

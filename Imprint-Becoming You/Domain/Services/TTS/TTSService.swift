@@ -41,7 +41,7 @@ final class TTSService: TTSServiceProtocol {
     // MARK: - Dependencies
     
     /// Kokoro neural TTS engine (primary)
-    private let kokoroEngine: KokoroTTSEngine
+    private var kokoroEngine: KokoroTTSEngine
     
     /// System TTS service for fallback
     private let systemTTS: SystemTTSService
@@ -112,6 +112,13 @@ final class TTSService: TTSServiceProtocol {
             #if DEBUG
             print("✅ TTSService: Kokoro engine ready")
             #endif
+            
+            // Post notification that Kokoro is ready
+            NotificationCenter.default.post(
+                name: Constants.NotificationNames.kokoroTTSReady,
+                object: nil
+            )
+            
         } catch {
             _isKokoroReady = false
             
@@ -119,6 +126,21 @@ final class TTSService: TTSServiceProtocol {
             print("⚠️ TTSService: Kokoro warm-up failed, will use System TTS fallback - \(error)")
             #endif
         }
+    }
+    
+    func retryKokoroInitialization() async {
+        #if DEBUG
+        print("🎤 TTSService: Retrying Kokoro initialization...")
+        #endif
+        
+        // Reset state
+        _isKokoroReady = false
+        
+        // Create a fresh engine instance
+        kokoroEngine = KokoroTTSEngine()
+        
+        // Attempt warm-up again
+        await warmUp()
     }
     
     func synthesize(text: String, voiceId: String?) async throws -> Data {
@@ -133,6 +155,14 @@ final class TTSService: TTSServiceProtocol {
         
         // Try Kokoro for nil, empty, or voice style IDs
         return try await synthesizeWithKokoro(text: text, voiceId: voiceId)
+    }
+    
+    func synthesizeWithSystemTTS(text: String) async throws -> Data {
+        #if DEBUG
+        print("🎤 TTSService.synthesizeWithSystemTTS: Forcing System TTS")
+        #endif
+        
+        return try await systemTTS.synthesizeToData(text)
     }
     
     func speakText(_ text: String, voiceId: String?) async throws {

@@ -11,71 +11,61 @@ import Foundation
 
 /// Mock implementation of SessionTTSQueueServiceProtocol for testing and previews.
 ///
-/// Simulates TTS synthesis with configurable delays and behaviors.
-/// Tracks all method calls for verification in tests.
+/// Provides configurable behavior:
+/// - Instant completion (default)
+/// - Simulated delays for testing preparation UI
+/// - Kokoro wait simulation
+/// - Failure simulation
+/// - Large session simulation for "Start Now" button testing
 @MainActor
 final class MockSessionTTSQueueService: SessionTTSQueueServiceProtocol {
     
-    // MARK: - Call Tracking
+    // MARK: - Configuration
     
-    /// Number of times `prepareSession` was called
-    var prepareSessionCallCount = 0
+    /// Delay per affirmation synthesis (default: 0 for instant)
+    var synthesisDelay: Duration = .zero
     
-    /// Number of times `getAudio` was called
-    var getAudioCallCount = 0
+    /// Whether to simulate Kokoro warm-up wait
+    var simulateKokoroWait: Bool = false
     
-    /// Number of times `notifyPlaying` was called
-    var notifyPlayingCallCount = 0
+    /// Duration to simulate Kokoro warm-up
+    var kokoroWaitDuration: Duration = .seconds(2)
     
-    /// Number of times `synthesizeOnDemand` was called
-    var synthesizeOnDemandCallCount = 0
+    /// Whether to simulate Kokoro timeout
+    var simulateKokoroTimeout: Bool = false
     
-    /// Number of times `cancelAll` was called
-    var cancelAllCallCount = 0
-    
-    /// Last index passed to `notifyPlaying`
-    var lastNotifyPlayingIndex: Int?
-    
-    /// Last index passed to `synthesizeOnDemand`
-    var lastSynthesizeOnDemandIndex: Int?
-    
-    // MARK: - Mock Configuration
-    
-    /// Simulated delay per affirmation synthesis (seconds)
-    var mockSynthesisDelay: TimeInterval = 0.1
-    
-    /// Whether synthesis should fail
+    /// Whether to simulate failures
     var shouldFail = false
     
-    /// Error to throw when shouldFail is true
-    var mockError: Error = AppError.ttsError("Mock synthesis error")
-    
-    /// Mock audio data to return
-    var mockAudioData = Data(repeating: 0, count: 1000)
+    /// Failure error message
+    var failureMessage = "Mock TTS failure"
     
     // MARK: - State
     
-    private var _isPreparing = false
-    private var _preparedCount = 0
-    private var _preparationTarget = 0
+    private(set) var isPreparing = false
+    private(set) var preparationPhase: SessionPreparationPhase = .waitingForKokoro
+    private(set) var preparedCount = 0
+    private(set) var totalCount = 0
     private var audioCache: [Int: Data] = [:]
     private var sessionAffirmations: [SessionAffirmationInfo] = []
+    private var currentVoiceId: String?
+    private var forceSystemTTS: Bool = false
+    private var isBackgroundSynthesizing = false
     
     // MARK: - Protocol Properties
     
-    var isPreparing: Bool { _isPreparing }
-    
-    var preparedCount: Int { _preparedCount }
-    
-    var preparationTarget: Int { _preparationTarget }
-    
     var preparationProgress: Float {
-        guard _preparationTarget > 0 else { return 0 }
-        return Float(min(_preparedCount, _preparationTarget)) / Float(_preparationTarget)
+        guard totalCount > 0 else { return 0 }
+        return Float(preparedCount) / Float(totalCount)
     }
     
     var isInitialPreparationComplete: Bool {
-        _preparedCount >= _preparationTarget
+        preparedCount >= totalCount
+    }
+    
+    var canStartEarly: Bool {
+        guard totalCount > Constants.SessionPreparation.largeSessionThreshold else { return false }
+        return preparedCount >= Constants.SessionPreparation.readyToStartThreshold
     }
     
     // MARK: - Protocol Methods
@@ -83,39 +73,98 @@ final class MockSessionTTSQueueService: SessionTTSQueueServiceProtocol {
     func prepareSession(
         affirmations: [SessionAffirmationInfo],
         voiceId: String?,
-        initialCount: Int
+        forceSystemTTS: Bool,
+        onPhaseChange: @escaping @Sendable (SessionPreparationPhase) -> Void,
+        onProgress: @escaping @Sendable (Int, Int) -> Void
     ) async throws {
-        prepareSessionCallCount += 1
+        // Reset state
+        cancelAll()
+        
+        sessionAffirmations = affirmations
+        currentVoiceId = voiceId
+        self.forceSystemTTS = forceSystemTTS
+        totalCount = affirmations.count
+        preparedCount = 0
+        isPreparing = true
+        
+        guard !affirmations.isEmpty else {
+            preparationPhase = .complete
+            isPreparing = false
+            Task { @MainActor in onPhaseChange(.complete) }
+            return
+        }
+        
+        // Phase 1: Simulate Kokoro wait (unless forcing System TTS)
+        if !forceSystemTTS && (simulateKokoroWait || simulateKokoroTimeout) {
+            preparationPhase = .waitingForKokoro
+            Task { @MainActor in onPhaseChange(.waitingForKokoro) }
+            
+            if simulateKokoroTimeout {
+                try await Task.sleep(for: .seconds(12))
+                preparationPhase = .kokoroTimeout
+                isPreparing = false
+                Task { @MainActor in onPhaseChange(.kokoroTimeout) }
+                return
+            }
+            
+            try await Task.sleep(for: kokoroWaitDuration)
+        }
+        
+        // Phase 2: Synthesis
+        preparationPhase = .synthesizing
+        Task { @MainActor in onPhaseChange(.synthesizing) }
         
         if shouldFail {
-            throw mockError
+            preparationPhase = .error(message: failureMessage)
+            isPreparing = false
+            throw TTSError.synthesisFailedError(message: failureMessage)
         }
         
-        _isPreparing = true
-        sessionAffirmations = affirmations
-        _preparationTarget = min(initialCount, affirmations.count)
-        _preparedCount = 0
-        audioCache.removeAll()
-        
-        // Simulate synthesis for initial affirmations
-        for i in 0..<_preparationTarget {
-            try? await Task.sleep(for: .milliseconds(Int(mockSynthesisDelay * 1000)))
-            audioCache[i] = mockAudioData
-            _preparedCount += 1
+        // Synthesize ALL affirmations
+        for (index, info) in affirmations.enumerated() {
+            try Task.checkCancellation()
+            
+            if synthesisDelay > .zero {
+                try await Task.sleep(for: synthesisDelay)
+            }
+            
+            try Task.checkCancellation()
+            
+            let mockAudio = generateMockAudio(for: info.text)
+            audioCache[index] = mockAudio
+            preparedCount = index + 1
+            
+            Task { @MainActor in
+                onProgress(self.preparedCount, self.totalCount)
+            }
         }
         
-        _isPreparing = false
+        // Phase 3: Complete
+        preparationPhase = .complete
+        isPreparing = false
+        Task { @MainActor in onPhaseChange(.complete) }
+    }
+    
+    func startBackgroundSynthesis(startingFrom startIndex: Int) {
+        isBackgroundSynthesizing = true
         
-        // Simulate background synthesis completion (instant for mock)
-        for i in _preparationTarget..<affirmations.count {
-            audioCache[i] = mockAudioData
-            _preparedCount += 1
+        for index in startIndex..<totalCount {
+            if audioCache[index] == nil {
+                let info = sessionAffirmations[index]
+                audioCache[index] = generateMockAudio(for: info.text)
+                preparedCount += 1
+            }
         }
+        
+        isBackgroundSynthesizing = false
+        
+        #if DEBUG
+        print("🎵 MockSessionTTSQueue: Background synthesis complete")
+        #endif
     }
     
     func getAudio(for index: Int) -> Data? {
-        getAudioCallCount += 1
-        return audioCache[index]
+        audioCache[index]
     }
     
     func isReady(_ index: Int) -> Bool {
@@ -123,57 +172,135 @@ final class MockSessionTTSQueueService: SessionTTSQueueServiceProtocol {
     }
     
     func notifyPlaying(index: Int) {
-        notifyPlayingCallCount += 1
-        lastNotifyPlayingIndex = index
+        // No-op in mock
     }
     
     func synthesizeOnDemand(index: Int) async throws -> Data {
-        synthesizeOnDemandCallCount += 1
-        lastSynthesizeOnDemandIndex = index
-        
-        if shouldFail {
-            throw mockError
+        if let cached = audioCache[index] {
+            return cached
         }
         
-        try? await Task.sleep(for: .milliseconds(Int(mockSynthesisDelay * 1000)))
-        audioCache[index] = mockAudioData
-        _preparedCount += 1
+        guard index >= 0 && index < sessionAffirmations.count else {
+            throw TTSError.synthesisFailedError(message: "Index out of bounds")
+        }
         
-        return mockAudioData
+        if shouldFail {
+            throw TTSError.synthesisFailedError(message: failureMessage)
+        }
+        
+        let info = sessionAffirmations[index]
+        let audio = generateMockAudio(for: info.text)
+        audioCache[index] = audio
+        return audio
     }
     
     func cancelAll() {
-        cancelAllCallCount += 1
-        _isPreparing = false
-        _preparedCount = 0
-        _preparationTarget = 0
+        isPreparing = false
+        isBackgroundSynthesizing = false
+        preparationPhase = .waitingForKokoro
+        preparedCount = 0
+        totalCount = 0
         audioCache.removeAll()
         sessionAffirmations.removeAll()
+        currentVoiceId = nil
+        forceSystemTTS = false
+    }
+    
+    // MARK: - Mock Helpers
+    
+    private func generateMockAudio(for text: String) -> Data {
+        let sampleRate: UInt32 = 24000
+        let duration = max(1.0, Double(text.count) / 20.0)
+        let numSamples = Int(Double(sampleRate) * duration)
+        
+        var data = Data()
+        
+        let dataSize = UInt32(numSamples * 2)
+        let fileSize = dataSize + 36
+        
+        data.append(contentsOf: "RIFF".utf8)
+        data.append(contentsOf: withUnsafeBytes(of: fileSize.littleEndian) { Array($0) })
+        data.append(contentsOf: "WAVE".utf8)
+        data.append(contentsOf: "fmt ".utf8)
+        data.append(contentsOf: withUnsafeBytes(of: UInt32(16).littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: UInt16(1).littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: UInt16(1).littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: sampleRate.littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: (sampleRate * 2).littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: UInt16(2).littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: UInt16(16).littleEndian) { Array($0) })
+        data.append(contentsOf: "data".utf8)
+        data.append(contentsOf: withUnsafeBytes(of: dataSize.littleEndian) { Array($0) })
+        
+        data.append(contentsOf: [UInt8](repeating: 0, count: Int(dataSize)))
+        
+        return data
     }
     
     // MARK: - Test Helpers
     
-    /// Resets all tracking state
-    func reset() {
-        prepareSessionCallCount = 0
-        getAudioCallCount = 0
-        notifyPlayingCallCount = 0
-        synthesizeOnDemandCallCount = 0
-        cancelAllCallCount = 0
-        lastNotifyPlayingIndex = nil
-        lastSynthesizeOnDemandIndex = nil
-        
-        shouldFail = false
-        mockSynthesisDelay = 0.1
-        
-        cancelAll()
+    /// Simulates a large session for testing "Start Now" button behavior.
+    func simulateLargeSession(count: Int = 50) {
+        sessionAffirmations = (0..<count).map { index in
+            SessionAffirmationInfo(
+                id: UUID(),
+                text: "Test affirmation \(index + 1)",
+                index: index
+            )
+        }
+        totalCount = count
+        preparedCount = 0
+        isPreparing = true
+        preparationPhase = .synthesizing
     }
     
-    /// Pre-populates the cache for testing
-    func preloadCache(indices: [Int]) {
-        for index in indices {
-            audioCache[index] = mockAudioData
+    /// Simulates progress during preparation for UI testing.
+    func simulateProgress(prepared: Int, onProgress: @escaping (Int, Int) -> Void) {
+        preparedCount = min(prepared, totalCount)
+        
+        for index in 0..<preparedCount {
+            if audioCache[index] == nil, index < sessionAffirmations.count {
+                let info = sessionAffirmations[index]
+                audioCache[index] = generateMockAudio(for: info.text)
+            }
         }
-        _preparedCount = indices.count
+        
+        onProgress(preparedCount, totalCount)
     }
 }
+
+// MARK: - Preview Helpers
+
+#if DEBUG
+extension MockSessionTTSQueueService {
+    
+    static var instant: MockSessionTTSQueueService {
+        MockSessionTTSQueueService()
+    }
+    
+    static var realistic: MockSessionTTSQueueService {
+        let mock = MockSessionTTSQueueService()
+        mock.synthesisDelay = .milliseconds(333)
+        return mock
+    }
+    
+    static var withKokoroWait: MockSessionTTSQueueService {
+        let mock = MockSessionTTSQueueService()
+        mock.simulateKokoroWait = true
+        mock.kokoroWaitDuration = .seconds(3)
+        return mock
+    }
+    
+    static var withKokoroTimeout: MockSessionTTSQueueService {
+        let mock = MockSessionTTSQueueService()
+        mock.simulateKokoroTimeout = true
+        return mock
+    }
+    
+    static var failing: MockSessionTTSQueueService {
+        let mock = MockSessionTTSQueueService()
+        mock.shouldFail = true
+        return mock
+    }
+}
+#endif

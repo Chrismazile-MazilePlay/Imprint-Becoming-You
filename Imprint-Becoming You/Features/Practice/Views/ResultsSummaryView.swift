@@ -18,6 +18,7 @@ struct ResultsSummaryView: View {
     let loopConfiguration: LoopConfiguration
     let isPlayingSavedSession: Bool
     let isFavoritesSession: Bool
+    let isSessionSaved: Bool
     let onClose: () -> Void
     let onRepeat: (_ mode: SessionMode, _ loopCount: Int, _ shuffle: Bool) -> Void
     let onSaveSession: () -> Void
@@ -31,6 +32,31 @@ struct ResultsSummaryView: View {
     
     private let dockAreaHeight: CGFloat = 120
     
+    // MARK: - Computed Properties
+    
+    /// Whether the save button should be disabled.
+    ///
+    /// Disabled when:
+    /// - Playing a saved session (re-saving not allowed)
+    /// - Playing a favorites session (not a saveable session type)
+    /// - Session has already been saved (prevents duplicates)
+    private var isSaveButtonDisabled: Bool {
+        isPlayingSavedSession || isFavoritesSession || isSessionSaved
+    }
+    
+    /// Accessibility label for the save button based on its state.
+    private var saveButtonAccessibilityLabel: String {
+        if isSessionSaved {
+            return "Session saved"
+        } else if isPlayingSavedSession {
+            return "Cannot save - playing a saved session"
+        } else if isFavoritesSession {
+            return "Cannot save - favorites session"
+        } else {
+            return "Save session"
+        }
+    }
+    
     // MARK: - Initialization
     
     init(
@@ -38,6 +64,7 @@ struct ResultsSummaryView: View {
         loopConfiguration: LoopConfiguration,
         isPlayingSavedSession: Bool,
         isFavoritesSession: Bool,
+        isSessionSaved: Bool,
         onClose: @escaping () -> Void,
         onRepeat: @escaping (_ mode: SessionMode, _ loopCount: Int, _ shuffle: Bool) -> Void,
         onSaveSession: @escaping () -> Void,
@@ -47,6 +74,7 @@ struct ResultsSummaryView: View {
         self.loopConfiguration = loopConfiguration
         self.isPlayingSavedSession = isPlayingSavedSession
         self.isFavoritesSession = isFavoritesSession
+        self.isSessionSaved = isSessionSaved
         self.onClose = onClose
         self.onRepeat = onRepeat
         self.onSaveSession = onSaveSession
@@ -102,17 +130,16 @@ struct ResultsSummaryView: View {
                     .foregroundStyle(AppColors.accent)
                 }
                 
-                if !isPlayingSavedSession && !isFavoritesSession {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            onSaveSession()
-                        } label: {
-                            Image(systemName: "square.and.arrow.down")
-                                .font(.system(size: 16, weight: .medium))
-                        }
-                        .foregroundStyle(AppColors.accent)
-                        .accessibilityLabel("Save session")
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        onSaveSession()
+                    } label: {
+                        Image(systemName: isSaveButtonDisabled ? "checkmark.circle.fill" : "square.and.arrow.down")
+                            .font(.system(size: 16, weight: .medium))
                     }
+                    .foregroundStyle(isSaveButtonDisabled ? AppColors.textTertiary : AppColors.accent)
+                    .disabled(isSaveButtonDisabled)
+                    .accessibilityLabel(saveButtonAccessibilityLabel)
                 }
             }
         }
@@ -184,6 +211,21 @@ struct ResultsSummaryView: View {
         loopConfiguration: LoopConfiguration(loopCount: 3, isShuffleEnabled: true),
         isPlayingSavedSession: false,
         isFavoritesSession: false,
+        isSessionSaved: false,
+        onClose: {},
+        onRepeat: { _, _, _ in },
+        onSaveSession: {},
+        onToggleFavorite: { _ in }
+    )
+}
+
+#Preview("Results Summary - Already Saved") {
+    ResultsSummaryView(
+        summary: .sample,
+        loopConfiguration: LoopConfiguration(loopCount: 3, isShuffleEnabled: true),
+        isPlayingSavedSession: false,
+        isFavoritesSession: false,
+        isSessionSaved: true,
         onClose: {},
         onRepeat: { _, _, _ in },
         onSaveSession: {},

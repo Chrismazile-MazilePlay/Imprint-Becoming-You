@@ -42,16 +42,6 @@
     "%lld affirmations" : {
 
     },
-    "%lld of %lld" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$lld of %2$lld"
-          }
-        }
-      }
-    },
     "%lld of %lld goals selected" : {
       "localizations" : {
         "en" : {
@@ -169,6 +159,9 @@
 
     },
     "Continue to next loop?" : {
+
+    },
+    "Continue with System Voice" : {
 
     },
     "Create custom prompts to generate\npersonalized affirmations." : {
@@ -323,18 +316,11 @@
     "Premium" : {
 
     },
-    "Preparing Session" : {
+    "Preparation Failed" : {
 
     },
-    "Preparing session, %lld of %lld affirmations ready" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "Preparing session, %1$lld of %2$lld affirmations ready"
-          }
-        }
-      }
+    "Preparing Session" : {
+
     },
     "Preparing your practice..." : {
 
@@ -365,6 +351,9 @@
 
     },
     "Resonance score: %@" : {
+
+    },
+    "Retry" : {
 
     },
     "Save" : {
@@ -451,7 +440,13 @@
     "Start Calibration" : {
 
     },
+    "Start Now" : {
+
+    },
     "Start practice session" : {
+
+    },
+    "Start session now with %lld affirmations ready" : {
 
     },
     "Tap any voice to hear it" : {
@@ -467,6 +462,9 @@
 
     },
     "Tap to select and preview" : {
+
+    },
+    "than expected to load" : {
 
     },
     "This cannot be undone." : {
@@ -496,7 +494,16 @@
     "Voice calibration skipped – you can do this later in Settings" : {
 
     },
+    "Voice engine taking longer" : {
+
+    },
+    "Voice engine timeout. Choose to continue with system voice or retry." : {
+
+    },
     "Voice Settings" : {
+
+    },
+    "Waiting for more affirmations" : {
 
     },
     "Waveform Style" : {

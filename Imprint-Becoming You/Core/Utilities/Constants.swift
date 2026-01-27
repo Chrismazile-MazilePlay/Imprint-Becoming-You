@@ -52,6 +52,112 @@ enum Constants {
         static let silenceThreshold: TimeInterval = 1.5
     }
     
+    // MARK: - Session Preparation (TTS Pre-Synthesis)
+    
+    /// Configuration for session TTS pre-synthesis with bounded parallel execution.
+    ///
+    /// ## Design Rationale
+    /// The Apple Neural Engine (ANE) performs best with controlled parallelism.
+    /// Based on WWDC 2023 guidance and empirical testing:
+    /// - 3 concurrent tasks provides optimal ANE throughput
+    /// - Higher concurrency causes resource contention and thermal throttling
+    /// - ~3 affirmations/second synthesis rate with parallel execution
+    ///
+    /// ## Progress Bar Phases
+    /// ```
+    /// Phase 0: Immediate       0% → 2%     Instant (feels responsive)
+    /// Phase 1: Kokoro Warmup   2% → 15%    ~1-9 seconds (depending on state)
+    /// Phase 2: Synthesis      15% → 99%    totalAffirmations / 3.0 seconds
+    /// Phase 3: Complete       99% → 100%   On true completion only
+    /// ```
+    ///
+    /// ## Buffer Safety Math
+    /// ```
+    /// Synthesis rate: ~3 affirmations/second (with 3 concurrent tasks)
+    /// User consumption: ~1 affirmation/second (absolute maximum)
+    /// Net buffer growth: +2 affirmations/second
+    ///
+    /// Starting with 15 ready: User can NEVER catch up to unsynthesized content
+    /// ```
+    enum SessionPreparation {
+        /// Maximum concurrent TTS synthesis tasks.
+        /// Tuned for ANE (Apple Neural Engine) throughput - 3 provides optimal
+        /// parallelism without resource contention or thermal throttling.
+        static let maxConcurrency = 3
+        
+        /// Number of affirmations required before "Start Now" button enables.
+        /// At 3 concurrent synthesis (~3/sec), this takes ~5 seconds to reach.
+        static let readyToStartThreshold = 15
+        
+        /// Session size threshold for showing "Start Now" button.
+        /// Sessions with more than this many affirmations show the early start option.
+        /// Sessions ≤30 can fully synthesize within the 10-second timeout.
+        static let largeSessionThreshold = 30
+        
+        /// Maximum wait time for initial preparation (seconds).
+        /// After this timeout, session starts with whatever is ready.
+        /// At 3 concurrent synthesis rate (~3/sec), this yields ~30 affirmations.
+        static let timeoutSeconds: TimeInterval = 10.0
+        
+        /// Maximum wait time for Kokoro warm-up before showing fallback options (seconds).
+        static let kokoroWarmupTimeout: TimeInterval = 12.0
+        
+        /// Estimated Kokoro warm-up duration for progress estimation (seconds).
+        static let estimatedKokoroWarmupSeconds: TimeInterval = 9.0
+        
+        /// Duration to animate warm-up phase when Kokoro is already ready (seconds).
+        /// Provides a quick but visible animation instead of jumping.
+        static let fastWarmupAnimationDuration: TimeInterval = 1.5
+        
+        /// Expected synthesis rate (affirmations per second) with parallel execution.
+        /// Used for progress estimation and buffer calculations.
+        static let expectedSynthesisRate: Double = 3.0
+        
+        /// Minimum delay between background synthesis tasks (milliseconds).
+        /// Prevents overwhelming the system during background synthesis.
+        static let backgroundThrottleMs: Int = 50
+        
+        /// Progress bar animation update interval (60fps).
+        static let progressAnimationInterval: TimeInterval = 1.0 / 60.0
+        
+        /// Progress bar easing factor for smooth catch-up animation.
+        /// Higher = faster catch-up, lower = smoother.
+        static let progressEasingFactor: CGFloat = 0.08
+        
+        // MARK: - Progress Phase Weights
+        
+        /// Immediate start progress (feels responsive).
+        static let immediateProgress: CGFloat = 0.02
+        
+        /// Progress allocated to warm-up phase (0% → 15%).
+        static let warmupPhaseWeight: CGFloat = 0.13  // 2% → 15%
+        
+        /// Progress allocated to synthesis phase (15% → 99%).
+        static let synthesisPhaseWeight: CGFloat = 0.84  // 15% → 99%
+        
+        /// Maximum progress before completion (never show 100% until truly done).
+        static let maxPreCompleteProgress: CGFloat = 0.99
+        
+        // MARK: - Status Messages
+        
+        /// Status messages shown during Kokoro warm-up phase.
+        static let warmupStatusMessages: [String] = [
+            "Getting things ready...",
+            "Just a moment...",
+            "Preparing your experience..."
+        ]
+        
+        /// Status messages shown during synthesis phase.
+        static let synthesisStatusMessages: [String] = [
+            "Building your session...",
+            "Almost there...",
+            "Putting finishing touches..."
+        ]
+        
+        /// Interval between status message changes (seconds).
+        static let statusMessageInterval: TimeInterval = 2.5
+    }
+    
     // MARK: - Audio Configuration
     
     enum Audio {
@@ -216,6 +322,7 @@ enum Constants {
         static let affirmationDidChange = Notification.Name("affirmationDidChange")
         static let resonanceScoreUpdated = Notification.Name("resonanceScoreUpdated")
         static let subscriptionStatusChanged = Notification.Name("subscriptionStatusChanged")
+        static let kokoroTTSReady = Notification.Name("kokoroTTSReady")
     }
     
     // MARK: - API Configuration

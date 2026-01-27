@@ -96,6 +96,9 @@ final class PracticeStore {
     /// Results collected during the session for summary display
     private(set) var sessionResults: [SessionAffirmationResult] = []
     
+    /// Whether the current session has been saved (prevents duplicate saves)
+    private(set) var hasSessionBeenSaved: Bool = false
+    
     /// The mode used for the session (for retry functionality)
     var sessionMode: SessionMode = .readOnly
     
@@ -135,6 +138,12 @@ final class PracticeStore {
     
     /// Active preparation task (for cancellation)
     var sessionPreparationTask: Task<Void, Never>?
+    
+    /// Current phase of session preparation (for UI display)
+    private(set) var sessionPreparationPhase: SessionPreparationPhase = .waitingForKokoro
+    
+    /// Whether to force System TTS for the current session (after Kokoro timeout fallback)
+    var forceSystemTTSForSession: Bool = false
     
     // MARK: - Loop Computed Properties
     
@@ -467,6 +476,11 @@ final class PracticeStore {
         isShowingSummary = showing
     }
     
+    /// Updates session saved status
+    func setHasSessionBeenSaved(_ saved: Bool) {
+        hasSessionBeenSaved = saved
+    }
+    
     /// Updates binaural preset
     func setBinauralPreset(_ preset: BinauralPreset) {
         binauralPreset = preset
@@ -558,6 +572,11 @@ final class PracticeStore {
         pendingSessionMode = mode
     }
     
+    /// Updates the session preparation phase
+    func setSessionPreparationPhase(_ phase: SessionPreparationPhase) {
+        sessionPreparationPhase = phase
+    }
+    
     /// Clears session preparation state
     func clearSessionPreparation() {
         isPreparingSession = false
@@ -565,6 +584,7 @@ final class PracticeStore {
         sessionPreparedCount = 0
         sessionPreparationTarget = 0
         pendingSessionMode = nil
+        sessionPreparationPhase = .waitingForKokoro
         sessionPreparationTask?.cancel()
         sessionPreparationTask = nil
     }

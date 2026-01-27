@@ -189,6 +189,9 @@ extension PracticeStore {
         do {
             try repo.save(savedSession)
             
+            // Mark session as saved to disable save button
+            setHasSessionBeenSaved(true)
+            
             // Increment the session counter only after successful save
             PracticeStore.incrementSessionCounter()
             

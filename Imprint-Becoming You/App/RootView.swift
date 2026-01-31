@@ -116,17 +116,23 @@ struct RootView: View {
             try await loader.seedIfNeeded(modelContext: modelContext)
             appState.markOfflineContentSeeded()
             
-            #if DEBUG
             // Verify seeding
             let count = try? modelContext.fetchCount(FetchDescriptor<Affirmation>())
-            print("✅ RootView: Offline content seeded. Total affirmations: \(count ?? 0)")
-            #endif
+            AppLogger.info(
+                "Offline content seeded successfully",
+                category: .data,
+                context: ["totalAffirmations": count ?? 0]
+            )
             
         } catch {
-            // Log but don't block - app can still function with samples
-            #if DEBUG
-            print("⚠️ RootView: Failed to seed offline content: \(error.localizedDescription)")
-            #endif
+            // Log error but don't block - app can still function with samples
+            // This is a best-effort operation that shouldn't prevent app launch
+            AppLogger.error(
+                "Failed to seed offline content",
+                category: .data,
+                error: error,
+                context: ["recovery": "App will function with limited content"]
+            )
             
             // Still mark as attempted to avoid retry loops
             appState.markOfflineContentSeeded()
@@ -143,14 +149,21 @@ struct RootView: View {
             
             if let profile = profiles.first {
                 appState.updateProfile(profile)
+                AppLogger.debug(
+                    "User profile loaded",
+                    category: .app,
+                    context: ["hasCompletedOnboarding": profile.hasCompletedOnboarding]
+                )
             } else {
                 // First launch - create new profile
                 let newProfile = UserProfile()
                 modelContext.insert(newProfile)
                 try modelContext.save()
                 appState.updateProfile(newProfile)
+                AppLogger.info("New user profile created", category: .app)
             }
         } catch {
+            AppLogger.error("Failed to load user profile", category: .app, error: error)
             appState.presentError(.loadFailed(reason: error.localizedDescription))
         }
     }

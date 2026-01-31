@@ -37,6 +37,12 @@ import SwiftData
 /// - `.seeded`: Never deleted, always available offline
 /// - `.backend`: Deleted when expired
 /// - `.generated`: Deleted when expired
+///
+/// ## Error Handling Strategy
+/// - **Critical operations** (fetch, save): Throw errors to caller
+/// - **Best-effort operations** (engagement tracking): Log and return gracefully
+///   - These are non-critical analytics that shouldn't block user flow
+///   - Entity not found is expected (deleted content) - logged at debug level
 @MainActor
 final class AffirmationRepository: AffirmationRepositoryProtocol {
     
@@ -107,11 +113,11 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
             // Take limited results
             let sessionQueue = Array(results.prefix(limit))
             
-            #if DEBUG
-            let excludedCount = excluding.count
-            let resultCount = sessionQueue.count
-            print("📦 AffirmationRepository: Session queue - excluded \(excludedCount), returning \(resultCount)")
-            #endif
+            AppLogger.debug(
+                "Session queue fetched",
+                category: .data,
+                context: ["excluded": excluding.count, "returned": sessionQueue.count]
+            )
             
             return sessionQueue
             
@@ -213,10 +219,15 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     }
     
     // MARK: - Engagement Tracking
+    //
+    // These are "best-effort" operations - they track analytics but shouldn't
+    // block user flow if they fail. Entity not found is expected for deleted content.
     
     func recordView(affirmationId: UUID) throws {
         guard let affirmation = try fetchById(affirmationId) else {
-            return // Silently ignore if not found
+            // Entity not found is expected for deleted/expired content
+            AppLogger.entityNotFound("Affirmation", id: affirmationId)
+            return
         }
         
         do {
@@ -233,6 +244,8 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     
     func recordSpeak(affirmationId: UUID) throws {
         guard let affirmation = try fetchById(affirmationId) else {
+            // Entity not found is expected for deleted/expired content
+            AppLogger.entityNotFound("Affirmation", id: affirmationId)
             return
         }
         
@@ -270,6 +283,8 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     
     func recordSkip(affirmationId: UUID) throws {
         guard let affirmation = try fetchById(affirmationId) else {
+            // Entity not found is expected for deleted/expired content
+            AppLogger.entityNotFound("Affirmation", id: affirmationId)
             return
         }
         
@@ -286,6 +301,8 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     
     func recordShare(affirmationId: UUID) throws {
         guard let affirmation = try fetchById(affirmationId) else {
+            // Entity not found is expected for deleted/expired content
+            AppLogger.entityNotFound("Affirmation", id: affirmationId)
             return
         }
         
@@ -302,6 +319,8 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     
     func addResonanceRecord(affirmationId: UUID, record: ResonanceRecord) throws {
         guard let affirmation = try fetchById(affirmationId) else {
+            // Entity not found is expected for deleted/expired content
+            AppLogger.entityNotFound("Affirmation", id: affirmationId)
             return
         }
         
@@ -329,11 +348,14 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
             
             try modelContext.save()
             
-            #if DEBUG
-            let sources = Dictionary(grouping: affirmations, by: { $0.source })
+            // Log insertion with source breakdown
+            let sources = Dictionary(grouping: affirmations) { $0.source }
             let sourceCounts = sources.map { "\($0.key.rawValue): \($0.value.count)" }.joined(separator: ", ")
-            print("📦 AffirmationRepository: Inserted \(affirmations.count) affirmations (\(sourceCounts))")
-            #endif
+            AppLogger.info(
+                "Inserted affirmation batch",
+                category: .data,
+                context: ["total": affirmations.count, "sources": sourceCounts]
+            )
             
         } catch {
             throw AppError.saveFailed(reason: "Failed to insert affirmation batch: \(error.localizedDescription)")
@@ -363,11 +385,13 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
             
             try modelContext.save()
             
-            #if DEBUG
             if count > 0 {
-                print("🗑️ AffirmationRepository: Deleted \(count) expired affirmations (seeded content preserved)")
+                AppLogger.info(
+                    "Deleted expired affirmations",
+                    category: .data,
+                    context: ["count": count, "seededPreserved": true]
+                )
             }
-            #endif
             
             return count
             

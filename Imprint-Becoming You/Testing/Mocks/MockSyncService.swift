@@ -12,12 +12,16 @@ import Foundation
 /// Mock implementation of sync service for previews and testing.
 ///
 /// Simulates cloud synchronization without actual Firebase calls.
-final class MockSyncService: SyncServiceProtocol, @unchecked Sendable {
+/// Uses `@MainActor` isolation consistent with the protocol.
+@MainActor
+final class MockSyncService: SyncServiceProtocol {
     
-    // MARK: - Thread Safety
+    // MARK: - State
     
-    private let stateQueue = DispatchQueue(label: "com.imprint.mocksync")
+    /// Whether sync is in progress - MainActor isolation provides thread safety
     private var _isSyncing: Bool = false
+    
+    /// Last successful sync date
     private var _lastSyncDate: Date?
     
     // MARK: - Configuration
@@ -31,11 +35,11 @@ final class MockSyncService: SyncServiceProtocol, @unchecked Sendable {
     // MARK: - SyncServiceProtocol
     
     var isSyncing: Bool {
-        stateQueue.sync { _isSyncing }
+        _isSyncing
     }
     
     var lastSyncDate: Date? {
-        stateQueue.sync { _lastSyncDate }
+        _lastSyncDate
     }
     
     func syncToCloud(userId: String) async throws {
@@ -43,12 +47,10 @@ final class MockSyncService: SyncServiceProtocol, @unchecked Sendable {
             throw AppError.syncFailed(reason: "Simulated sync error")
         }
         
-        stateQueue.sync { _isSyncing = true }
+        _isSyncing = true
         try await Task.sleep(for: syncDelay)
-        stateQueue.sync {
-            _lastSyncDate = Date()
-            _isSyncing = false
-        }
+        _lastSyncDate = Date()
+        _isSyncing = false
     }
     
     func syncFromCloud(userId: String) async throws {
@@ -56,12 +58,10 @@ final class MockSyncService: SyncServiceProtocol, @unchecked Sendable {
             throw AppError.syncFailed(reason: "Simulated sync error")
         }
         
-        stateQueue.sync { _isSyncing = true }
+        _isSyncing = true
         try await Task.sleep(for: syncDelay)
-        stateQueue.sync {
-            _lastSyncDate = Date()
-            _isSyncing = false
-        }
+        _lastSyncDate = Date()
+        _isSyncing = false
     }
     
     func sync(_ dataType: SyncDataType, userId: String) async throws {

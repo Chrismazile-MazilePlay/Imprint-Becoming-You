@@ -14,6 +14,12 @@ import Foundation
 /// Manages in-app subscription purchases, status tracking, and
 /// purchase restoration for premium features.
 ///
+/// ## MainActor Isolation
+/// This protocol is `@MainActor` isolated because:
+/// 1. Subscription status directly affects UI (premium features)
+/// 2. Purchase flows require UI interaction
+/// 3. Status changes trigger feature availability updates
+///
 /// ## Usage
 /// ```swift
 /// let subscription: SubscriptionServiceProtocol = SubscriptionService()
@@ -32,7 +38,8 @@ import Foundation
 ///     updateUI(for: status)
 /// }
 /// ```
-protocol SubscriptionServiceProtocol: AnyObject, Sendable {
+@MainActor
+protocol SubscriptionServiceProtocol: AnyObject {
     
     /// Whether the user currently has an active premium subscription
     var isPremium: Bool { get async }

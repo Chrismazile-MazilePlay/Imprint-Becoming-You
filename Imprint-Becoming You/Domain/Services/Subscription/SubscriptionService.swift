@@ -14,6 +14,12 @@ import Foundation
 /// Manages in-app purchases and subscription status using StoreKit 2.
 /// Will be implemented in Phase 6.
 ///
+/// ## MainActor Isolation
+/// This service is `@MainActor` isolated because:
+/// 1. Subscription status directly affects UI (premium features)
+/// 2. Purchase flows require UI interaction
+/// 3. Status changes trigger feature availability updates
+///
 /// ## Products (Planned)
 /// - Monthly subscription
 /// - Annual subscription (discounted)
@@ -23,7 +29,8 @@ import Foundation
 /// - Grace period support
 /// - Family sharing compatibility
 /// - Receipt validation via App Store Server API
-final class SubscriptionService: SubscriptionServiceProtocol, @unchecked Sendable {
+@MainActor
+final class SubscriptionService: SubscriptionServiceProtocol {
     
     // MARK: - SubscriptionServiceProtocol
     

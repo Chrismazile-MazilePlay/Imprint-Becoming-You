@@ -14,6 +14,12 @@ import Foundation
 /// Provides Firebase Authentication integration for user sign-in.
 /// Will be implemented in Phase 4.
 ///
+/// ## MainActor Isolation
+/// This service is `@MainActor` isolated because:
+/// 1. Authentication state directly affects UI
+/// 2. User profile data is stored in SwiftData
+/// 3. Auth state changes trigger navigation updates
+///
 /// ## Supported Auth Methods (Planned)
 /// - Sign in with Apple (primary)
 /// - Sign in with Google
@@ -23,17 +29,18 @@ import Foundation
 /// - Uses Firebase Auth SDK
 /// - Tokens stored in iOS Keychain
 /// - Automatic token refresh
-final class AuthService: AuthServiceProtocol, @unchecked Sendable {
+@MainActor
+final class AuthService: AuthServiceProtocol {
     
-    // MARK: - Thread Safety
+    // MARK: - State
     
-    private let stateQueue = DispatchQueue(label: "com.imprint.authservice")
+    /// Current user ID - MainActor isolation provides thread safety
     private var _currentUserId: String?
     
     // MARK: - AuthServiceProtocol
     
     var currentUserId: String? {
-        stateQueue.sync { _currentUserId }
+        _currentUserId
     }
     
     var isAuthenticated: Bool {
@@ -67,12 +74,12 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
     }
     
     func signOut() async throws {
-        stateQueue.sync { _currentUserId = nil }
+        _currentUserId = nil
         // TODO: Phase 4 - Firebase sign out
     }
     
     func deleteAccount() async throws {
-        stateQueue.sync { _currentUserId = nil }
+        _currentUserId = nil
         // TODO: Phase 4 - Firebase account deletion
     }
     

@@ -14,6 +14,12 @@ import Foundation
 /// Manages bidirectional sync between local SwiftData storage
 /// and Firebase Firestore cloud storage.
 ///
+/// ## MainActor Isolation
+/// This protocol is `@MainActor` isolated because:
+/// 1. Sync operations read/write SwiftData
+/// 2. Sync status affects UI state
+/// 3. Last sync date is displayed in settings
+///
 /// ## Usage
 /// ```swift
 /// let sync: SyncServiceProtocol = SyncService()
@@ -25,7 +31,8 @@ import Foundation
 /// // Sync specific data type
 /// try await sync.sync(.customPrompts, userId: "user123")
 /// ```
-protocol SyncServiceProtocol: AnyObject, Sendable {
+@MainActor
+protocol SyncServiceProtocol: AnyObject {
     
     /// Uploads local data to the cloud
     /// - Parameter userId: The authenticated user's ID

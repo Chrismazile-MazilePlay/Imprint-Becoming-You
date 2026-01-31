@@ -14,11 +14,18 @@ import Foundation
 /// Currently provides offline fallback affirmations.
 /// Online AI generation will be added in Phase 3.
 ///
+/// ## MainActor Isolation
+/// This service is `@MainActor` isolated because:
+/// 1. Generated affirmations are stored in SwiftData
+/// 2. Results drive UI state updates
+/// 3. Consistent with protocol conformance requirements
+///
 /// ## Features (Planned)
 /// - Claude API integration for personalized generation
 /// - Firebase proxy for secure API key management
 /// - Offline bundle with curated affirmations
-final class AffirmationService: AffirmationServiceProtocol, @unchecked Sendable {
+@MainActor
+final class AffirmationService: AffirmationServiceProtocol {
     
     // MARK: - AffirmationServiceProtocol
     

@@ -12,7 +12,9 @@ import Foundation
 /// Mock implementation of subscription service for previews and testing.
 ///
 /// Simulates StoreKit operations without actual purchases.
-final class MockSubscriptionService: SubscriptionServiceProtocol, @unchecked Sendable {
+/// Uses `@MainActor` isolation consistent with the protocol.
+@MainActor
+final class MockSubscriptionService: SubscriptionServiceProtocol {
     
     // MARK: - Configuration
     

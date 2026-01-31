@@ -12,7 +12,9 @@ import Foundation
 /// Mock implementation of affirmation service for previews and testing.
 ///
 /// Generates placeholder affirmations without API calls.
-final class MockAffirmationService: AffirmationServiceProtocol, @unchecked Sendable {
+/// Uses `@MainActor` isolation consistent with the protocol.
+@MainActor
+final class MockAffirmationService: AffirmationServiceProtocol {
     
     // MARK: - Configuration
     

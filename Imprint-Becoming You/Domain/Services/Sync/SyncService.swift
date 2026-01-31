@@ -14,6 +14,12 @@ import Foundation
 /// Manages bidirectional sync between local SwiftData and Firebase Firestore.
 /// Will be implemented in Phase 4.
 ///
+/// ## MainActor Isolation
+/// This service is `@MainActor` isolated because:
+/// 1. Sync operations read/write SwiftData
+/// 2. Sync status affects UI state
+/// 3. Last sync date is displayed in settings
+///
 /// ## Sync Strategy
 /// - Local-first: All data persisted locally immediately
 /// - Background sync: Cloud sync happens asynchronously
@@ -25,22 +31,25 @@ import Foundation
 /// - Favorited affirmations
 /// - Progress statistics
 /// - Voice profiles
-final class SyncService: SyncServiceProtocol, @unchecked Sendable {
+@MainActor
+final class SyncService: SyncServiceProtocol {
     
-    // MARK: - Thread Safety
+    // MARK: - State
     
-    private let stateQueue = DispatchQueue(label: "com.imprint.syncservice")
+    /// Whether sync is in progress - MainActor isolation provides thread safety
     private var _isSyncing: Bool = false
+    
+    /// Last successful sync date
     private var _lastSyncDate: Date?
     
     // MARK: - SyncServiceProtocol
     
     var isSyncing: Bool {
-        stateQueue.sync { _isSyncing }
+        _isSyncing
     }
     
     var lastSyncDate: Date? {
-        stateQueue.sync { _lastSyncDate }
+        _lastSyncDate
     }
     
     func syncToCloud(userId: String) async throws {
@@ -61,10 +70,10 @@ final class SyncService: SyncServiceProtocol, @unchecked Sendable {
     // MARK: - Private Methods
     
     private func setSyncing(_ syncing: Bool) {
-        stateQueue.sync { _isSyncing = syncing }
+        _isSyncing = syncing
     }
     
     private func updateLastSyncDate() {
-        stateQueue.sync { _lastSyncDate = Date() }
+        _lastSyncDate = Date()
     }
 }

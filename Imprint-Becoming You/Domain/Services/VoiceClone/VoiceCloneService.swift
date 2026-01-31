@@ -10,7 +10,14 @@ import Foundation
 // MARK: - Voice Clone Service
 
 /// Stub implementation of voice cloning (Phase 7).
-final class VoiceCloneService: VoiceCloneServiceProtocol, @unchecked Sendable {
+///
+/// ## MainActor Isolation
+/// This service is `@MainActor` isolated because:
+/// 1. Voice clone status affects UI state
+/// 2. Audio data may be passed to other MainActor services
+/// 3. Consistent with protocol conformance requirements
+@MainActor
+final class VoiceCloneService: VoiceCloneServiceProtocol {
     
     func createVoiceClone(from audioData: Data, name: String) async throws -> String {
         throw AppError.notImplemented(feature: "Voice cloning")

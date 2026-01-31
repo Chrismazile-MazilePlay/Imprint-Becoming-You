@@ -14,6 +14,12 @@ import Foundation
 /// Provides a unified interface for user authentication supporting
 /// multiple sign-in methods including Apple, Google, and email/password.
 ///
+/// ## MainActor Isolation
+/// This protocol is `@MainActor` isolated because:
+/// 1. Authentication state directly affects UI
+/// 2. User profile data is stored in SwiftData
+/// 3. Auth state changes trigger navigation updates
+///
 /// ## Usage
 /// ```swift
 /// let auth: AuthServiceProtocol = AuthService()
@@ -31,7 +37,8 @@ import Foundation
 ///     print("Auth state changed: \(userId ?? "signed out")")
 /// }
 /// ```
-protocol AuthServiceProtocol: AnyObject, Sendable {
+@MainActor
+protocol AuthServiceProtocol: AnyObject {
     
     /// Current authenticated user ID, or nil if not signed in
     var currentUserId: String? { get }

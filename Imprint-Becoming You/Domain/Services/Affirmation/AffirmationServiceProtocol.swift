@@ -14,6 +14,12 @@ import Foundation
 /// Supports both online AI-powered generation and offline fallback
 /// affirmations bundled with the app.
 ///
+/// ## MainActor Isolation
+/// This protocol is `@MainActor` isolated because:
+/// 1. Generated affirmations are stored in SwiftData
+/// 2. Results drive UI state updates
+/// 3. Consistent with other service protocols
+///
 /// ## Usage
 /// ```swift
 /// let service: AffirmationServiceProtocol = AffirmationService()
@@ -27,7 +33,8 @@ import Foundation
 /// // Load offline fallback
 /// let offline = service.loadOfflineAffirmations(forCategories: ["confidence"])
 /// ```
-protocol AffirmationServiceProtocol: AnyObject, Sendable {
+@MainActor
+protocol AffirmationServiceProtocol: AnyObject {
     
     /// Generates affirmations based on user's selected goals
     /// - Parameters:

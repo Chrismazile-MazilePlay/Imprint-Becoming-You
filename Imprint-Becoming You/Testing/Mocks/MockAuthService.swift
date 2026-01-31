@@ -12,11 +12,13 @@ import Foundation
 /// Mock implementation of authentication service for previews and testing.
 ///
 /// Simulates authentication flows without actual Firebase calls.
-final class MockAuthService: AuthServiceProtocol, @unchecked Sendable {
+/// Uses `@MainActor` isolation consistent with the protocol.
+@MainActor
+final class MockAuthService: AuthServiceProtocol {
     
-    // MARK: - Thread Safety
+    // MARK: - State
     
-    private let stateQueue = DispatchQueue(label: "com.imprint.mockauth")
+    /// Current user ID - MainActor isolation provides thread safety
     private var _currentUserId: String?
     
     // MARK: - Configuration
@@ -25,9 +27,9 @@ final class MockAuthService: AuthServiceProtocol, @unchecked Sendable {
     var startAuthenticated: Bool = false {
         didSet {
             if startAuthenticated {
-                stateQueue.sync { _currentUserId = "mock-user-\(UUID().uuidString.prefix(8))" }
+                _currentUserId = "mock-user-\(UUID().uuidString.prefix(8))"
             } else {
-                stateQueue.sync { _currentUserId = nil }
+                _currentUserId = nil
             }
         }
     }
@@ -38,7 +40,7 @@ final class MockAuthService: AuthServiceProtocol, @unchecked Sendable {
     // MARK: - AuthServiceProtocol
     
     var currentUserId: String? {
-        stateQueue.sync { _currentUserId }
+        _currentUserId
     }
     
     var isAuthenticated: Bool {
@@ -54,37 +56,37 @@ final class MockAuthService: AuthServiceProtocol, @unchecked Sendable {
     func signInWithApple() async throws -> String {
         try await Task.sleep(for: signInDelay)
         let id = "apple-\(UUID().uuidString)"
-        stateQueue.sync { _currentUserId = id }
+        _currentUserId = id
         return id
     }
     
     func signInWithGoogle() async throws -> String {
         try await Task.sleep(for: signInDelay)
         let id = "google-\(UUID().uuidString)"
-        stateQueue.sync { _currentUserId = id }
+        _currentUserId = id
         return id
     }
     
     func signIn(email: String, password: String) async throws -> String {
         try await Task.sleep(for: signInDelay)
         let id = "email-\(UUID().uuidString)"
-        stateQueue.sync { _currentUserId = id }
+        _currentUserId = id
         return id
     }
     
     func createAccount(email: String, password: String) async throws -> String {
         try await Task.sleep(for: signInDelay)
         let id = "email-\(UUID().uuidString)"
-        stateQueue.sync { _currentUserId = id }
+        _currentUserId = id
         return id
     }
     
     func signOut() async throws {
-        stateQueue.sync { _currentUserId = nil }
+        _currentUserId = nil
     }
     
     func deleteAccount() async throws {
-        stateQueue.sync { _currentUserId = nil }
+        _currentUserId = nil
     }
     
     func sendPasswordReset(to email: String) async throws {

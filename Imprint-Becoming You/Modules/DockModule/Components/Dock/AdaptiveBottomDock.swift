@@ -11,7 +11,7 @@ import SwiftUI
 
 /// The unified morphing bottom dock that adapts its content based on configuration.
 ///
-/// This component is a **pure dock row** — it renders only the dock content and has
+/// This component is a **pure dock row** – it renders only the dock content and has
 /// no knowledge of expanded menus. Menu handling is delegated to `AdaptiveDockContainer`.
 ///
 /// ## Configurations
@@ -43,7 +43,6 @@ public struct AdaptiveBottomDock: View {
     // MARK: - Animation State
     
     @State private var isAnimatingSelector = false
-    private let animationDuration: TimeInterval = 0.35
     
     // MARK: - Initialization
     
@@ -117,10 +116,6 @@ private extension AdaptiveBottomDock {
 
 private extension AdaptiveBottomDock {
     
-    /// Horizontal inset for aligning progress/buttons with nav button edges
-    /// Small value keeps alignment subtle while maintaining width
-    private var alignmentInset: CGFloat { 4 }
-    
     var sessionContent: some View {
         VStack(spacing: tokens.spacingMD) {
             // Progress segments - slight inset for visual alignment
@@ -131,7 +126,7 @@ private extension AdaptiveBottomDock {
                         adapter.segmentAnimationCompleted()
                     }
                 )
-                .padding(.horizontal, alignmentInset)
+                .padding(.horizontal, Constants.DockSizes.alignmentInset)
             }
             
             // Center row: Nav + Content + Nav
@@ -146,7 +141,7 @@ private extension AdaptiveBottomDock {
                 Spacer(minLength: 0)
                 
                 DockCenterContentView(state: adapter.centerContentState)
-                    .frame(minWidth: 80)
+                    .frame(minWidth: Constants.DockSizes.centerContentMinWidth)
                 
                 Spacer(minLength: 0)
                 
@@ -181,7 +176,7 @@ private extension AdaptiveBottomDock {
                     toggleBinauralSelector()
                 }
             }
-            .padding(.horizontal, alignmentInset)
+            .padding(.horizontal, Constants.DockSizes.alignmentInset)
         }
     }
 }
@@ -228,7 +223,10 @@ private extension AdaptiveBottomDock {
         guard !isAnimatingSelector else { return }
         isAnimatingSelector = true
         
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(.spring(
+            response: Constants.UITiming.springResponse,
+            dampingFraction: Constants.UITiming.springDamping
+        )) {
             if adapter.isBinauralSelectorExpanded {
                 adapter.isBinauralSelectorExpanded = false
             }
@@ -236,7 +234,7 @@ private extension AdaptiveBottomDock {
         }
         
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(animationDuration))
+            try? await Task.sleep(for: .seconds(Constants.UITiming.standardAnimationDuration))
             isAnimatingSelector = false
         }
     }
@@ -245,7 +243,10 @@ private extension AdaptiveBottomDock {
         guard !isAnimatingSelector else { return }
         isAnimatingSelector = true
         
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(.spring(
+            response: Constants.UITiming.springResponse,
+            dampingFraction: Constants.UITiming.springDamping
+        )) {
             if adapter.isModeSelectorExpanded {
                 adapter.isModeSelectorExpanded = false
             }
@@ -253,7 +254,7 @@ private extension AdaptiveBottomDock {
         }
         
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(animationDuration))
+            try? await Task.sleep(for: .seconds(Constants.UITiming.standardAnimationDuration))
             isAnimatingSelector = false
         }
     }

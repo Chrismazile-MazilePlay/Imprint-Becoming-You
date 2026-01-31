@@ -83,16 +83,6 @@ struct MainPracticeView: View {
     /// Timestamp when app entered background (for timeout calculation)
     @State private var backgroundedAt: Date?
     
-    // MARK: - Constants
-    
-    /// Duration in background after which active sessions are reset to home.
-    /// Summary view is always dismissed on background return regardless of duration.
-    private let sessionBackgroundTimeout: TimeInterval = 10 * 60 // 10 minutes
-    
-    /// Duration in background after which we release heavy resources (Kokoro ML models).
-    /// This is shorter than session timeout to free memory proactively.
-    private let memoryReleaseThreshold: TimeInterval = 5 * 60 // 5 minutes
-    
     // MARK: - Body
     
     var body: some View {
@@ -390,7 +380,7 @@ struct MainPracticeView: View {
             // MEMORY: MemoryManager handles resource release/restore automatically
             // Log memory status for debugging
             // ===============================================================
-            if timeInBackground >= memoryReleaseThreshold {
+            if timeInBackground >= Constants.Background.memoryReleaseThreshold {
                 #if DEBUG
                 print("[DEBUG] MainPracticeView: Memory threshold reached (\(Int(timeInBackground))s)")
                 let memoryMB = MemoryManager.shared.currentMemoryUsageMB()
@@ -403,7 +393,7 @@ struct MainPracticeView: View {
             // DECISION: Extended background (>= 10 min) from ANY state
             // ACTION: Full reset to home (Practice page, Read Only mode)
             // ===============================================================
-            if timeInBackground >= sessionBackgroundTimeout {
+            if timeInBackground >= Constants.Background.sessionTimeout {
                 #if DEBUG
                 print("[DEBUG] MainPracticeView: Full reset after \(Int(timeInBackground))s in background")
                 #endif

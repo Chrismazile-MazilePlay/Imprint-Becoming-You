@@ -158,6 +158,66 @@ enum Constants {
         static let statusMessageInterval: TimeInterval = 2.5
     }
     
+    // MARK: - Background & Lifecycle
+    
+    /// Constants for app background behavior and lifecycle management.
+    ///
+    /// These values control how the app responds when returning from background
+    /// after various durations. Memory management and session state are affected.
+    enum Background {
+        /// Time in background after which active sessions are reset to home.
+        /// Summary view is always dismissed on background return regardless of duration.
+        static let sessionTimeout: TimeInterval = 600 // 10 minutes
+        
+        /// Time in background after which we release heavy resources (Kokoro ML models).
+        /// This is shorter than session timeout to free memory proactively.
+        static let memoryReleaseThreshold: TimeInterval = 300 // 5 minutes
+        
+        /// Time in background before considering app as "cold started".
+        /// After this duration, app may need full re-initialization.
+        static let coldStartThreshold: TimeInterval = 1800 // 30 minutes
+    }
+    
+    // MARK: - UI Timing
+    
+    /// Timing constants for UI animations and interactions.
+    ///
+    /// These values ensure consistent feel across the app for animations,
+    /// debouncing, and loading indicators.
+    enum UITiming {
+        /// Duration for standard animations (e.g., dock selector transitions).
+        static let standardAnimationDuration: TimeInterval = 0.35
+        
+        /// Duration for slow/emphasized animations.
+        static let slowAnimationDuration: TimeInterval = 0.5
+        
+        /// Debounce delay for search/filter inputs.
+        static let debounceDelay: TimeInterval = 0.3
+        
+        /// Delay before showing loading indicators.
+        static let loadingIndicatorDelay: TimeInterval = 0.5
+        
+        /// Spring animation response for selector animations.
+        static let springResponse: Double = 0.35
+        
+        /// Spring animation damping fraction for selector animations.
+        static let springDamping: Double = 0.8
+    }
+    
+    // MARK: - Dock Component Sizes
+    
+    /// Layout constants for the adaptive dock component.
+    ///
+    /// These values control sizing and alignment within the dock.
+    enum DockSizes {
+        /// Alignment inset for progress/button edges.
+        /// Small value keeps alignment subtle while maintaining width.
+        static let alignmentInset: CGFloat = 4
+        
+        /// Minimum width for center content slot (waveform area).
+        static let centerContentMinWidth: CGFloat = 80
+    }
+    
     // MARK: - Audio Configuration
     
     enum Audio {

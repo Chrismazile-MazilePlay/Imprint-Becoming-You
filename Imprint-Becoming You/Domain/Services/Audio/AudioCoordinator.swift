@@ -35,6 +35,11 @@ private let audioLog = Logger(subsystem: "com.imprint.audio", category: "AudioCo
 /// - **ISP**: Implements segregated protocols for different capabilities
 /// - **DIP**: Clients depend on protocols, not this concrete class
 ///
+/// ## Issue 2.4 Optimization
+/// Audio session configuration methods now track the current category to skip
+/// redundant `setCategory()` calls, reducing main thread blocking from 50-200ms
+/// to near-zero for repeated configurations.
+///
 /// ## Usage
 /// ```swift
 /// let coordinator = AudioCoordinator.shared
@@ -59,6 +64,15 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
     
     /// The underlying audio session
     private let audioSession = AVAudioSession.sharedInstance()
+    
+    // MARK: - Audio Session Category Tracking (Issue 2.4 Fix)
+    
+    /// Current audio session category.
+    ///
+    /// Used to skip redundant `setCategory()` calls which can block
+    /// the main thread for 50-200ms. By tracking the current category,
+    /// we only reconfigure when actually necessary.
+    private(set) var currentCategory: AVAudioSession.Category?
     
     // MARK: - Audio Engines
     
@@ -118,7 +132,7 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
     /// Current state
     private(set) var state: AudioCoordinatorState = .idle {
         didSet {
-            audioLog.info("🔊 State: \(oldValue.description) → \(self.state.description)")
+            audioLog.info("📊 State: \(oldValue.description) → \(self.state.description)")
             eventContinuation?.yield(.stateChanged(state))
         }
     }
@@ -269,8 +283,18 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
     
     // MARK: - Session Configuration (AudioSessionProviding)
     
-    /// Configures audio session for playback (TTS, binaural)
+    /// Configures audio session for playback (TTS, binaural).
+    ///
+    /// ## Issue 2.4 Optimization
+    /// Skips reconfiguration if already set to `.playback` category,
+    /// avoiding the 50-200ms main thread block from `setCategory()`.
     func configureForPlayback() throws {
+        // Issue 2.4: Skip if already configured for playback
+        guard currentCategory != .playback else {
+            audioLog.debug("⚙️ Audio session already configured for playback - skipping")
+            return
+        }
+        
         audioLog.info("⚙️ Configuring session for playback")
         
         do {
@@ -279,14 +303,25 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
                 mode: .spokenAudio, // Optimized for speech
                 options: [.duckOthers] // Duck other audio, don't mix
             )
+            currentCategory = .playback
         } catch {
             audioLog.error("❌ Failed to configure playback: \(error.localizedDescription)")
             throw AudioCoordinatorError.sessionConfigurationFailed(error.localizedDescription)
         }
     }
     
-    /// Configures audio session for playback and recording (speech recognition while maintaining audio output)
+    /// Configures audio session for playback and recording (speech recognition while maintaining audio output).
+    ///
+    /// ## Issue 2.4 Optimization
+    /// Skips reconfiguration if already set to `.playAndRecord` category,
+    /// avoiding the 50-200ms main thread block from `setCategory()`.
     func configureForPlaybackAndRecording() throws {
+        // Issue 2.4: Skip if already configured for playAndRecord
+        guard currentCategory != .playAndRecord else {
+            audioLog.debug("⚙️ Audio session already configured for playback and recording - skipping")
+            return
+        }
+        
         audioLog.info("⚙️ Configuring session for playback and recording")
         
         do {
@@ -295,14 +330,25 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
                 mode: .measurement, // Best for speech recognition
                 options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers]
             )
+            currentCategory = .playAndRecord
         } catch {
             audioLog.error("❌ Failed to configure playbackAndRecord: \(error.localizedDescription)")
             throw AudioCoordinatorError.sessionConfigurationFailed(error.localizedDescription)
         }
     }
     
-    /// Configures audio session for recording only (voice calibration)
+    /// Configures audio session for recording only (voice calibration).
+    ///
+    /// ## Issue 2.4 Optimization
+    /// Skips reconfiguration if already set to `.record` category,
+    /// avoiding the 50-200ms main thread block from `setCategory()`.
     func configureForRecording() throws {
+        // Issue 2.4: Skip if already configured for record
+        guard currentCategory != .record else {
+            audioLog.debug("⚙️ Audio session already configured for recording - skipping")
+            return
+        }
+        
         audioLog.info("⚙️ Configuring session for recording only")
         
         do {
@@ -311,6 +357,7 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
                 mode: .measurement, // Best for speech recognition
                 options: []
             )
+            currentCategory = .record
         } catch {
             audioLog.error("❌ Failed to configure recording: \(error.localizedDescription)")
             throw AudioCoordinatorError.sessionConfigurationFailed(error.localizedDescription)
@@ -442,7 +489,7 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
     
     /// Stops any current TTS playback
     func stopTTS() {
-        audioLog.info("📇 stopTTS called")
+        audioLog.info("🔇 stopTTS called")
         
         if synthesizer.isSpeaking {
             synthesizer.stopSpeaking(at: .immediate)
@@ -651,7 +698,7 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
     
     /// Stops binaural beats
     func stopBinaural() {
-        audioLog.info("📇 Stopping binaural")
+        audioLog.info("🔇 Stopping binaural")
         binauralGenerator?.stop()
         currentBinauralPreset = .off
     }
@@ -754,6 +801,9 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
             
             isSessionActive = false
             
+            // Reset category tracking since interruption may have changed audio session state
+            currentCategory = nil
+            
             // Stop current operations gracefully
             switch rootState {
             case .playingTTS, .playingTTSThenListen:
@@ -829,6 +879,8 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
             
         case .categoryChange:
             audioLog.info("📂 Category changed")
+            // Reset category tracking since iOS changed the category externally
+            currentCategory = nil
             eventContinuation?.yield(.routeChanged(.categoryChanged))
             
         case .override, .routeConfigurationChange:
@@ -896,6 +948,7 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
         // Reset session state
         isSessionActive = false
         stateBeforeInterruption = nil
+        currentCategory = nil  // Issue 2.4: Reset category tracking
         
         // Notify UI
         eventContinuation?.yield(.errorOccurred(.mediaServerReset))
@@ -912,6 +965,9 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
         
         // Media server is unavailable - wait for reset notification
         state = .mediaReset
+        
+        // Reset category tracking since media services are lost
+        currentCategory = nil
     }
     
     // MARK: - Recovery
@@ -986,6 +1042,9 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
         recognitionTask = nil
         transcriptionContinuation?.finish()
         
+        // Reset category tracking
+        currentCategory = nil
+        
         state = .idle
         stateBeforeInterruption = nil
     }
@@ -998,6 +1057,7 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
         AudioCoordinator Debug Info:
         - State: \(state)
         - Session Active: \(isSessionActive)
+        - Current Category: \(currentCategory?.rawValue ?? "none")
         - TTS Speaking: \(synthesizer.isSpeaking)
         - Recording Engine Running: \(recordingEngine?.isRunning ?? false)
         - Speech Recognizer Available: \(speechRecognizer?.isAvailable ?? false)

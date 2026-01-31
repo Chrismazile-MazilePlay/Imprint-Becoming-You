@@ -231,6 +231,9 @@
     "Collapse section" : {
 
     },
+    "Collapsed" : {
+
+    },
     "Coming Soon" : {
 
     },
@@ -258,6 +261,21 @@
     "Continue with System Voice" : {
 
     },
+    "Continue without saving" : {
+
+    },
+    "Continue Without Saving" : {
+
+    },
+    "Copies the error message for sharing with support" : {
+
+    },
+    "Copy error to clipboard" : {
+
+    },
+    "Copy to Clipboard" : {
+
+    },
     "Create custom prompts to generate\npersonalized affirmations." : {
 
     },
@@ -270,10 +288,16 @@
     "Cycles through 1, 3, and 5 loops" : {
 
     },
+    "Data won't be saved between sessions" : {
+
+    },
     "Delete" : {
 
     },
     "Delete session" : {
+
+    },
+    "Deletes all saved data and allows a fresh start. Requires confirmation." : {
 
     },
     "Discard changes and restore previous selection" : {
@@ -288,10 +312,16 @@
     "Dismiss session details" : {
 
     },
+    "Dismiss warning" : {
+
+    },
     "Done" : {
 
     },
     "Done editing" : {
+
+    },
+    "Double tap to %@ error details" : {
 
     },
     "Double tap to deselect" : {
@@ -324,6 +354,9 @@
     "Error" : {
 
     },
+    "Error:" : {
+
+    },
     "Exit" : {
 
     },
@@ -334,6 +367,9 @@
 
     },
     "Expand section" : {
+
+    },
+    "Expanded" : {
 
     },
     "Faith Content, %@" : {
@@ -371,6 +407,9 @@
 
     },
     "Go to Practice" : {
+
+    },
+    "If you continue, the app will work but your data won't be saved when you close it." : {
 
     },
     "Imprint" : {
@@ -544,6 +583,18 @@
 
     },
     "Remove from favorites" : {
+
+    },
+    "Reset" : {
+
+    },
+    "Reset All Data?" : {
+
+    },
+    "Reset app data" : {
+
+    },
+    "Reset App Data" : {
 
     },
     "Reset to current" : {
@@ -763,13 +814,25 @@
     "Tap to select and preview" : {
 
     },
+    "Technical details" : {
+
+    },
+    "Technical Details" : {
+
+    },
     "Test text input" : {
 
     },
     "than expected to load" : {
 
     },
+    "There was a problem loading your saved data. This may be caused by a software update or data corruption." : {
+
+    },
     "This cannot be undone." : {
+
+    },
+    "This will delete all your affirmations, progress, saved sessions, and settings. This action cannot be undone." : {
 
     },
     "Toggle faith-based affirmation content" : {
@@ -793,10 +856,16 @@
     "TTS Test" : {
 
     },
+    "Unable to Load Data" : {
+
+    },
     "Upgrade to Premium" : {
 
     },
     "Upgrade to Save More" : {
+
+    },
+    "Use the app but your progress will not be saved between sessions" : {
 
     },
     "Use the app without voice features" : {

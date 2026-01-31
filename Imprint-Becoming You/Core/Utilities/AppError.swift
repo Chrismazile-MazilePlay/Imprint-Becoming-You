@@ -119,6 +119,18 @@ enum AppError: Error, Equatable, Sendable {
     /// SwiftData model context error
     case modelContextError(reason: String)
     
+    // MARK: - Database Initialization Errors
+    
+    /// Database initialization failed with recovery options
+    ///
+    /// - Parameters:
+    ///   - reason: Description of what went wrong
+    ///   - canRecover: Whether the app can continue with in-memory fallback
+    case databaseInitFailed(reason: String, canRecover: Bool)
+    
+    /// Database was reset due to corruption - user data was lost
+    case databaseWasReset
+    
     // MARK: - Authentication Errors
     
     /// User is not authenticated
@@ -304,6 +316,15 @@ extension AppError: LocalizedError {
         case .modelContextError(let reason):
             return "Data error: \(reason)"
             
+        // Database Initialization Errors
+        case .databaseInitFailed(let reason, let canRecover):
+            if canRecover {
+                return "Unable to load your saved data. The app is running in temporary mode. \(reason)"
+            }
+            return "Unable to start the app due to a data error: \(reason)"
+        case .databaseWasReset:
+            return "Your app data was reset due to a problem. We apologize for the inconvenience."
+            
         // Authentication Errors
         case .notAuthenticated:
             return "Please sign in to continue."
@@ -366,6 +387,13 @@ extension AppError: LocalizedError {
             return "Tap to learn about Premium."
         case .goalsLocked:
             return "Upgrade to Premium for unlimited goal changes."
+        case .databaseInitFailed(_, let canRecover):
+            if canRecover {
+                return "Your data may not be saved between sessions. Try restarting the app."
+            }
+            return "Try resetting the app data or reinstalling."
+        case .databaseWasReset:
+            return "You can start fresh by setting up your goals again."
         default:
             return nil
         }
@@ -430,6 +458,10 @@ extension AppError {
         case .premiumRequired, .goalLimitExceeded, .promptLimitExceeded, .goalsLocked:
             return true
         case .validationFailed:
+            return true
+        case .databaseInitFailed(_, let canRecover):
+            return canRecover
+        case .databaseWasReset:
             return true
         default:
             return false

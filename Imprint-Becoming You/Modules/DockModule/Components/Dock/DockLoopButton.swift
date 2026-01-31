@@ -21,6 +21,12 @@ import SwiftUI
 /// └────────┘     └────────┘     └────────┘
 /// ```
 ///
+/// ## Accessibility
+///
+/// - **Label:** Descriptive based on count ("Single play", "Loop twice", etc.)
+/// - **Hint:** Explains cycling behavior
+/// - **Value:** Current loop state
+///
 /// ## Usage
 ///
 /// ```swift
@@ -41,6 +47,24 @@ public struct DockLoopButton: View {
     public let action: () -> Void
     
     private var isActive: Bool { count > 1 }
+    
+    // MARK: - Accessibility
+    
+    /// Descriptive label based on loop count.
+    private var accessibilityLabelText: String {
+        switch count {
+        case 1: return "Single play"
+        case 2: return "Loop twice"
+        case 3: return "Loop three times"
+        case 5: return "Loop five times"
+        default: return "Loop \(count) times"
+        }
+    }
+    
+    /// Value describing current state.
+    private var accessibilityValueText: String {
+        count > 1 ? "Looping \(count) times" : "Not looping"
+    }
     
     // MARK: - Initialization
     
@@ -75,8 +99,10 @@ public struct DockLoopButton: View {
             )
             .contentTransition(.identity)
         }
-        .accessibilityLabel("Loop count: \(count)")
-        .accessibilityHint("Cycles through 1, 3, and 5 loops")
+        // MARK: Accessibility
+        .accessibilityLabel(accessibilityLabelText)
+        .accessibilityHint("Double tap to cycle through loop options: 1, 3, or 5 times")
+        .accessibilityValue(accessibilityValueText)
     }
     
     // MARK: - Computed Properties

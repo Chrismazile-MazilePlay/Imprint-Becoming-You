@@ -11,6 +11,12 @@ import SwiftUI
 
 /// A single option row in the mode selector menu.
 ///
+/// ## Accessibility
+///
+/// - **Label:** Mode display name with description
+/// - **Traits:** `.isSelected` when this mode is currently selected
+/// - **Hint:** Describes selection action
+///
 /// ## Usage
 ///
 /// ```swift
@@ -83,7 +89,9 @@ public struct ModeOptionRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(mode.displayName)
+        // MARK: Accessibility
+        .accessibilityLabel("\(mode.displayName). \(mode.description)")
+        .accessibilityHint(isSelected ? "Currently selected" : "Double tap to select")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

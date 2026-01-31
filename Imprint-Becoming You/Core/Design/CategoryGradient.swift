@@ -20,6 +20,12 @@ import SwiftUI
 /// - `Theme.swift` - Spacing, corner radius, animation tokens
 /// - `Typography.swift` - Font definitions
 ///
+/// ## Accessibility
+///
+/// Category gradients are decorative backgrounds and should be hidden
+/// from VoiceOver. Use the `asDecorativeBackground()` modifier or
+/// apply `.accessibilityHidden(true)` when using gradients as backgrounds.
+///
 /// ## Usage
 /// ```swift
 /// let gradient = CategoryGradient.forCategory(.confidence)
@@ -28,6 +34,7 @@ import SwiftUI
 ///     startPoint: .top,
 ///     endPoint: .bottom
 /// )
+/// .accessibilityHidden(true) // Decorative only
 /// ```
 struct CategoryGradient: Sendable, Equatable {
     
@@ -120,5 +127,100 @@ extension CategoryGradient {
             startRadius: 50,
             endRadius: 400
         )
+    }
+}
+
+// MARK: - Accessibility Extensions
+
+extension CategoryGradient {
+    
+    /// Creates a decorative linear gradient background with accessibility hidden.
+    ///
+    /// Use this when the gradient is purely decorative and should not be
+    /// announced by VoiceOver.
+    ///
+    /// - Parameter primaryOpacity: Opacity for the primary color (default 0.3)
+    /// - Returns: A View with the gradient applied and accessibility hidden
+    @ViewBuilder
+    func asDecorativeBackground(primaryOpacity: Double = 0.3) -> some View {
+        asLinearGradient(primaryOpacity: primaryOpacity)
+            .accessibilityHidden(true)
+    }
+    
+    /// Creates a decorative radial overlay with accessibility hidden.
+    ///
+    /// Use this when the overlay is purely decorative and should not be
+    /// announced by VoiceOver.
+    ///
+    /// - Parameter primaryOpacity: Opacity for the primary color (default 0.12)
+    /// - Returns: A View with the overlay applied and accessibility hidden
+    @ViewBuilder
+    func asDecorativeOverlay(primaryOpacity: Double = 0.12) -> some View {
+        asRadialOverlay(primaryOpacity: primaryOpacity)
+            .accessibilityHidden(true)
+    }
+}
+
+// MARK: - View Modifier for Decorative Gradients
+
+/// A view modifier that applies a category gradient as a decorative background.
+///
+/// The gradient is automatically hidden from VoiceOver.
+struct DecorativeGradientBackground: ViewModifier {
+    let gradient: CategoryGradient
+    let primaryOpacity: Double
+    
+    init(gradient: CategoryGradient, primaryOpacity: Double = 0.3) {
+        self.gradient = gradient
+        self.primaryOpacity = primaryOpacity
+    }
+    
+    func body(content: Content) -> some View {
+        content
+            .background(
+                gradient.asLinearGradient(primaryOpacity: primaryOpacity)
+                    .accessibilityHidden(true)
+            )
+    }
+}
+
+extension View {
+    
+    /// Applies a category gradient as a decorative background.
+    ///
+    /// The gradient is automatically hidden from VoiceOver since it's
+    /// purely decorative.
+    ///
+    /// - Parameters:
+    ///   - category: The goal category (nil uses default gradient)
+    ///   - primaryOpacity: Opacity for the primary color (default 0.3)
+    /// - Returns: A view with the gradient background applied
+    func decorativeGradientBackground(
+        for category: GoalCategory?,
+        primaryOpacity: Double = 0.3
+    ) -> some View {
+        modifier(DecorativeGradientBackground(
+            gradient: CategoryGradient.forCategory(category),
+            primaryOpacity: primaryOpacity
+        ))
+    }
+    
+    /// Applies a category group gradient as a decorative background.
+    ///
+    /// The gradient is automatically hidden from VoiceOver since it's
+    /// purely decorative.
+    ///
+    /// - Parameters:
+    ///   - group: The goal group
+    ///   - primaryOpacity: Opacity for the primary color (default 0.3)
+    /// - Returns: A view with the gradient background applied
+    func decorativeGradientBackground(
+        for group: GoalGroup,
+        primaryOpacity: Double = 0.3
+    ) -> some View {
+        modifier(DecorativeGradientBackground(
+            gradient: CategoryGradient.forGroup(group),
+            primaryOpacity: primaryOpacity
+        ))
     }
 }

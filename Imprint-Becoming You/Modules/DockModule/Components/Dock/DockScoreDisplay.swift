@@ -19,6 +19,11 @@ import SwiftUI
 /// The score animates from 0 to the final value over 0.6 seconds using
 /// an ease-out curve for a natural, decelerating count-up effect.
 ///
+/// ## Accessibility
+///
+/// - **Label:** "Resonance score: X percent"
+/// - **Value:** Descriptive feedback (Excellent, Good, Fair, Keep practicing)
+///
 /// ## Usage
 ///
 /// ```swift
@@ -39,6 +44,22 @@ public struct DockScoreDisplay: View {
     
     @State private var displayedScore: Int = 0
     @State private var hasAnimated: Bool = false
+    
+    // MARK: - Accessibility
+    
+    /// Descriptive feedback based on score range.
+    private var scoreDescription: String {
+        switch score {
+        case 90...100:
+            return "Excellent resonance"
+        case 70..<90:
+            return "Good resonance"
+        case 50..<70:
+            return "Fair resonance"
+        default:
+            return "Keep practicing"
+        }
+    }
     
     // MARK: - Initialization
     
@@ -65,7 +86,9 @@ public struct DockScoreDisplay: View {
             .onChange(of: score) { _, newValue in
                 animateScore(to: newValue)
             }
-            .accessibilityLabel("Score: \(score) percent")
+            // MARK: Accessibility
+            .accessibilityLabel("Resonance score: \(score) percent")
+            .accessibilityValue(scoreDescription)
     }
     
     // MARK: - Animation

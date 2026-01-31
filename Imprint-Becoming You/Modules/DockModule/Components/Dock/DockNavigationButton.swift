@@ -21,6 +21,15 @@ public enum DockNavigationDirection: Equatable, Sendable {
         }
     }
     
+    /// Accessibility label for the direction.
+    var accessibilityLabelText: String {
+        switch self {
+        case .previous: return "Previous affirmation"
+        case .next: return "Next affirmation"
+        }
+    }
+    
+    /// Short label for display (kept for backward compatibility).
     var label: String {
         switch self {
         case .previous: return "Previous"
@@ -36,6 +45,12 @@ public enum DockNavigationDirection: Equatable, Sendable {
 /// Features a circular background with a prominent chevron icon.
 /// The button is sized to provide a comfortable tap target while
 /// maintaining visual balance with other dock elements.
+///
+/// ## Accessibility
+///
+/// - **Label:** "Previous affirmation" or "Next affirmation"
+/// - **Hint:** Describes action or disabled state
+/// - **Traits:** Removed `.isButton` when disabled
 ///
 /// ## Usage
 ///
@@ -68,6 +83,22 @@ public struct DockNavigationButton: View {
     /// Size of the chevron icon
     private let iconSize: CGFloat = 20
     
+    // MARK: - Accessibility
+    
+    /// Hint based on direction and enabled state.
+    private var accessibilityHintText: String {
+        if isEnabled {
+            return "Double tap to navigate"
+        } else {
+            switch direction {
+            case .previous:
+                return "No previous affirmations"
+            case .next:
+                return "No more affirmations"
+            }
+        }
+    }
+    
     // MARK: - Initialization
     
     public init(
@@ -97,7 +128,10 @@ public struct DockNavigationButton: View {
                 }
         }
         .disabled(!isEnabled)
-        .accessibilityLabel(direction.label)
+        // MARK: Accessibility
+        .accessibilityLabel(direction.accessibilityLabelText)
+        .accessibilityHint(accessibilityHintText)
+        .accessibilityRemoveTraits(isEnabled ? [] : .isButton)
     }
 }
 

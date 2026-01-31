@@ -11,6 +11,12 @@ import SwiftUI
 
 /// A chip-style toggle button for enabling/disabling shuffle.
 ///
+/// ## Accessibility
+///
+/// - **Label:** "Shuffle enabled" or "Shuffle disabled"
+/// - **Hint:** Describes toggle action
+/// - **Traits:** `.isSelected` when enabled
+///
 /// ## Usage
 ///
 /// ```swift
@@ -53,8 +59,10 @@ public struct DockShuffleButton: View {
                         .fill(isEnabled ? tokens.accent.opacity(0.15) : tokens.backgroundTertiary)
                 )
         }
-        .accessibilityLabel("Shuffle")
-        .accessibilityValue(isEnabled ? "On" : "Off")
+        // MARK: Accessibility
+        .accessibilityLabel(isEnabled ? "Shuffle enabled" : "Shuffle disabled")
+        .accessibilityHint("Double tap to toggle shuffle mode")
+        .accessibilityAddTraits(isEnabled ? .isSelected : [])
     }
 }
 

@@ -15,6 +15,12 @@ import SwiftUI
 /// waiting, etc.) with smooth transitions. It is completely decoupled from TTS callbacks
 /// and session state — it only knows about visualization states.
 ///
+/// ## Accessibility
+///
+/// This view is marked as **decorative** and hidden from VoiceOver.
+/// The waveform provides visual feedback only; audio state is communicated
+/// through other UI elements and announcements.
+///
 /// ## Choreographed Transition (Playing → Listening)
 ///
 /// When transitioning from TTS playback to mic listening, the waveform performs
@@ -100,9 +106,10 @@ public struct DockWaveformView: View {
                 )
             }
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityStateDescription)
-        .accessibilityValue(accessibilityValueDescription)
+        // MARK: Accessibility
+        // Decorative element - hidden from VoiceOver
+        // Audio state is communicated through announcements and other UI elements
+        .accessibilityHidden(true)
         .onAppear {
             initializeBarOffsets()
             config = configuration(for: state)
@@ -112,37 +119,6 @@ public struct DockWaveformView: View {
         .onChange(of: state) { oldState, newState in
             handleStateChange(from: oldState, to: newState)
         }
-    }
-    
-    // MARK: - Accessibility
-    
-    /// Provides a VoiceOver-friendly description of the current waveform state.
-    private var accessibilityStateDescription: String {
-        switch state {
-        case .hidden:
-            return "Audio visualization hidden"
-        case .idle:
-            return "Audio visualization idle"
-        case .playing:
-            return "Playing audio"
-        case .preparing:
-            return "Preparing to listen"
-        case .listening:
-            return "Listening for your voice"
-        case .settling:
-            return "Processing speech"
-        case .showingScore:
-            return "Showing score"
-        }
-    }
-    
-    /// Provides the audio level as an accessibility value when applicable.
-    private var accessibilityValueDescription: String {
-        guard let audioLevel = state.audioLevel else {
-            return ""
-        }
-        let percentage = Int(audioLevel * 100)
-        return "Audio level \(percentage) percent"
     }
     
     // MARK: - Initialization Helpers

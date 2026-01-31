@@ -10,9 +10,6 @@
     "\"%@\"?" : {
 
     },
-    "%@" : {
-
-    },
     "%@ (%lld)" : {
       "localizations" : {
         "en" : {
@@ -24,6 +21,9 @@
       }
     },
     "%@ phrase" : {
+
+    },
+    "%@ selector" : {
 
     },
     "%@ voice" : {
@@ -282,10 +282,10 @@
     "Current Voice" : {
 
     },
-    "Currently selected voice" : {
+    "Currently selected" : {
 
     },
-    "Cycles through 1, 3, and 5 loops" : {
+    "Currently selected voice" : {
 
     },
     "Data won't be saved between sessions" : {
@@ -324,6 +324,15 @@
     "Double tap to %@ error details" : {
 
     },
+    "Double tap to %@ options" : {
+
+    },
+    "Double tap to begin your practice session" : {
+
+    },
+    "Double tap to cycle through loop options: 1, 3, or 5 times" : {
+
+    },
     "Double tap to deselect" : {
 
     },
@@ -333,10 +342,16 @@
     "Double tap to remove from favorites" : {
 
     },
+    "Double tap to select" : {
+
+    },
     "Double tap to select for playback" : {
 
     },
     "Double tap to select this voice" : {
+
+    },
+    "Double tap to toggle shuffle mode" : {
 
     },
     "Edit session name" : {
@@ -466,9 +481,6 @@
     "Loop" : {
 
     },
-    "Loop count: %lld" : {
-
-    },
     "Manage your account settings" : {
 
     },
@@ -490,9 +502,6 @@
     "No favorites yet. Tap the heart on any affirmation to save it here." : {
 
     },
-    "No items to practice" : {
-
-    },
     "No Saved Sessions" : {
 
     },
@@ -502,13 +511,7 @@
     "Not selected" : {
 
     },
-    "Off" : {
-
-    },
     "OK" : {
-
-    },
-    "On" : {
 
     },
     "Onboarding progress" : {
@@ -529,9 +532,6 @@
           }
         }
       }
-    },
-    "Play" : {
-
     },
     "Play the test text with the selected voice" : {
 
@@ -609,6 +609,9 @@
     "Resonance score: %@" : {
 
     },
+    "Resonance score: %lld percent" : {
+
+    },
     "Resonance Trends. Track your vocal improvement. Coming soon" : {
 
     },
@@ -678,7 +681,7 @@
     "Score" : {
 
     },
-    "Score: %lld percent" : {
+    "Select affirmations first" : {
 
     },
     "Select at least one category to continue" : {
@@ -726,7 +729,10 @@
     "Share affirmation" : {
 
     },
-    "Shuffle" : {
+    "Shuffle disabled" : {
+
+    },
+    "Shuffle enabled" : {
 
     },
     "Skip" : {
@@ -768,7 +774,7 @@
     "Start Now" : {
 
     },
-    "Start practice session" : {
+    "Start session" : {
 
     },
     "Start session now with %lld affirmations ready" : {
@@ -806,9 +812,6 @@
 
     },
     "Tap the heart on any affirmation to save it here." : {
-
-    },
-    "Tap to %@ selector" : {
 
     },
     "Tap to select and preview" : {

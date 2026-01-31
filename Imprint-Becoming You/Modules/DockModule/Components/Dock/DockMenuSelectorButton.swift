@@ -14,6 +14,13 @@ import SwiftUI
 /// Always displays icon + label + chevron. Supports active state highlighting
 /// for options like binaural presets.
 ///
+/// ## Accessibility
+///
+/// - **Label:** "[Label] selector" (e.g., "Read Aloud selector")
+/// - **Value:** "Expanded" or "Collapsed"
+/// - **Hint:** Describes toggle action
+/// - **Traits:** `.isSelected` when expanded
+///
 /// ## Usage
 ///
 /// ```swift
@@ -100,8 +107,11 @@ public struct DockMenuSelectorButton: View {
                     .fill(backgroundColor)
             )
         }
-        .accessibilityLabel("\(label)")
-        .accessibilityHint("Tap to \(isExpanded ? "close" : "open") selector")
+        // MARK: Accessibility
+        .accessibilityLabel("\(label) selector")
+        .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+        .accessibilityHint("Double tap to \(isExpanded ? "collapse" : "expand") options")
+        .accessibilityAddTraits(isExpanded ? .isSelected : [])
     }
     
     // MARK: - Computed Properties

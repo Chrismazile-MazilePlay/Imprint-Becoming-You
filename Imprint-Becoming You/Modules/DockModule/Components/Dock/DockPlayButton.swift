@@ -11,6 +11,12 @@ import SwiftUI
 
 /// A circular play button for starting practice sessions.
 ///
+/// ## Accessibility
+///
+/// - **Label:** "Start session" (enabled) or "Start session" (disabled)
+/// - **Hint:** Describes action or explains why disabled
+/// - **Traits:** `.startsMediaSession` when enabled
+///
 /// ## Usage
 ///
 /// ```swift
@@ -54,8 +60,11 @@ public struct DockPlayButton: View {
                 )
         }
         .disabled(!isEnabled)
-        .accessibilityLabel("Play")
-        .accessibilityHint(isEnabled ? "Start practice session" : "No items to practice")
+        // MARK: Accessibility
+        .accessibilityLabel("Start session")
+        .accessibilityHint(isEnabled ? "Double tap to begin your practice session" : "Select affirmations first")
+        .accessibilityAddTraits(isEnabled ? .startsMediaSession : [])
+        .accessibilityRemoveTraits(isEnabled ? [] : .isButton)
     }
 }
 

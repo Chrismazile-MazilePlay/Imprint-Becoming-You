@@ -14,7 +14,8 @@ extension PracticeStore {
     func startFlowForCurrentAffirmation() {
         guard currentAffirmation != nil else { return }
         
-        activeFlowTask?.cancel()
+        // Use centralized task management for proper cleanup
+        cancelFlowTask()
         flowGeneration += 1
         
         recordAffirmationView()
@@ -33,13 +34,11 @@ extension PracticeStore {
     }
     
     func executeCurrentFlow(generation: Int) async {
-        guard !Task.isCancelled else { return }
-        guard generation == flowGeneration else { return }
+        guard shouldContinueFlow(generation: generation) else { return }
         
         try? await Task.sleep(for: PracticeTiming.flowStartDelay)
         
-        guard !Task.isCancelled else { return }
-        guard generation == flowGeneration else { return }
+        guard shouldContinueFlow(generation: generation) else { return }
         
         switch flow {
         case .home:
@@ -76,9 +75,11 @@ extension PracticeStore {
         
         // Try to get cached audio first
         if isSessionActive, let cachedAudio = queueService.getAudio(for: sessionIndex) {
-            #if DEBUG
-            print("🎵 PracticeStore: Playing cached audio for index \(sessionIndex)")
-            #endif
+            AppLogger.debug(
+                "Playing cached audio",
+                category: .tts,
+                context: ["index": sessionIndex]
+            )
             
             // Play raw PCM Float32 data at 24000 Hz (Kokoro TTS output format)
             try await playerService.playRawPCMData(cachedAudio, sampleRate: 24000)
@@ -87,9 +88,11 @@ extension PracticeStore {
         
         // Try on-demand synthesis if in session
         if isSessionActive {
-            #if DEBUG
-            print("🎵 PracticeStore: On-demand synthesis for index \(sessionIndex)")
-            #endif
+            AppLogger.debug(
+                "On-demand synthesis",
+                category: .tts,
+                context: ["index": sessionIndex]
+            )
             
             do {
                 let audioData = try await queueService.synthesizeOnDemand(index: sessionIndex)
@@ -97,9 +100,11 @@ extension PracticeStore {
                 try await playerService.playRawPCMData(audioData, sampleRate: 24000)
                 return
             } catch {
-                #if DEBUG
-                print("⚠️ PracticeStore: On-demand synthesis failed, falling back to TTS service")
-                #endif
+                AppLogger.warning(
+                    "On-demand synthesis failed, falling back to TTS service",
+                    category: .tts,
+                    context: ["index": sessionIndex]
+                )
                 // Fall through to direct TTS
             }
         }
@@ -113,8 +118,10 @@ extension PracticeStore {
         dependencies.ttsService.stopSpeaking()
         
         // AudioPlayerService is an actor - call stop asynchronously
-        Task {
-            await dependencies.audioPlayerService.stop()
+        // Fire-and-forget: instant operation, no tracking needed
+        Task { [weak self] in
+            guard let self = self else { return }
+            await self.dependencies.audioPlayerService.stop()
         }
     }
     
@@ -132,8 +139,10 @@ extension PracticeStore {
         
         let nextText = browseAffirmations[nextIndex].text.strippingTrailingCitation
         
-        Task {
-            await dependencies.ttsService.preSynthesize(text: nextText, voiceId: selectedVoiceId)
+        // Fire-and-forget: pre-synthesis is best-effort, no tracking needed
+        Task { [weak self] in
+            guard let self = self else { return }
+            await self.dependencies.ttsService.preSynthesize(text: nextText, voiceId: self.selectedVoiceId)
         }
     }
 }
@@ -143,8 +152,7 @@ extension PracticeStore {
 extension PracticeStore {
     
     func executeReadAloudFlow(generation: Int) async {
-        guard !Task.isCancelled else { return }
-        guard generation == flowGeneration else { return }
+        guard shouldContinueFlow(generation: generation) else { return }
         
         guard let affirmation = currentAffirmation else { return }
         let affirmationText = affirmation.text
@@ -157,6 +165,7 @@ extension PracticeStore {
         do {
             let estimatedDuration = max(speechDuration, PracticeTiming.ttsMininumHoldDuration)
             
+            // Progress tracking task - local to this flow, cancelled when TTS completes
             let progressTask = Task { [weak self] in
                 guard let self = self else { return }
                 let startTime = Date()
@@ -178,8 +187,7 @@ extension PracticeStore {
             try await speakText(affirmationText.strippingTrailingCitation)
             progressTask.cancel()
             
-            guard !Task.isCancelled else { return }
-            guard generation == flowGeneration else { return }
+            guard shouldContinueFlow(generation: generation) else { return }
             
             // NOTE: For Read Aloud mode, we do NOT call scheduleAutoAdvance() here.
             // The dock's segment timer handles auto-advance via segmentTimerCompleted event.
@@ -200,8 +208,7 @@ extension PracticeStore {
 extension PracticeStore {
     
     func executeReadAndSpeakFlow(generation: Int) async {
-        guard !Task.isCancelled else { return }
-        guard generation == flowGeneration else { return }
+        guard shouldContinueFlow(generation: generation) else { return }
         
         guard let affirmation = currentAffirmation else { return }
         let affirmationText = affirmation.text
@@ -209,15 +216,14 @@ extension PracticeStore {
         let textForListening = affirmationText.strippingTrailingCitation
         let speechDuration = affirmation.speechDuration
         
-        #if DEBUG
-        if affirmationText != textForListening {
-            print("[DEBUG] Citation STRIPPED:")
-            print("[DEBUG]   Original: '\(affirmationText.suffix(50))'")
-            print("[DEBUG]   Stripped: '\(textForListening.suffix(50))'")
-        } else {
-            print("[DEBUG] No citation found to strip (original text unchanged)")
-        }
-        #endif
+        AppLogger.debug(
+            "Read and Speak flow started",
+            category: .practice,
+            context: [
+                "hasStrippedCitation": affirmationText != textForListening,
+                "wordCount": textForListening.split(separator: " ").count
+            ]
+        )
         
         // Check permissions
         let speechService = dependencies.speechAnalysisService
@@ -243,6 +249,7 @@ extension PracticeStore {
         do {
             let estimatedDuration = max(speechDuration, PracticeTiming.ttsMininumHoldDuration)
             
+            // Progress tracking task - local to this flow
             let progressTask = Task { [weak self] in
                 guard let self = self else { return }
                 let startTime = Date()
@@ -264,8 +271,7 @@ extension PracticeStore {
             try await speakText(affirmationText.strippingTrailingCitation)
             progressTask.cancel()
             
-            guard !Task.isCancelled else { return }
-            guard generation == flowGeneration else { return }
+            guard shouldContinueFlow(generation: generation) else { return }
             
         } catch {
             send(.ttsFailed(.ttsError(error.localizedDescription)))
@@ -289,22 +295,20 @@ extension PracticeStore {
 extension PracticeStore {
     
     func executeSpeakOnlyFlow(generation: Int) async {
-        guard !Task.isCancelled else { return }
-        guard generation == flowGeneration else { return }
+        guard shouldContinueFlow(generation: generation) else { return }
         
         guard let affirmationText = currentAffirmation?.text else { return }
         // Strip citation for speech recognition (user doesn't speak verse references)
         let textForListening = affirmationText.strippingTrailingCitation
         
-        #if DEBUG
-        if affirmationText != textForListening {
-            print("[DEBUG] Citation STRIPPED (SpeakOnly):")
-            print("[DEBUG]   Original: '\(affirmationText.suffix(50))'")
-            print("[DEBUG]   Stripped: '\(textForListening.suffix(50))'")
-        } else {
-            print("[DEBUG] No citation found to strip (SpeakOnly, original text unchanged)")
-        }
-        #endif
+        AppLogger.debug(
+            "Speak Only flow started",
+            category: .practice,
+            context: [
+                "hasStrippedCitation": affirmationText != textForListening,
+                "wordCount": textForListening.split(separator: " ").count
+            ]
+        )
         
         // Check permissions
         let speechService = dependencies.speechAnalysisService
@@ -353,16 +357,14 @@ extension PracticeStore {
     /// 4. Process audio and transcription
     /// 5. Complete with result
     func executeListeningPhase(generation: Int, affirmationText: String, mode: ListeningMode) async {
-        #if DEBUG
-        print("â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•")
-        print("[DEBUG] executeListeningPhase STARTED")
-        print("[DEBUG] Mode: \(mode)")
-        print("[DEBUG] Expected text: '\(affirmationText)'")
-        print("[DEBUG] Word count: \(affirmationText.split(separator: " ").count)")
-        print("[DEBUG] Ends with ')': \(affirmationText.hasSuffix(")"))")
-        print("[DEBUG] Last 30 chars: '\(String(affirmationText.suffix(30)))'")
-        print("â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•")
-        #endif
+        AppLogger.debug(
+            "Listening phase started",
+            category: .speech,
+            context: [
+                "mode": String(describing: mode),
+                "wordCount": affirmationText.split(separator: " ").count
+            ]
+        )
         
         let startTime = Date()
         var lastTranscription = ""
@@ -372,6 +374,7 @@ extension PracticeStore {
         // Get speech capture service from store's property
         let captureService = speechCaptureService
         
+        // Use centralized task management for listening task
         listeningTask = Task { [weak self] in
             guard let self = self else { return }
             
@@ -440,28 +443,41 @@ extension PracticeStore {
                 case .silenceDetected(let silenceDuration):
                     if lastTranscription.isEmpty {
                         if silenceDuration >= PracticeTiming.incompleteSilenceTimeout {
-                            #if DEBUG
-                            print("[DEBUG] Breaking: Empty transcription + silence \(String(format: "%.1f", silenceDuration))s >= \(PracticeTiming.incompleteSilenceTimeout)s")
-                            #endif
+                            AppLogger.debug(
+                                "Breaking: Empty transcription + silence",
+                                category: .speech,
+                                context: ["silenceDuration": silenceDuration, "threshold": PracticeTiming.incompleteSilenceTimeout]
+                            )
                             break captureLoop
                         }
                     } else {
                         let completion = TextAccuracyCalculator.evaluateCompletion(expected: affirmationText, recognized: lastTranscription)
-                        #if DEBUG
-                        print("[DEBUG] Silence \(String(format: "%.1f", silenceDuration))s - Words: \(completion.matchedWordCount)/\(completion.expectedWordCount), Complete: \(completion.isComplete)")
-                        #endif
+                        AppLogger.debug(
+                            "Silence detected",
+                            category: .speech,
+                            context: [
+                                "silenceDuration": silenceDuration,
+                                "matchedWords": completion.matchedWordCount,
+                                "expectedWords": completion.expectedWordCount,
+                                "isComplete": completion.isComplete
+                            ]
+                        )
                         if completion.isComplete {
                             if silenceDuration >= PracticeTiming.completedAffirmationSilenceThreshold {
-                                #if DEBUG
-                                print("[DEBUG] Breaking: Complete + silence \(String(format: "%.1f", silenceDuration))s >= \(PracticeTiming.completedAffirmationSilenceThreshold)s")
-                                #endif
+                                AppLogger.debug(
+                                    "Breaking: Complete + silence",
+                                    category: .speech,
+                                    context: ["silenceDuration": silenceDuration, "threshold": PracticeTiming.completedAffirmationSilenceThreshold]
+                                )
                                 break captureLoop
                             }
                         } else {
                             if silenceDuration >= PracticeTiming.incompleteSilenceTimeout {
-                                #if DEBUG
-                                print("[DEBUG] Breaking: Incomplete + silence \(String(format: "%.1f", silenceDuration))s >= \(PracticeTiming.incompleteSilenceTimeout)s")
-                                #endif
+                                AppLogger.debug(
+                                    "Breaking: Incomplete + silence",
+                                    category: .speech,
+                                    context: ["silenceDuration": silenceDuration, "threshold": PracticeTiming.incompleteSilenceTimeout]
+                                )
                                 break captureLoop
                             }
                         }
@@ -484,7 +500,7 @@ extension PracticeStore {
             }
         }
         
-        // Wait with timeout
+        // Wait with timeout using task group
         await withTaskGroup(of: Void.self) { group in
             group.addTask { [weak self] in await self?.listeningTask?.value }
             group.addTask { try? await Task.sleep(for: .seconds(PracticeTiming.maximumListeningDuration)) }
@@ -492,42 +508,36 @@ extension PracticeStore {
             group.cancelAll()
         }
         
-        listeningTask?.cancel()
-        listeningTask = nil
+        // Clean up listening task
+        cancelListeningTask()
         
         let finalText = captureService.stopCapture()
         if !finalText.isEmpty { lastTranscription = finalText }
         
-        guard !Task.isCancelled else { return }
-        guard generation == flowGeneration else { return }
+        guard shouldContinueFlow(generation: generation) else { return }
         guard hasStarted else { return }
         
         let duration = Date().timeIntervalSince(startTime)
         
         if lastTranscription.isEmpty {
-            #if DEBUG
-            print("[DEBUG] TIMEOUT: No transcription received")
-            #endif
+            AppLogger.debug("Timeout: No transcription received", category: .speech)
             send(.listeningTimedOut)
             return
         }
         
         let completion = TextAccuracyCalculator.evaluateCompletion(expected: affirmationText, recognized: lastTranscription)
         
-        #if DEBUG
-        print("â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•")
-        print("[DEBUG] FINAL COMPLETION CHECK")
-        print("[DEBUG] Expected text: '\(affirmationText)'")
-        print("[DEBUG] Recognized text: '\(lastTranscription)'")
-        print("[DEBUG] isComplete: \(completion.isComplete)")
-        print("[DEBUG] accuracy: \(String(format: "%.2f", completion.accuracy))")
-        print("[DEBUG] wordsCovered: \(String(format: "%.2f", completion.wordsCovered)) (\(completion.matchedWordCount)/\(completion.expectedWordCount) words)")
-        print("[DEBUG] Threshold needed: 0.75 (75%)")
-        if !completion.isComplete {
-            print("[DEBUG] NOT COMPLETE - Need \(Int(0.75 * Float(completion.expectedWordCount))) words, got \(completion.matchedWordCount)")
-        }
-        print("â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•")
-        #endif
+        AppLogger.debug(
+            "Final completion check",
+            category: .speech,
+            context: [
+                "isComplete": completion.isComplete,
+                "accuracy": String(format: "%.2f", completion.accuracy),
+                "wordsCovered": String(format: "%.2f", completion.wordsCovered),
+                "matchedWords": completion.matchedWordCount,
+                "expectedWords": completion.expectedWordCount
+            ]
+        )
         
         if completion.isComplete {
             send(.listeningCompleted(recognizedText: lastTranscription, duration: duration))
@@ -541,6 +551,10 @@ extension PracticeStore {
 
 extension PracticeStore {
     
+    /// Schedules auto-advance after a delay.
+    ///
+    /// **Task Lifecycle:** Fire-and-forget with `isCancelled` check.
+    /// Short-lived (< 2s), self-terminating, no tracking needed.
     func scheduleAutoAdvance() {
         Task { [weak self] in
             guard let self = self else { return }
@@ -561,6 +575,10 @@ extension PracticeStore {
         }
     }
     
+    /// Locks navigation for a brief period (during score display).
+    ///
+    /// **Task Lifecycle:** Fire-and-forget.
+    /// Short-lived (< 3s), self-terminating, no tracking needed.
     func lockNavigation() {
         setNavigationLocked(true)
         
@@ -576,14 +594,19 @@ extension PracticeStore {
 
 extension PracticeStore {
     
+    /// Cancels all current activity and clears pending state.
+    ///
+    /// This is the primary cleanup method called on:
+    /// - Navigation events
+    /// - Mode changes
+    /// - Session exit
+    /// - View disappearance
     func cancelCurrentActivity() {
-        activeFlowTask?.cancel()
-        activeFlowTask = nil
-        pendingAutoAdvance = nil
+        // Use centralized task management
+        cancelFlowTask()
+        cancelListeningTask()
         
-        listeningTask?.cancel()
-        listeningTask = nil
-        listeningStartTime = nil
+        pendingAutoAdvance = nil
         
         // Stop TTS playback
         stopTTSPlayback()
@@ -594,11 +617,13 @@ extension PracticeStore {
         // Stop speech capture (synchronous)
         speechCaptureService.cancelCapture()
         
-        // Cancel speech analysis (async, fire-and-forget)
+        // Cancel speech analysis (async, fire-and-forget - instant operation)
         Task { [weak self] in
             guard let self = self else { return }
             await self.dependencies.speechAnalysisService.cancelAnalysis()
         }
+        
+        AppLogger.debug("Current activity cancelled", category: .practice)
     }
     
     func resetToIdle() {

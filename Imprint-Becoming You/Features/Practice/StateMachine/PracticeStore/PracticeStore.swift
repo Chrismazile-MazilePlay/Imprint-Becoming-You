@@ -29,7 +29,25 @@ import UIKit
 /// - `+Session` - Queue and session lifecycle
 /// - `+LoopSession` - Loop, shuffle, and saved session handling
 /// - `+DataLoading` - Repository interactions
+/// - `+TaskManagement` - Task lifecycle and cancellation
 /// - `+Previews` - Development support
+///
+/// ## Task Lifecycle Management
+///
+/// Tasks are managed in two categories:
+///
+/// **Tracked Tasks** (long-running, need explicit cancellation):
+/// - `activeFlowTask` - Main TTS/listening flow
+/// - `listeningTask` - Speech recognition capture
+/// - `sessionPreparationTask` - TTS pre-synthesis
+///
+/// **Fire-and-Forget Tasks** (short-lived, self-terminating):
+/// - Binaural toggle (instant)
+/// - Score display delay (< 3s with isCancelled check)
+/// - Navigation lock (< 3s)
+/// - Auto-advance delay (< 2s with isCancelled check)
+///
+/// See `PracticeStore+TaskManagement.swift` for centralized cancellation.
 @MainActor
 @Observable
 final class PracticeStore {
@@ -136,7 +154,9 @@ final class PracticeStore {
     /// Mode pending for session start (set during preparation)
     private(set) var pendingSessionMode: SessionMode? = nil
     
-    /// Active preparation task (for cancellation)
+    /// Active preparation task (for cancellation).
+    ///
+    /// **Task Lifecycle:** Managed task - cancelled via `clearSessionPreparation()` or `cancelAllManagedTasks()`.
     var sessionPreparationTask: Task<Void, Never>?
     
     /// Current phase of session preparation (for UI display)
@@ -191,12 +211,18 @@ final class PracticeStore {
     /// Current error (if any)
     private(set) var error: PracticeError? = nil
     
-    // MARK: - Internal State
+    // MARK: - Internal State (Task Management)
     
-    /// Active flow task (cancellable)
+    /// Active flow task (cancellable).
+    ///
+    /// **Task Lifecycle:** Managed task - cancelled via `cancelFlowTask()` or `cancelAllManagedTasks()`.
+    /// Uses `flowGeneration` for staleness checks.
     var activeFlowTask: Task<Void, Never>? = nil
     
     /// Flow generation counter - incremented on each mode/index change.
+    ///
+    /// Used by async tasks to detect staleness. If a task's captured generation
+    /// doesn't match the current value, the task should exit early.
     var flowGeneration: Int = 0
     
     /// Last user interaction timestamp
@@ -221,7 +247,9 @@ final class PracticeStore {
         return service
     }
     
-    /// Active listening task
+    /// Active listening task.
+    ///
+    /// **Task Lifecycle:** Managed task - cancelled via `cancelListeningTask()` or `cancelAllManagedTasks()`.
     var listeningTask: Task<Void, Never>?
     
     /// Listening start time for timeout tracking
@@ -395,9 +423,11 @@ final class PracticeStore {
     /// - Any interruption requiring a fresh start
     func incrementSegmentGeneration() {
         segmentGeneration += 1
-        #if DEBUG
-        print("[DEBUG] PracticeStore: Segment generation incremented to \(segmentGeneration)")
-        #endif
+        AppLogger.debug(
+            "Segment generation incremented",
+            category: .practice,
+            context: ["generation": segmentGeneration]
+        )
     }
     
     /// Updates navigation lock
@@ -451,11 +481,13 @@ final class PracticeStore {
         if let isFavorited = isFavorited { result.isFavorited = isFavorited }
         sessionResults[index] = result
         
-        #if DEBUG
         if let score = score {
-            print("[OK] PracticeStore: Updated score=\(score) for result at index \(index), loopScores=\(result.loopScores)")
+            AppLogger.debug(
+                "Updated session result",
+                category: .practice,
+                context: ["index": index, "score": score, "loopScores": result.loopScores.count]
+            )
         }
-        #endif
     }
     
     /// Adds a loop score to a session result at index
@@ -466,9 +498,11 @@ final class PracticeStore {
         result.addLoopScore(score)
         sessionResults[index] = result
         
-        #if DEBUG
-        print("[OK] PracticeStore: Added loop score=\(score) for result at index \(index), loopScores=\(result.loopScores)")
-        #endif
+        AppLogger.debug(
+            "Added loop score to result",
+            category: .practice,
+            context: ["index": index, "score": score, "totalLoopScores": result.loopScores.count]
+        )
     }
     
     /// Updates summary visibility

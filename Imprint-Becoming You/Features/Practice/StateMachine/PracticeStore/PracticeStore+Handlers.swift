@@ -57,10 +57,11 @@ extension PracticeStore {
     /// Use case: User is mid-session and wants to switch from Read & Speak
     /// to Read Aloud without losing their current session context.
     private func restartSessionWithMode(_ mode: SessionMode) {
-        #if DEBUG
-        print("[DEBUG] Restarting session with mode: \(mode)")
-        print("[DEBUG] Preserving \(affirmations.count) affirmations")
-        #endif
+        AppLogger.debug(
+            "Restarting session with mode",
+            category: .practice,
+            context: ["mode": String(describing: mode), "affirmationCount": affirmations.count]
+        )
         
         // Reset position and progress, but keep same affirmations
         setSessionState(index: 0)
@@ -111,6 +112,7 @@ extension PracticeStore {
             isBinauralSelectorExpanded = false
         }
         
+        // Fire-and-forget: instant operation, no tracking needed
         Task { [weak self] in
             guard let self = self else { return }
             do {
@@ -216,9 +218,7 @@ extension PracticeStore {
     }
     
     func handleExitSession() {
-        #if DEBUG
-        print("[DEBUG] PracticeStore: Exit session initiated")
-        #endif
+        AppLogger.debug("Exit session initiated", category: .practice)
         
         // 1. Cancel all active work immediately
         cancelCurrentActivity()
@@ -256,9 +256,7 @@ extension PracticeStore {
             isBinauralSelectorExpanded = false
         }
         
-        #if DEBUG
-        print("[DEBUG] PracticeStore: Exit session completed - now in home mode")
-        #endif
+        AppLogger.debug("Exit session completed - now in home mode", category: .practice)
     }
     
     /// Full app-level reset after extended background (>10 min).
@@ -271,11 +269,10 @@ extension PracticeStore {
     ///
     /// Called by MainPracticeView when returning from background after 10+ minutes.
     func handleResetToHome() {
-        #if DEBUG
-        print("[DEBUG] PracticeStore: Full reset to home (extended background)")
-        #endif
+        AppLogger.debug("Full reset to home (extended background)", category: .practice)
         
-        // Cancel any active work
+        // Cancel any active work - use centralized management
+        cancelAllManagedTasks()
         cancelCurrentActivity()
         
         // Cancel TTS queue and clear preparation state
@@ -322,9 +319,11 @@ extension PracticeStore {
         
         HapticFeedback.selection()
         
-        #if DEBUG
-        print("[OK] PracticeStore: Loop count cycled to \(config.loopCount)")
-        #endif
+        AppLogger.debug(
+            "Loop count cycled",
+            category: .practice,
+            context: ["loopCount": config.loopCount]
+        )
     }
     
     /// Toggles shuffle on/off
@@ -335,9 +334,11 @@ extension PracticeStore {
         
         HapticFeedback.selection()
         
-        #if DEBUG
-        print("[OK] PracticeStore: Shuffle toggled to \(config.isShuffleEnabled)")
-        #endif
+        AppLogger.debug(
+            "Shuffle toggled",
+            category: .practice,
+            context: ["isShuffleEnabled": config.isShuffleEnabled]
+        )
     }
     
     /// Handles completion of a loop iteration
@@ -353,9 +354,11 @@ extension PracticeStore {
         config.advanceLoop()
         setLoopConfiguration(config)
         
-        #if DEBUG
-        print("[OK] PracticeStore: Advanced to loop \(config.currentLoopIteration) of \(config.loopCount)")
-        #endif
+        AppLogger.debug(
+            "Advanced to next loop",
+            category: .practice,
+            context: ["currentLoop": config.currentLoopIteration, "totalLoops": config.loopCount]
+        )
         
         // Reset session index for new loop
         setSessionState(index: 0)
@@ -370,9 +373,11 @@ extension PracticeStore {
         resetToIdle()
         
         // Start the new loop
+        // Fire-and-forget: short delay before restart, no tracking needed
         Task { [weak self] in
             guard let self = self else { return }
             try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
             self.startFlowForCurrentAffirmation()
         }
         
@@ -436,9 +441,7 @@ extension PracticeStore {
     func handleListeningCompleted(text: String, duration: TimeInterval) {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else {
-            #if DEBUG
-            print("[WARN] PracticeStore: Empty transcription received, showing timeout alert")
-            #endif
+            AppLogger.warning("Empty transcription received, showing timeout alert", category: .speech)
             handleListeningTimedOut()
             return
         }
@@ -448,6 +451,7 @@ extension PracticeStore {
         transitionToAnalyzing()
         
         // Calculate score
+        // Fire-and-forget: score calculation is quick, result sent via event
         Task { [weak self] in
             guard let self = self else { return }
             
@@ -468,9 +472,11 @@ extension PracticeStore {
                 recognized: trimmedText
             )
             
-            #if DEBUG
-            print("[LOG] PracticeStore: Score: \(Int(result.accuracy * 100))%")
-            #endif
+            AppLogger.debug(
+                "Score calculated",
+                category: .practice,
+                context: ["accuracy": Int(result.accuracy * 100)]
+            )
             
             score = Double(result.accuracy)
             components = ScoreComponents(
@@ -595,9 +601,15 @@ extension PracticeStore {
             
             // Update session result with score (supports loop scores)
             if let index = sessionResults.firstIndex(where: { $0.affirmationId == affirmation.id }) {
-                #if DEBUG
-                print("[DEBUG] handleScoreCalculated: affirmation=\(affirmation.id), loop=\(loopConfiguration.currentLoopIteration), index=\(index)")
-                #endif
+                AppLogger.debug(
+                    "Score calculated for affirmation",
+                    category: .practice,
+                    context: [
+                        "affirmationId": affirmation.id.uuidString.prefix(8),
+                        "loop": loopConfiguration.currentLoopIteration,
+                        "index": index
+                    ]
+                )
                 
                 // For loop support: add score to loopScores array if we're on a subsequent loop
                 if loopConfiguration.currentLoopIteration > 1 {
@@ -606,9 +618,11 @@ extension PracticeStore {
                     updateSessionResult(at: index, score: result.percentScore)
                 }
             } else {
-                #if DEBUG
-                print("[ERROR] handleScoreCalculated: Could not find result for affirmation \(affirmation.id)")
-                #endif
+                AppLogger.error(
+                    "Could not find result for affirmation",
+                    category: .practice,
+                    context: ["affirmationId": affirmation.id.uuidString.prefix(8)]
+                )
             }
         }
         
@@ -629,6 +643,7 @@ extension PracticeStore {
         
         lockNavigation()
         
+        // Fire-and-forget: short delay before score display completes
         Task { [weak self] in
             guard let self = self else { return }
             try? await Task.sleep(for: PracticeTiming.scoreDisplayDuration)
@@ -656,9 +671,7 @@ extension PracticeStore {
     
     func handleToggleFavorite() {
         guard let affirmation = currentAffirmation else {
-            #if DEBUG
-            print("[ERROR] handleToggleFavorite: No current affirmation")
-            #endif
+            AppLogger.error("No current affirmation for favorite toggle", category: .practice)
             return
         }
         
@@ -668,9 +681,11 @@ extension PracticeStore {
         affirmation.isFavorited = newState
         affirmation.favoritedAt = newState ? Date() : nil
         
-        #if DEBUG
-        print("[OK] handleToggleFavorite: affirmation=\(affirmation.id.uuidString.prefix(8)) now=\(newState)")
-        #endif
+        AppLogger.debug(
+            "Favorite toggled",
+            category: .practice,
+            context: ["affirmationId": affirmation.id.uuidString.prefix(8), "isFavorited": newState]
+        )
         
         // Update session result if in session
         if let index = sessionResults.firstIndex(where: { $0.affirmationId == affirmation.id }) {
@@ -757,9 +772,7 @@ extension PracticeStore {
         // would trigger auto-advance while backgrounded, causing audio failures
         // and unexpected state when the user returns.
         guard !flow.isIdle else {
-            #if DEBUG
-            print("[DEBUG] handleSegmentTimerCompleted: Ignored (session paused/idle)")
-            #endif
+            AppLogger.debug("Segment timer ignored (session paused/idle)", category: .practice)
             return
         }
         

@@ -18,9 +18,7 @@ extension PracticeStore {
     ///
     /// - Parameter event: The event to process
     func send(_ event: PracticeEvent) {
-        #if DEBUG
-        print("[LOG] PracticeStore.send: \(event)")
-        #endif
+        AppLogger.debug("Event: \(event)", category: .practice)
         
         if event.isUserInteraction {
             lastInteractionTime = Date()
@@ -93,16 +91,12 @@ extension PracticeStore {
             // Setting to idle makes isAnimating=false, which the dock observes
             cancelCurrentActivity()
             resetToIdle()  // Critical: sets isAnimating=false so resume triggers fresh start
-            #if DEBUG
-            print("[DEBUG] PracticeStore: Session paused (app backgrounded)")
-            #endif
+            AppLogger.debug("Session paused (app backgrounded)", category: .practice)
             
         case .resumeSession:
             // Resume when app returns from background - restart flow from beginning of current segment
             if isSessionActive {
-                #if DEBUG
-                print("[DEBUG] PracticeStore: Session resumed (app foregrounded)")
-                #endif
+                AppLogger.debug("Session resumed (app foregrounded)", category: .practice)
                 // Increment generation to signal dock to reset its timer
                 incrementSegmentGeneration()
                 // Restart flow from beginning of current affirmation
@@ -177,9 +171,7 @@ extension PracticeStore {
             handleListeningCompleted(text: text, duration: duration)
             
         case .listeningFailed(let error):
-            #if DEBUG
-            print("[ERROR] PracticeStore: Listening failed - \(error)")
-            #endif
+            AppLogger.error("Listening failed: \(error)", category: .speech)
             setError(error)
             resetToIdle()
             

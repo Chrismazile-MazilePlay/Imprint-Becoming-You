@@ -17,6 +17,11 @@ private let audioServiceLog = Logger(subsystem: "com.imprint.audio", category: "
 
 /// Main audio service that coordinates all audio functionality.
 ///
+/// This service is `@MainActor` isolated because:
+/// 1. Audio playback state affects UI
+/// 2. Binaural controls are UI-driven
+/// 3. Callback delegates update UI
+///
 /// This service integrates:
 /// - AVAudioEngine for low-latency audio processing
 /// - Binaural beat generation for focus/relax/sleep modes
@@ -46,7 +51,8 @@ private let audioServiceLog = Logger(subsystem: "com.imprint.audio", category: "
 /// await audio.startBinauralBeats(preset: .focus)
 /// try await audio.playAudioFile(named: "affirmation.mp3")
 /// ```
-final class AudioService: AudioServiceProtocol, @unchecked Sendable {
+@MainActor
+final class AudioService: AudioServiceProtocol {
     
     // MARK: - Properties
     
@@ -80,9 +86,6 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
     /// Playback delegate
     weak var playbackDelegate: AudioPlaybackDelegate?
     
-    /// Lock for thread safety
-    private let lock = NSLock()
-    
     /// Task for monitoring events
     private var eventMonitorTask: Task<Void, Never>?
     
@@ -90,7 +93,6 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
     
     /// Creates a new AudioService with default components
     /// - Parameter sessionProvider: Provider for audio session operations (defaults to AudioCoordinator.shared)
-    @MainActor
     init(sessionProvider: (any AudioSessionProviding & AudioInterruptionHandling)? = nil) {
         self.audioEngine = AVAudioEngine()
         self.sessionProvider = sessionProvider ?? AudioCoordinator.shared
@@ -120,7 +122,6 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
     
     /// Starts the audio engine
     /// - Throws: `AppError` if engine fails to start
-    @MainActor
     func start() async throws {
         guard !isRunning else {
             audioServiceLog.debug("Engine already running")
@@ -157,7 +158,6 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
     }
     
     /// Stops the audio engine
-    @MainActor
     func stop() async {
         guard isRunning else { return }
         
@@ -187,7 +187,6 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
     /// Starts binaural beats with the specified preset
     /// - Parameter preset: The binaural preset to use
     /// - Throws: `AppError` if engine fails to start
-    @MainActor
     func startBinauralBeats(preset: BinauralPreset) async throws {
         guard preset != .off else {
             await stopBinauralBeats()
@@ -231,7 +230,6 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
     /// Plays a cached audio file
     /// - Parameter fileName: Name of the cached file
     /// - Throws: `AppError.audioPlaybackFailed` if playback fails
-    @MainActor
     func playAudioFile(named fileName: String) async throws {
         audioServiceLog.info("▶️ Playing file: \(fileName)")
         
@@ -266,7 +264,6 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
     /// Plays audio data directly
     /// - Parameter data: Audio data to play
     /// - Throws: `AppError.audioPlaybackFailed` if playback fails
-    @MainActor
     func playAudioData(_ data: Data) async throws {
         audioServiceLog.info("▶️ Playing audio data (\(data.count) bytes)")
         
@@ -367,7 +364,6 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
     // MARK: - Private Methods
     
     /// Starts monitoring for audio events
-    @MainActor
     private func startEventMonitoring() {
         eventMonitorTask = Task { [weak self] in
             guard let self = self else { return }
@@ -379,7 +375,6 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
     }
     
     /// Handles audio coordinator events
-    @MainActor
     private func handleEvent(_ event: AudioCoordinatorEvent) async {
         switch event {
         case .interruptionBegan:
@@ -420,7 +415,6 @@ final class AudioService: AudioServiceProtocol, @unchecked Sendable {
 
 extension AudioService {
     /// Creates a no-op audio service for previews
-    @MainActor
     static var preview: AudioService {
         AudioService()
     }

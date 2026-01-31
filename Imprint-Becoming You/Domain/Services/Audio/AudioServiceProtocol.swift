@@ -11,6 +11,11 @@ import Foundation
 
 /// Protocol defining audio playback and binaural beat generation capabilities.
 ///
+/// All methods are `@MainActor` isolated because:
+/// 1. Audio playback callbacks affect UI state
+/// 2. Binaural controls are driven by user interaction
+/// 3. Interruption handling updates UI
+///
 /// Implementations must handle:
 /// - AVAudioEngine management
 /// - Binaural beat generation
@@ -32,7 +37,8 @@ import Foundation
 /// await audio.setBinauralVolume(0.2)
 /// await audio.setPlaybackVolume(0.8)
 /// ```
-protocol AudioServiceProtocol: AnyObject, Sendable {
+@MainActor
+protocol AudioServiceProtocol: AnyObject {
     
     // MARK: - Engine State
     
@@ -107,9 +113,13 @@ protocol AudioServiceProtocol: AnyObject, Sendable {
 
 /// Delegate for receiving audio playback events.
 ///
+/// All methods are `@MainActor` isolated since playback events
+/// typically trigger UI updates.
+///
 /// Implement this protocol to receive callbacks about playback state changes,
 /// interruptions, and errors.
-protocol AudioPlaybackDelegate: AnyObject, Sendable {
+@MainActor
+protocol AudioPlaybackDelegate: AnyObject {
     /// Called when playback completes successfully
     func audioPlaybackDidComplete()
     

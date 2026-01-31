@@ -12,7 +12,9 @@ import Foundation
 /// Mock implementation of audio service for previews and testing.
 ///
 /// Simulates audio engine operations without actual audio output.
-final class MockAudioService: AudioServiceProtocol, @unchecked Sendable {
+/// Uses `@MainActor` isolation consistent with the protocol.
+@MainActor
+final class MockAudioService: AudioServiceProtocol {
     
     // MARK: - State
     

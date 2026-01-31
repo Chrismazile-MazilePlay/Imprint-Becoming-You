@@ -164,6 +164,14 @@ enum Constants {
     ///
     /// These values control how the app responds when returning from background
     /// after various durations. Memory management and session state are affected.
+    ///
+    /// ## Periodic Background Monitoring
+    /// Instead of using a single long sleep (which can drift and doesn't respond
+    /// to state changes), the MemoryManager uses periodic checks at `backgroundCheckInterval`.
+    /// This provides:
+    /// - Better timing precision
+    /// - Responsive cancellation when app returns to foreground
+    /// - Lower memory overhead from shorter-lived tasks
     enum Background {
         /// Time in background after which active sessions are reset to home.
         /// Summary view is always dismissed on background return regardless of duration.
@@ -176,6 +184,18 @@ enum Constants {
         /// Time in background before considering app as "cold started".
         /// After this duration, app may need full re-initialization.
         static let coldStartThreshold: TimeInterval = 1800 // 30 minutes
+        
+        /// Interval for periodic background monitoring checks (seconds).
+        ///
+        /// The MemoryManager uses this interval to periodically check elapsed time
+        /// rather than sleeping for the entire `memoryReleaseThreshold` duration.
+        /// Benefits:
+        /// - Timing precision (avoids drift from long sleeps)
+        /// - Responsive cancellation when returning to foreground
+        /// - Lower memory overhead from shorter-lived tasks
+        ///
+        /// At 60 seconds, this means 5 checks before the 5-minute threshold is reached.
+        static let backgroundCheckInterval: TimeInterval = 60 // Check every minute
     }
     
     // MARK: - UI Timing

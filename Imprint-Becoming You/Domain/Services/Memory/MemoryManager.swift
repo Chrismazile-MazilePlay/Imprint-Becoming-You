@@ -7,11 +7,6 @@
 
 import Foundation
 import UIKit
-import os.log
-
-// MARK: - Logger
-
-private let memoryLog = Logger(subsystem: "com.imprint.memory", category: "MemoryManager")
 
 // MARK: - Memory Manager
 
@@ -32,6 +27,15 @@ private let memoryLog = Logger(subsystem: "com.imprint.memory", category: "Memor
 /// 3. Clears pre-synthesis queues
 /// 4. Releases audio engines not in use
 ///
+/// ## Periodic Background Monitoring
+/// Instead of using a single long `Task.sleep` (which can drift and doesn't
+/// respond to state changes), the MemoryManager uses periodic checks at
+/// `Constants.Background.backgroundCheckInterval` (60 seconds).
+/// Benefits:
+/// - Better timing precision
+/// - Responsive cancellation when app returns to foreground
+/// - Lower memory overhead from shorter-lived tasks
+///
 /// ## Usage
 /// ```swift
 /// // At app launch, setup memory monitoring
@@ -50,14 +54,6 @@ final class MemoryManager {
     
     static let shared = MemoryManager()
     
-    // MARK: - Configuration
-    
-    /// Time in background after which we release ML models (5 minutes)
-    private static let backgroundReleaseThreshold: TimeInterval = 300
-    
-    /// Time in background for aggressive cleanup (10 minutes)
-    private static let aggressiveCleanupThreshold: TimeInterval = 600
-    
     // MARK: - State
     
     /// Whether memory monitoring is active
@@ -75,6 +71,13 @@ final class MemoryManager {
     /// Background/foreground observers
     private var backgroundObserver: NSObjectProtocol?
     private var foregroundObserver: NSObjectProtocol?
+    
+    /// Task for periodic background checks.
+    ///
+    /// This task runs periodic checks while the app is in background,
+    /// using `Constants.Background.backgroundCheckInterval` between checks.
+    /// Cancelled when app returns to foreground.
+    private var backgroundCheckTask: Task<Void, Never>?
     
     // MARK: - Dependencies (weak to avoid retain cycles)
     
@@ -131,7 +134,7 @@ final class MemoryManager {
         }
         
         isMonitoring = true
-        memoryLog.info("✅ MemoryManager: Started monitoring")
+        AppLogger.info("MemoryManager: Started monitoring", category: .memory)
     }
     
     /// Stops memory monitoring.
@@ -149,15 +152,18 @@ final class MemoryManager {
             foregroundObserver = nil
         }
         
+        // Cancel background check task
+        stopBackgroundMonitoring()
+        
         isMonitoring = false
-        memoryLog.info("🛑 MemoryManager: Stopped monitoring")
+        AppLogger.info("MemoryManager: Stopped monitoring", category: .memory)
     }
     
     // MARK: - Memory Events
     
     /// Handles iOS memory warning notification.
     private func handleMemoryWarning() async {
-        memoryLog.warning("⚠️ MEMORY WARNING received from iOS")
+        AppLogger.warning("MEMORY WARNING received from iOS", category: .memory)
         
         // Release everything possible
         await releaseForBackground()
@@ -167,27 +173,22 @@ final class MemoryManager {
     }
     
     /// Handles app entering background.
+    ///
+    /// Starts periodic background monitoring instead of a single long sleep.
+    /// This provides better timing precision and responsive cancellation.
     private func handleDidEnterBackground() {
         backgroundedAt = Date()
-        memoryLog.info("📱 App entered background")
+        AppLogger.info("App entered background", category: .memory)
         
-        // Schedule delayed cleanup if we stay in background
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(Self.backgroundReleaseThreshold))
-            
-            // Check if we're still in background
-            if let backgroundTime = backgroundedAt {
-                let elapsed = Date().timeIntervalSince(backgroundTime)
-                if elapsed >= Self.backgroundReleaseThreshold {
-                    memoryLog.info("⏰ Background threshold reached (\(Int(elapsed))s), releasing resources")
-                    await releaseForBackground()
-                }
-            }
-        }
+        // Start periodic background checking
+        startBackgroundMonitoring()
     }
     
     /// Handles app returning to foreground.
     private func handleWillEnterForeground() async {
+        // Cancel background monitoring immediately
+        stopBackgroundMonitoring()
+        
         let timeInBackground: TimeInterval
         if let backgroundTime = backgroundedAt {
             timeInBackground = Date().timeIntervalSince(backgroundTime)
@@ -196,12 +197,85 @@ final class MemoryManager {
         }
         
         backgroundedAt = nil
-        memoryLog.info("📱 App entering foreground (was background for \(Int(timeInBackground))s)")
+        AppLogger.info("App entering foreground (was background for \(Int(timeInBackground))s)", category: .memory)
         
         // Restore if we released resources
         if hasReleasedForBackground {
             await restoreFromBackground()
         }
+    }
+    
+    // MARK: - Background Monitoring
+    
+    /// Starts periodic checks while app is in background.
+    ///
+    /// Uses `Constants.Background.backgroundCheckInterval` between checks,
+    /// rather than sleeping for the entire `memoryReleaseThreshold`.
+    /// This provides:
+    /// - Timing precision (avoids drift from long sleeps)
+    /// - Responsive cancellation when returning to foreground
+    /// - Lower memory overhead from shorter-lived tasks
+    private func startBackgroundMonitoring() {
+        // Cancel any existing task
+        backgroundCheckTask?.cancel()
+        
+        backgroundCheckTask = Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            
+            let checkInterval = Constants.Background.backgroundCheckInterval
+            let releaseThreshold = Constants.Background.memoryReleaseThreshold
+            
+            AppLogger.debug(
+                "Background monitoring started (check every \(Int(checkInterval))s, release at \(Int(releaseThreshold))s)",
+                category: .memory
+            )
+            
+            while !Task.isCancelled {
+                // Wait for check interval using Duration-based sleep
+                try? await Task.sleep(for: .seconds(checkInterval))
+                
+                // Check if cancelled during sleep
+                guard !Task.isCancelled else {
+                    AppLogger.debug("Background monitoring cancelled during sleep", category: .memory)
+                    return
+                }
+                
+                // Check if we're still in background and threshold reached
+                guard let backgroundTime = self.backgroundedAt else {
+                    // No longer in background (shouldn't happen, but handle gracefully)
+                    AppLogger.debug("Background monitoring: no longer in background", category: .memory)
+                    return
+                }
+                
+                let elapsed = Date().timeIntervalSince(backgroundTime)
+                AppLogger.debug(
+                    "Background check: \(Int(elapsed))s elapsed (threshold: \(Int(releaseThreshold))s)",
+                    category: .memory
+                )
+                
+                if elapsed >= releaseThreshold {
+                    AppLogger.info(
+                        "Background threshold reached (\(Int(elapsed))s), releasing resources",
+                        category: .memory
+                    )
+                    await self.releaseForBackground()
+                    
+                    // Stop monitoring after release (no need to keep checking)
+                    return
+                }
+            }
+            
+            AppLogger.debug("Background monitoring loop exited", category: .memory)
+        }
+    }
+    
+    /// Stops background monitoring.
+    ///
+    /// Called when app returns to foreground or monitoring is stopped entirely.
+    private func stopBackgroundMonitoring() {
+        backgroundCheckTask?.cancel()
+        backgroundCheckTask = nil
+        AppLogger.debug("Background monitoring stopped", category: .memory)
     }
     
     // MARK: - Public API
@@ -219,36 +293,42 @@ final class MemoryManager {
     /// - Pre-synthesis queue
     func releaseForBackground() async {
         guard !hasReleasedForBackground else {
-            memoryLog.debug("Already released for background")
+            AppLogger.debug("Already released for background", category: .memory)
             return
         }
         
-        memoryLog.info("🧹 Releasing resources for background...")
+        AppLogger.info("Releasing resources for background...", category: .memory)
         let startMemory = currentMemoryUsageMB()
         
         // 1. Release Kokoro TTS pipelines (biggest savings)
         if let ttsService = dependencies?.ttsService as? TTSService {
             await ttsService.releaseForBackground()
-            memoryLog.info("  ✅ Released Kokoro TTS pipelines")
+            AppLogger.info("  ✅ Released Kokoro TTS pipelines", category: .memory)
         }
         
         // 2. Clear voice preview memory cache (keep disk cache)
         if let voiceCache = dependencies?.voicePreviewCacheService as? VoicePreviewCacheService {
             voiceCache.clearMemoryCache()
-            memoryLog.info("  ✅ Cleared voice preview memory cache")
+            AppLogger.info("  ✅ Cleared voice preview memory cache", category: .memory)
         }
         
         // 3. Clear session TTS queue
         if let sessionQueue = dependencies?.sessionTTSQueueService as? SessionTTSQueueService {
             sessionQueue.clearQueue()
-            memoryLog.info("  ✅ Cleared session TTS queue")
+            AppLogger.info("  ✅ Cleared session TTS queue", category: .memory)
         }
         
         hasReleasedForBackground = true
         
+        // Post notification for other components
+        NotificationCenter.default.post(name: .memoryReleasedForBackground, object: nil)
+        
         let endMemory = currentMemoryUsageMB()
         let saved = startMemory - endMemory
-        memoryLog.info("✅ Background release complete. Freed ~\(saved)MB (was \(startMemory)MB, now \(endMemory)MB)")
+        AppLogger.info(
+            "Background release complete. Freed ~\(saved)MB (was \(startMemory)MB, now \(endMemory)MB)",
+            category: .memory
+        )
     }
     
     /// Restores resources after returning from background.
@@ -257,23 +337,27 @@ final class MemoryManager {
     /// Re-warms Kokoro TTS for smooth user experience.
     func restoreFromBackground() async {
         guard hasReleasedForBackground else {
-            memoryLog.debug("Nothing to restore")
+            AppLogger.debug("Nothing to restore", category: .memory)
             return
         }
         
-        memoryLog.info("🔄 Restoring resources from background...")
+        AppLogger.info("Restoring resources from background...", category: .memory)
         
         // Re-warm Kokoro TTS (the main thing we need to restore)
         if let ttsService = dependencies?.ttsService {
             await ttsService.warmUp()
-            memoryLog.info("  ✅ Re-warmed Kokoro TTS")
+            AppLogger.info("  ✅ Re-warmed Kokoro TTS", category: .memory)
         }
         
         // Voice preview cache will reload on-demand from disk
         // Session TTS queue will be rebuilt when session starts
         
         hasReleasedForBackground = false
-        memoryLog.info("✅ Background restore complete")
+        
+        // Post notification for other components
+        NotificationCenter.default.post(name: .memoryRestoredFromBackground, object: nil)
+        
+        AppLogger.info("Background restore complete", category: .memory)
     }
     
     /// Forces immediate release of all releasable resources.
@@ -307,7 +391,7 @@ final class MemoryManager {
     /// Logs current memory usage for debugging.
     func logMemoryUsage() {
         let usage = currentMemoryUsageMB()
-        memoryLog.info("📊 Current memory usage: \(usage)MB")
+        AppLogger.info("Current memory usage: \(usage)MB", category: .memory)
         
         #if DEBUG
         print("📊 MemoryManager: Current usage = \(usage)MB")

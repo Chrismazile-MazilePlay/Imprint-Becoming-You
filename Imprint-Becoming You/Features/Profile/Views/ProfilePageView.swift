@@ -164,6 +164,8 @@ struct ProfilePageView: View {
                 }
                 .foregroundStyle(AppColors.accent)
             }
+            .accessibilityLabel("Back to Practice")
+            .accessibilityHint("Return to the practice screen")
             
             Spacer()
         }
@@ -178,12 +180,14 @@ struct ProfilePageView: View {
             Image(systemName: "person.circle.fill")
                 .font(.system(size: 80))
                 .foregroundStyle(AppColors.accent.opacity(0.8))
+                .accessibilityHidden(true)
             
             // Welcome text
             VStack(spacing: AppTheme.Spacing.xs) {
                 Text("Your Profile")
                     .font(AppTypography.title2)
                     .foregroundStyle(AppColors.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
                 
                 Text("Track your journey")
                     .font(AppTypography.body)
@@ -192,6 +196,8 @@ struct ProfilePageView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, AppTheme.Spacing.lg)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Your Profile. Track your journey")
     }
     
     // MARK: - Stats Row
@@ -204,6 +210,8 @@ struct ProfilePageView: View {
                 label: "Day Streak",
                 color: .orange
             )
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(streak) day streak")
             
             ProfileStatCard(
                 icon: "checkmark.circle.fill",
@@ -211,6 +219,8 @@ struct ProfilePageView: View {
                 label: "Practiced",
                 color: AppColors.success
             )
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(totalPracticed) affirmations practiced")
             
             ProfileStatCard(
                 icon: "heart.fill",
@@ -218,6 +228,8 @@ struct ProfilePageView: View {
                 label: "Favorites",
                 color: AppColors.accent
             )
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(favoriteCount) favorites")
         }
     }
     
@@ -226,6 +238,7 @@ struct ProfilePageView: View {
     private var progressSection: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
             ProfileSectionHeader(title: "PROGRESS")
+                .accessibilityAddTraits(.isHeader)
             
             // Placeholder for progress charts
             VStack(spacing: AppTheme.Spacing.md) {
@@ -234,12 +247,16 @@ struct ProfilePageView: View {
                     subtitle: "View your practice history",
                     icon: "chart.bar.fill"
                 )
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Weekly Practice. View your practice history. Coming soon")
                 
                 ProgressPlaceholderCard(
                     title: "Resonance Trends",
                     subtitle: "Track your vocal improvement",
                     icon: "waveform.path.ecg"
                 )
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Resonance Trends. Track your vocal improvement. Coming soon")
             }
         }
     }
@@ -249,6 +266,7 @@ struct ProfilePageView: View {
     private var favoritesSection: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
             ProfileSectionHeader(title: "FAVORITES")
+                .accessibilityAddTraits(.isHeader)
             
             Button {
                 showFavorites = true
@@ -280,6 +298,8 @@ struct ProfilePageView: View {
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Saved Affirmations, \(favoriteCount) affirmations")
+            .accessibilityHint("View and manage your favorite affirmations")
         }
     }
     
@@ -288,6 +308,7 @@ struct ProfilePageView: View {
     private var savedSessionsSection: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
             ProfileSectionHeader(title: "SAVED SESSIONS")
+                .accessibilityAddTraits(.isHeader)
             
             Button {
                 showSavedSessions = true
@@ -319,6 +340,8 @@ struct ProfilePageView: View {
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Saved Sessions, \(savedSessionCount) sessions")
+            .accessibilityHint("View and manage your saved practice sessions")
         }
     }
     
@@ -344,6 +367,7 @@ struct ProfilePageView: View {
     private var settingsSection: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
             ProfileSectionHeader(title: "SETTINGS")
+                .accessibilityAddTraits(.isHeader)
             
             VStack(spacing: AppTheme.Spacing.sm) {
                 // Voice Profile
@@ -355,6 +379,8 @@ struct ProfilePageView: View {
                 ) {
                     showVoiceSettings = true
                 }
+                .accessibilityLabel("Voice Profile, \(voiceProfileSubtitle)")
+                .accessibilityHint("Change your voice settings")
                 
                 // Waveform Style
                 SettingsRow(
@@ -365,6 +391,8 @@ struct ProfilePageView: View {
                 ) {
                     showWaveformSelection = true
                 }
+                .accessibilityLabel("Waveform Style, \(appState.userProfile?.waveformType.displayName ?? "Layered Waves")")
+                .accessibilityHint("Change the waveform visualization style")
                 
                 // Goals
                 SettingsRow(
@@ -375,6 +403,8 @@ struct ProfilePageView: View {
                 ) {
                     // TODO: Navigate to goals selection
                 }
+                .accessibilityLabel("My Goals, \(goalsSubtitle)")
+                .accessibilityHint("View and change your goal categories")
                 
                 // Faith Content
                 SettingsRow(
@@ -385,6 +415,8 @@ struct ProfilePageView: View {
                 ) {
                     // TODO: Toggle faith content
                 }
+                .accessibilityLabel("Faith Content, \(appState.userProfile?.includeFaithContent == true ? "Enabled" : "Disabled")")
+                .accessibilityHint("Toggle faith-based affirmation content")
                 
                 // Account
                 SettingsRow(
@@ -395,6 +427,8 @@ struct ProfilePageView: View {
                 ) {
                     // TODO: Navigate to account
                 }
+                .accessibilityLabel("Account, \(appState.isAuthenticated ? "Signed in" : "Not signed in")")
+                .accessibilityHint("Manage your account settings")
                 
                 // Premium
                 if !appState.isPremium {
@@ -406,6 +440,8 @@ struct ProfilePageView: View {
                     ) {
                         // TODO: Show premium upsell
                     }
+                    .accessibilityLabel("Upgrade to Premium")
+                    .accessibilityHint("View premium features and pricing")
                 }
             }
         }

@@ -94,6 +94,45 @@ public struct DockCenterContentView: View {
         .frame(height: 40)
         .animation(tokens.standardAnimation, value: isShowingScore)
         .opacity(state == .hidden ? 0 : 1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityDescription)
+        .accessibilityValue(accessibilityValue)
+    }
+    
+    // MARK: - Accessibility
+    
+    /// Accessibility description based on current state
+    private var accessibilityDescription: String {
+        switch state {
+        case .hidden:
+            return "Audio visualization hidden"
+        case .idle:
+            return "Audio visualization idle"
+        case .playing:
+            return "Audio playing"
+        case .preparing:
+            return "Preparing to listen"
+        case .listening:
+            return "Listening to your voice"
+        case .settling:
+            return "Processing your speech"
+        case .showingScore:
+            return "Resonance score"
+        }
+    }
+    
+    /// Accessibility value for states that have values
+    private var accessibilityValue: String {
+        switch state {
+        case .playing(let audioLevel):
+            return "Audio level \(Int(audioLevel * 100)) percent"
+        case .listening(let audioLevel):
+            return "Audio level \(Int(audioLevel * 100)) percent"
+        case .showingScore(let score):
+            return "\(score) percent"
+        default:
+            return ""
+        }
     }
     
     // MARK: - Breathing Phase Calculation

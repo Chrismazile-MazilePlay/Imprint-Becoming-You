@@ -126,7 +126,7 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
     /// Whether the audio session is currently active
     private(set) var isSessionActive: Bool = false
     
-    /// State before interruption (for recovery)
+    /// State before interruption (for recovery) - always stores the ROOT state, never nested interrupted states
     private var stateBeforeInterruption: AudioCoordinatorState?
     
     /// Whether we should resume after interruption
@@ -394,7 +394,7 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
         rate: Float = AVSpeechUtteranceDefaultSpeechRate,
         pitch: Float = 1.0
     ) async throws {
-        audioLog.info("🔊 playTTS called: \"\(text.prefix(50))...\"")
+        audioLog.info("📊 playTTS called: \"\(text.prefix(50))...\"")
         
         // Check state
         guard state == .idle else {
@@ -442,7 +442,7 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
     
     /// Stops any current TTS playback
     func stopTTS() {
-        audioLog.info("🔇 stopTTS called")
+        audioLog.info("📇 stopTTS called")
         
         if synthesizer.isSpeaking {
             synthesizer.stopSpeaking(at: .immediate)
@@ -651,7 +651,7 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
     
     /// Stops binaural beats
     func stopBinaural() {
-        audioLog.info("🔇 Stopping binaural")
+        audioLog.info("📇 Stopping binaural")
         binauralGenerator?.stop()
         currentBinauralPreset = .off
     }
@@ -690,6 +690,24 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
         audioSession.sampleRate
     }
     
+    // MARK: - State Helpers
+    
+    /// Extracts the root (non-interrupted) state from a potentially nested interrupted state.
+    ///
+    /// This prevents memory growth from recursive `.interrupted(was: .interrupted(was: ...))` chains.
+    ///
+    /// - Parameter state: The state to extract the root from
+    /// - Returns: The innermost non-interrupted state
+    private func extractRootState(from state: AudioCoordinatorState) -> AudioCoordinatorState {
+        switch state {
+        case .interrupted(let previousState):
+            // Recursively extract until we find a non-interrupted state
+            return extractRootState(from: previousState)
+        default:
+            return state
+        }
+    }
+    
     // MARK: - Notification Handlers
     
     /// Handles audio session interruptions
@@ -723,12 +741,21 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
                 }
             }
             
-            // Save current state for recovery
-            stateBeforeInterruption = state
+            // FIX: Extract the ROOT state to prevent nested interrupted states
+            // If we're already interrupted, we want to preserve the ORIGINAL state,
+            // not create a recursive chain like interrupted(was: interrupted(was: interrupted(...)))
+            let rootState = extractRootState(from: state)
+            
+            // Only update stateBeforeInterruption if we're not already interrupted
+            // This preserves the original state through multiple interruptions
+            if stateBeforeInterruption == nil {
+                stateBeforeInterruption = rootState
+            }
+            
             isSessionActive = false
             
             // Stop current operations gracefully
-            switch state {
+            switch rootState {
             case .playingTTS, .playingTTSThenListen:
                 synthesizer.pauseSpeaking(at: .word)
                 
@@ -740,7 +767,8 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
                 break
             }
             
-            state = .interrupted(previousState: stateBeforeInterruption ?? .idle)
+            // Always use the root state for the interrupted wrapper
+            state = .interrupted(previousState: rootState)
             eventContinuation?.yield(.interruptionBegan)
             
         case .ended:
@@ -867,6 +895,7 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
         
         // Reset session state
         isSessionActive = false
+        stateBeforeInterruption = nil
         
         // Notify UI
         eventContinuation?.yield(.errorOccurred(.mediaServerReset))

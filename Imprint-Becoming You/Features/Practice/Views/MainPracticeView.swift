@@ -36,6 +36,11 @@ enum AppPage: Int, CaseIterable {
 /// horizontal swiping is completely disabled. User must exit the mode
 /// to navigate between pages.
 ///
+/// ## Memory Management
+/// Coordinates with `MemoryManager` to release heavy resources (Kokoro ML pipelines)
+/// when app enters background for extended periods. This prevents iOS from
+/// terminating the app due to excessive memory usage.
+///
 /// ## Affirmation Loading
 /// On appear, loads affirmations from SwiftData filtered by user's selected
 /// goals using the `AffirmationRepository` smart queue algorithm.
@@ -83,6 +88,10 @@ struct MainPracticeView: View {
     /// Duration in background after which active sessions are reset to home.
     /// Summary view is always dismissed on background return regardless of duration.
     private let sessionBackgroundTimeout: TimeInterval = 10 * 60 // 10 minutes
+    
+    /// Duration in background after which we release heavy resources (Kokoro ML models).
+    /// This is shorter than session timeout to free memory proactively.
+    private let memoryReleaseThreshold: TimeInterval = 5 * 60 // 5 minutes
     
     // MARK: - Body
     
@@ -323,16 +332,21 @@ struct MainPracticeView: View {
     
     // MARK: - Background Handling
     
-    /// Handles app lifecycle transitions with centralized reset control.
+    /// Handles app lifecycle transitions with centralized reset and memory management.
     ///
     /// ## Reset Hierarchy
     ///
     /// | Condition | Action |
     /// |-----------|--------|
     /// | Background >= 10 min (any state) | Full reset to home |
+    /// | Background >= 5 min (any state) | Release Kokoro ML models |
     /// | Background < 10 min (active session) | Resume segment from beginning |
     /// | Background < 10 min (summary) | Dismiss summary |
     /// | Background < 10 min (other) | No action |
+    ///
+    /// ## Memory Management
+    /// When returning from background after extended period, the MemoryManager
+    /// automatically re-warms Kokoro TTS if it was released.
     ///
     /// The host (MainPracticeView) is the single decision point for resets.
     /// PracticeStore executes the reset via events.
@@ -353,7 +367,10 @@ struct MainPracticeView: View {
             
             #if DEBUG
             print("[DEBUG] MainPracticeView: App entered background")
+            MemoryManager.shared.logMemoryUsage()
             #endif
+            
+            // MemoryManager handles delayed memory release via its own background observer
             
         case .active:
             // Only handle if we were actually backgrounded (backgroundedAt was set)
@@ -366,7 +383,21 @@ struct MainPracticeView: View {
             
             #if DEBUG
             print("[DEBUG] MainPracticeView: Returned from background after \(Int(timeInBackground))s")
+            MemoryManager.shared.logMemoryUsage()
             #endif
+            
+            // ===============================================================
+            // MEMORY: MemoryManager handles resource release/restore automatically
+            // Log memory status for debugging
+            // ===============================================================
+            if timeInBackground >= memoryReleaseThreshold {
+                #if DEBUG
+                print("[DEBUG] MainPracticeView: Memory threshold reached (\(Int(timeInBackground))s)")
+                let memoryMB = MemoryManager.shared.currentMemoryUsageMB()
+                print("[DEBUG] MainPracticeView: Current memory usage: \(memoryMB)MB")
+                print("[DEBUG] MainPracticeView: MemoryManager released = \(MemoryManager.shared.hasReleasedForBackground)")
+                #endif
+            }
             
             // ===============================================================
             // DECISION: Extended background (>= 10 min) from ANY state
@@ -432,6 +463,8 @@ struct MainPracticeView: View {
                 .font(AppTypography.body)
                 .foregroundStyle(AppColors.textSecondary)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Loading. Preparing your practice.")
     }
     
     // MARK: - Navigation

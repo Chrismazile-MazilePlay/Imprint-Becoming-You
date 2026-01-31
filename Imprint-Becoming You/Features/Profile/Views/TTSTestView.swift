@@ -118,6 +118,8 @@ struct TTSTestView: View {
                     dismiss()
                 }
                 .foregroundStyle(AppColors.accent)
+                .accessibilityLabel("Close")
+                .accessibilityHint("Return to voice settings")
             }
         }
         .task {
@@ -136,6 +138,7 @@ struct TTSTestView: View {
                 Circle()
                     .fill(isKokoroReady ? AppColors.success : AppColors.warning)
                     .frame(width: 12, height: 12)
+                    .accessibilityHidden(true)
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(isKokoroReady ? "Kokoro Ready" : "Kokoro Not Ready")
@@ -146,6 +149,9 @@ struct TTSTestView: View {
                         .font(AppTypography.caption1)
                         .foregroundStyle(AppColors.textSecondary)
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(isKokoroReady ? "Kokoro engine ready" : "Kokoro engine not ready")
+                .accessibilityValue(statusMessage)
                 
                 Spacer()
                 
@@ -157,6 +163,8 @@ struct TTSTestView: View {
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(AppColors.accent)
                 }
+                .accessibilityLabel("Refresh status")
+                .accessibilityHint("Check Kokoro engine status again")
             }
             .padding(AppTheme.Spacing.md)
             .background(AppColors.surfaceSecondary)
@@ -177,10 +185,11 @@ struct TTSTestView: View {
                             .font(AppTypography.caption2)
                             .foregroundStyle(AppColors.textTertiary)
                             .padding(.leading, AppTheme.Spacing.sm)
+                            .accessibilityAddTraits(.isHeader)
                         
                         FlowLayout(spacing: AppTheme.Spacing.xs) {
                             ForEach(category.voices, id: \.id) { voice in
-                                voiceChip(id: voice.id, name: voice.name)
+                                voiceChip(id: voice.id, name: voice.name, category: category.name)
                             }
                         }
                     }
@@ -192,7 +201,7 @@ struct TTSTestView: View {
         }
     }
     
-    private func voiceChip(id: String, name: String) -> some View {
+    private func voiceChip(id: String, name: String, category: String) -> some View {
         let isSelected = selectedVoiceId == id
         
         return Button {
@@ -210,6 +219,10 @@ struct TTSTestView: View {
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(name), \(category)")
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityHint(isSelected ? "Currently selected voice" : "Double tap to select this voice")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
     
     // MARK: - Test Text Section
@@ -227,6 +240,8 @@ struct TTSTestView: View {
                     .padding(AppTheme.Spacing.sm)
                     .background(AppColors.surfaceTertiary)
                     .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small))
+                    .accessibilityLabel("Test text input")
+                    .accessibilityHint("Enter the text you want to hear spoken")
                 
                 // Quick test phrases
                 HStack(spacing: AppTheme.Spacing.xs) {
@@ -234,6 +249,8 @@ struct TTSTestView: View {
                     quickPhraseButton("Medium", "I am confident, capable, and worthy of success.")
                     quickPhraseButton("Long", "Every day I am becoming stronger, wiser, and more aligned with my highest purpose. I trust the journey.")
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Quick phrase buttons")
             }
             .padding(AppTheme.Spacing.md)
             .background(AppColors.surfaceSecondary)
@@ -254,6 +271,8 @@ struct TTSTestView: View {
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(label) phrase")
+        .accessibilityHint("Set test text to a \(label.lowercased()) example phrase")
     }
     
     // MARK: - Playback Section
@@ -271,8 +290,10 @@ struct TTSTestView: View {
                         if isSpeaking {
                             ProgressView()
                                 .tint(AppColors.textInverted)
+                                .accessibilityHidden(true)
                         } else {
                             Image(systemName: "play.fill")
+                                .accessibilityHidden(true)
                         }
                         Text(isSpeaking ? "Speaking..." : "Speak")
                     }
@@ -285,6 +306,9 @@ struct TTSTestView: View {
                 }
                 .disabled(isSpeaking || testText.isEmpty)
                 .buttonStyle(.plain)
+                .accessibilityLabel(isSpeaking ? "Speaking" : "Speak")
+                .accessibilityHint(isSpeaking ? "Audio is playing" : "Play the test text with the selected voice")
+                .accessibilityValue(isSpeaking ? "In progress" : "Ready")
                 
                 // Stop button
                 Button {
@@ -299,6 +323,8 @@ struct TTSTestView: View {
                 }
                 .disabled(!isSpeaking)
                 .buttonStyle(.plain)
+                .accessibilityLabel("Stop")
+                .accessibilityHint("Stop the current speech playback")
             }
         }
     }
@@ -318,7 +344,27 @@ struct TTSTestView: View {
             .padding(AppTheme.Spacing.md)
             .background(AppColors.surfaceSecondary)
             .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(resultsAccessibilityLabel)
         }
+    }
+    
+    /// Provides a combined accessibility label for all results.
+    private var resultsAccessibilityLabel: String {
+        var components: [String] = ["Test results"]
+        
+        if !usedEngine.isEmpty {
+            components.append("Engine: \(usedEngine)")
+        }
+        
+        if lastSynthesisTime > 0 {
+            components.append("Time: \(String(format: "%.2f", lastSynthesisTime)) seconds")
+        }
+        
+        components.append("Voice: \(selectedVoiceId)")
+        components.append("Text length: \(testText.count) characters")
+        
+        return components.joined(separator: ". ")
     }
     
     private func resultRow(_ label: String, _ value: String) -> some View {
@@ -341,6 +387,7 @@ struct TTSTestView: View {
             .fontWeight(.medium)
             .tracking(1.2)
             .foregroundStyle(AppColors.textTertiary)
+            .accessibilityAddTraits(.isHeader)
     }
     
     // MARK: - Actions

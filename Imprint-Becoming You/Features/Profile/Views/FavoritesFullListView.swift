@@ -83,6 +83,8 @@ struct FavoritesFullListView: View {
                     dismiss()
                 }
                 .foregroundStyle(AppColors.accent)
+                .accessibilityLabel("Close")
+                .accessibilityHint("Return to profile")
             }
         }
         .task {
@@ -99,22 +101,24 @@ struct FavoritesFullListView: View {
             Image(systemName: "heart.slash")
                 .font(.system(size: 48))
                 .foregroundStyle(AppColors.textTertiary)
+                .accessibilityHidden(true)
             
             Text("No Favorites Yet")
                 .font(AppTypography.title3)
                 .foregroundStyle(AppColors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
             
             Text("Tap the heart on any affirmation to save it here.")
                 .font(AppTypography.body)
                 .foregroundStyle(AppColors.textSecondary)
                 .multilineTextAlignment(.center)
-            
-            Spacer()
         }
         .padding(AppTheme.Spacing.xl)
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: dockAreaHeight)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("No favorites yet. Tap the heart on any affirmation to save it here.")
     }
     
     // MARK: - Favorites List
@@ -132,6 +136,9 @@ struct FavoritesFullListView: View {
                             unfavorite(affirmation)
                         }
                     )
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(affirmation.text). Category: \(affirmation.category). Favorited.")
+                    .accessibilityHint("Double tap to remove from favorites")
                 }
             }
             .padding(.horizontal, AppTheme.Spacing.lg)
@@ -140,6 +147,7 @@ struct FavoritesFullListView: View {
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: dockAreaHeight)
         }
+        .accessibilityLabel("Favorites list, \(favorites.count) items")
     }
     
     // MARK: - Actions

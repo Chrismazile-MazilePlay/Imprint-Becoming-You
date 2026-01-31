@@ -14,6 +14,19 @@ import CoreML
 
 /// On-device neural text-to-speech engine using Kokoro.
 /// Supports both American English (en-US) and British English (en-GB) voices.
+///
+/// ## Memory Management
+/// The ML pipelines consume significant memory (~500MB-1GB total).
+/// Use `releaseForBackground()` when the app enters background to free memory,
+/// and `warmUp()` again when returning to foreground.
+///
+/// ```swift
+/// // When entering background
+/// await kokoroEngine.releaseForBackground()
+///
+/// // When returning to foreground
+/// try await kokoroEngine.warmUp()
+/// ```
 actor KokoroTTSEngine {
     
     // MARK: - Types
@@ -37,6 +50,9 @@ actor KokoroTTSEngine {
     private var gbPipeline: TTSPipeline?
     private var isWarmedUp: Bool = false
     
+    /// Cached paths for re-initialization after release
+    private var cachedKokoroPath: String?
+    
     // MARK: - Initialization
     
     init() {}
@@ -55,6 +71,9 @@ actor KokoroTTSEngine {
         guard let kokoroPath = findKokoroFolder() else {
             throw AppError.ttsError("Kokoro folder not found in bundle")
         }
+        
+        // Cache path for potential re-initialization
+        cachedKokoroPath = kokoroPath
         
         #if DEBUG
         print("📁 Found Kokoro at: \(kokoroPath)")
@@ -170,6 +189,44 @@ actor KokoroTTSEngine {
     
     var isReady: Bool { isWarmedUp }
     
+    // MARK: - Memory Management
+    
+    /// Releases ML pipelines to free memory.
+    ///
+    /// Call when app enters background or receives memory warning.
+    /// After calling this, `isReady` will return `false` and synthesis
+    /// will fail until `warmUp()` is called again.
+    ///
+    /// This can free ~500MB-1GB of memory.
+    func releaseForBackground() {
+        guard isWarmedUp else {
+            #if DEBUG
+            print("🎤 KokoroTTSEngine: Already released or never initialized")
+            #endif
+            return
+        }
+        
+        #if DEBUG
+        print("🎤 KokoroTTSEngine: Releasing ML pipelines for background...")
+        #endif
+        
+        // Nil out the pipelines to release memory
+        usPipeline = nil
+        gbPipeline = nil
+        isWarmedUp = false
+        
+        #if DEBUG
+        print("✅ KokoroTTSEngine: ML pipelines released")
+        #endif
+    }
+    
+    /// Checks if the engine can be re-initialized.
+    ///
+    /// Returns `true` if the Kokoro resources are available in the bundle.
+    var canReinitialize: Bool {
+        cachedKokoroPath != nil || findKokoroFolder() != nil
+    }
+    
     // MARK: - Private Methods
     
     /// Detects the language variant from the voice style prefix.
@@ -204,6 +261,11 @@ actor KokoroTTSEngine {
     }
     
     private func findKokoroFolder() -> String? {
+        // Use cached path if available
+        if let cached = cachedKokoroPath, FileManager.default.fileExists(atPath: cached) {
+            return cached
+        }
+        
         let fm = FileManager.default
         let bundle = Bundle.main
         

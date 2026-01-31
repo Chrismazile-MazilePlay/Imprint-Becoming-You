@@ -26,6 +26,10 @@ import Foundation
 /// Use `preSynthesize()` to prepare audio in advance,
 /// reducing latency for sequential playback.
 ///
+/// ## Memory Management
+/// Use `releaseForBackground()` when app enters background to free ML models.
+/// Call `warmUp()` again when returning to foreground.
+///
 /// ## Architecture
 /// ```
 /// TTSServiceProtocol
@@ -55,6 +59,9 @@ import Foundation
 ///
 /// // Force system TTS
 /// try await ttsService.speakText("Hello", voiceId: "system")
+///
+/// // When entering background (memory management)
+/// await ttsService.releaseForBackground()
 /// ```
 @MainActor
 protocol TTSServiceProtocol: AnyObject {
@@ -140,6 +147,20 @@ protocol TTSServiceProtocol: AnyObject {
     
     /// Cancels any active pre-synthesis task.
     func cancelPreSynthesis()
+    
+    // MARK: - Memory Management
+    
+    /// Releases heavy resources (ML models) to free memory.
+    ///
+    /// Call when:
+    /// - App enters background for extended period (>5 min)
+    /// - iOS sends memory warning
+    ///
+    /// After calling this, `isKokoroReady` returns `false` and
+    /// synthesis will fall back to System TTS until `warmUp()` is called again.
+    ///
+    /// This can free ~500MB-1GB of memory from Kokoro ML pipelines.
+    func releaseForBackground() async
 }
 
 // MARK: - Default Implementations
@@ -166,6 +187,11 @@ extension TTSServiceProtocol {
     func synthesizeWithSystemTTS(text: String) async throws -> Data {
         // Default: use regular synthesize with system voice
         return try await synthesize(text: text, voiceId: TTSConfiguration.systemVoiceId)
+    }
+    
+    /// Default implementation for background release (no-op for mocks)
+    func releaseForBackground() async {
+        // Default: no-op for mock services
     }
 }
 

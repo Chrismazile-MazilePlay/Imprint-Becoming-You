@@ -58,6 +58,7 @@ struct TimeoutAlertView: View {
                     // Tapping outside dismisses (retries)
                     onRetry()
                 }
+                .accessibilityHidden(true)
             
             // Alert card
             VStack(spacing: AppTheme.Spacing.lg) {
@@ -71,11 +72,13 @@ struct TimeoutAlertView: View {
                         .font(.system(size: 28, weight: .medium))
                         .foregroundStyle(AppColors.warning)
                 }
+                .accessibilityHidden(true)
                 
                 // Title
                 Text("Listening Timed Out")
                     .font(AppTypography.title3)
                     .foregroundStyle(AppColors.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
                 
                 // Message
                 Text("We didn't detect speech matching the affirmation. Would you like to try again?")
@@ -92,6 +95,7 @@ struct TimeoutAlertView: View {
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .padding(.horizontal, AppTheme.Spacing.sm)
+                    .accessibilityLabel("Affirmation: \(affirmationText)")
                 
                 // Action buttons
                 VStack(spacing: AppTheme.Spacing.sm) {
@@ -111,6 +115,8 @@ struct TimeoutAlertView: View {
                         .background(AppColors.accent)
                         .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium))
                     }
+                    .accessibilityLabel("Try again")
+                    .accessibilityHint("Retry speaking the affirmation")
                     
                     // Skip - Secondary action
                     Button(action: {
@@ -128,6 +134,8 @@ struct TimeoutAlertView: View {
                         .background(AppColors.surfaceSecondary)
                         .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium))
                     }
+                    .accessibilityLabel("Skip")
+                    .accessibilityHint("Skip this affirmation and move to the next one")
                     
                     // Exit - Tertiary action
                     Button(action: {
@@ -139,6 +147,8 @@ struct TimeoutAlertView: View {
                             .foregroundStyle(AppColors.textTertiary)
                     }
                     .padding(.top, AppTheme.Spacing.md)
+                    .accessibilityLabel("Exit session")
+                    .accessibilityHint("End the current practice session")
                 }
             }
             .padding(AppTheme.Spacing.xl)
@@ -150,6 +160,7 @@ struct TimeoutAlertView: View {
             )
             .scaleEffect(scale)
             .opacity(opacity)
+            .accessibilityElement(children: .contain)
         }
         .onAppear {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
@@ -269,6 +280,7 @@ struct PermissionDeniedAlertView: View {
             // Dimmed background
             Color.black.opacity(0.6)
                 .ignoresSafeArea()
+                .accessibilityHidden(true)
             
             // Alert card
             VStack(spacing: AppTheme.Spacing.lg) {
@@ -282,11 +294,13 @@ struct PermissionDeniedAlertView: View {
                         .font(.system(size: 28, weight: .medium))
                         .foregroundStyle(AppColors.error)
                 }
+                .accessibilityHidden(true)
                 
                 // Title
                 Text(permissionType.title)
                     .font(AppTypography.title3)
                     .foregroundStyle(AppColors.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
                 
                 // Message
                 Text(permissionType.message)
@@ -313,6 +327,8 @@ struct PermissionDeniedAlertView: View {
                         .background(AppColors.accent)
                         .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium))
                     }
+                    .accessibilityLabel("Open Settings")
+                    .accessibilityHint("Open the Settings app to enable permissions")
                     
                     // Continue without - Secondary action
                     Button(action: {
@@ -324,6 +340,8 @@ struct PermissionDeniedAlertView: View {
                             .foregroundStyle(AppColors.textTertiary)
                     }
                     .padding(.top, AppTheme.Spacing.xs)
+                    .accessibilityLabel("Continue in read-only mode")
+                    .accessibilityHint("Use the app without voice features")
                 }
             }
             .padding(AppTheme.Spacing.xl)
@@ -335,6 +353,7 @@ struct PermissionDeniedAlertView: View {
             )
             .scaleEffect(scale)
             .opacity(opacity)
+            .accessibilityElement(children: .contain)
         }
         .onAppear {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {

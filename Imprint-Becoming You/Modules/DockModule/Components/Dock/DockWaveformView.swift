@@ -13,9 +13,9 @@ import SwiftUI
 ///
 /// This view renders animated bars that respond to different states (playing, listening,
 /// waiting, etc.) with smooth transitions. It is completely decoupled from TTS callbacks
-/// and session state â€” it only knows about visualization states.
+/// and session state — it only knows about visualization states.
 ///
-/// ## Choreographed Transition (Playing â†’ Listening)
+/// ## Choreographed Transition (Playing → Listening)
 ///
 /// When transitioning from TTS playback to mic listening, the waveform performs
 /// a three-phase visual choreography:
@@ -100,6 +100,9 @@ public struct DockWaveformView: View {
                 )
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityStateDescription)
+        .accessibilityValue(accessibilityValueDescription)
         .onAppear {
             initializeBarOffsets()
             config = configuration(for: state)
@@ -109,6 +112,37 @@ public struct DockWaveformView: View {
         .onChange(of: state) { oldState, newState in
             handleStateChange(from: oldState, to: newState)
         }
+    }
+    
+    // MARK: - Accessibility
+    
+    /// Provides a VoiceOver-friendly description of the current waveform state.
+    private var accessibilityStateDescription: String {
+        switch state {
+        case .hidden:
+            return "Audio visualization hidden"
+        case .idle:
+            return "Audio visualization idle"
+        case .playing:
+            return "Playing audio"
+        case .preparing:
+            return "Preparing to listen"
+        case .listening:
+            return "Listening for your voice"
+        case .settling:
+            return "Processing speech"
+        case .showingScore:
+            return "Showing score"
+        }
+    }
+    
+    /// Provides the audio level as an accessibility value when applicable.
+    private var accessibilityValueDescription: String {
+        guard let audioLevel = state.audioLevel else {
+            return ""
+        }
+        let percentage = Int(audioLevel * 100)
+        return "Audio level \(percentage) percent"
     }
     
     // MARK: - Initialization Helpers
@@ -172,7 +206,7 @@ public struct DockWaveformView: View {
         case (.preparing, .listening):
             return .preparingToListening
         case (.playing, .listening):
-            // Direct playing â†’ listening (legacy, in case .preparing is skipped)
+            // Direct playing → listening (legacy, in case .preparing is skipped)
             return .playingToListening
         default:
             return .standard
@@ -181,8 +215,8 @@ public struct DockWaveformView: View {
     
     // MARK: - Choreographed Transitions
     
-    /// Phase 1: Playing â†’ Preparing
-    /// Scale DOWN + color MORPH (orange â†’ green breathing)
+    /// Phase 1: Playing → Preparing
+    /// Scale DOWN + color MORPH (orange → green breathing)
     private func performPlayingToPreparingTransition() {
         isInChoreographedTransition = true
         
@@ -201,7 +235,7 @@ public struct DockWaveformView: View {
         }
     }
     
-    /// Phase 2: Preparing â†’ Listening
+    /// Phase 2: Preparing → Listening
     /// Scale UP to active listening (already green)
     private func performPreparingToListeningTransition() {
         withAnimation(.easeOut(duration: scaleUpDuration)) {
@@ -212,10 +246,10 @@ public struct DockWaveformView: View {
         shuffleBarOffsets()
     }
     
-    /// Full choreography for direct playing â†’ listening (legacy support)
+    /// Full choreography for direct playing → listening (legacy support)
     ///
     /// Phase 1: Scale DOWN (bars to minimum, still orange)
-    /// Phase 2: Color MORPH (orange â†’ green at minimum amplitude)
+    /// Phase 2: Color MORPH (orange → green at minimum amplitude)
     /// Phase 3: Scale UP (bars to active height, now green)
     private func performFullPlayingToListeningTransition(targetState: DockCenterContentState) {
         isInChoreographedTransition = true
@@ -314,6 +348,7 @@ private struct WaveformBar: View {
             .frame(width: barWidth, height: barHeight)
             .animation(.easeInOut(duration: 0.15), value: audioLevel)
             .animation(.easeInOut(duration: 0.3), value: config)
+            .accessibilityHidden(true)
     }
     
     // MARK: - Height Calculation
@@ -465,7 +500,7 @@ private struct WaveformConfiguration: Equatable {
         randomization: 0
     )
     
-    // MARK: - Transition States (for choreographed playing â†’ listening)
+    // MARK: - Transition States (for choreographed playing → listening)
     
     /// Phase 1: Scaled down, still orange
     static let transitionScaledDown = WaveformConfiguration(
@@ -552,7 +587,7 @@ private extension Color {
                 DockWaveformView(state: state)
                     .frame(height: 40)
                 
-                Button("Toggle Playing â†” Listening") {
+                Button("Toggle Playing ↔ Listening") {
                     if case .playing = state {
                         state = .listening(audioLevel: 0.6)
                     } else {

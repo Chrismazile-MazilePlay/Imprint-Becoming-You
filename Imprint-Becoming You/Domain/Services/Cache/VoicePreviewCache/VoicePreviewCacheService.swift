@@ -15,6 +15,11 @@ import Foundation
 /// in voice selection UI. Supports background synthesis with priority ordering
 /// and persistent disk storage.
 ///
+/// ## Memory Optimization
+/// Uses lazy loading - audio data is loaded from disk on-demand rather than
+/// keeping all 28 voice previews in memory simultaneously. This reduces
+/// memory footprint from ~5MB constantly to ~200KB per active voice.
+///
 /// ## Storage Structure
 /// ```
 /// Application Support/
@@ -22,7 +27,7 @@ import Foundation
 ///     ├── manifest.json          ← Version + completion status
 ///     ├── preview_af_heart.wav
 ///     ├── preview_af_bella.wav
-///     └── ... (26 total)
+///     └── ... (28 total)
 /// ```
 @MainActor
 final class VoicePreviewCacheService: VoicePreviewCacheServiceProtocol {
@@ -44,8 +49,16 @@ final class VoicePreviewCacheService: VoicePreviewCacheServiceProtocol {
     /// TTS service for synthesis
     private let ttsService: any TTSServiceProtocol
     
-    /// In-memory cache of audio data
+    /// In-memory cache of audio data (lazy loaded, limited size)
+    /// Key: voiceId, Value: audio data
     private var memoryCache: [String: Data] = [:]
+    
+    /// Maximum number of voices to keep in memory cache
+    /// Keeps most recently accessed voices
+    private static let maxMemoryCacheSize = 6
+    
+    /// Order of access for LRU eviction
+    private var memoryCacheAccessOrder: [String] = []
     
     /// Current manifest
     private var manifest: CacheManifest?
@@ -91,12 +104,11 @@ final class VoicePreviewCacheService: VoicePreviewCacheServiceProtocol {
         // Create directory if needed
         try? FileManager.default.createDirectory(at: cacheDirectoryURL, withIntermediateDirectories: true)
         
-        // Load manifest and cached audio
+        // Load manifest only (NOT audio data - that's lazy loaded)
         loadManifest()
-        loadCachedAudioIntoMemory()
         
         #if DEBUG
-        print("🎤 VoicePreviewCache: Initialized (\(cachedCount)/\(totalCount) cached)")
+        print("🎤 VoicePreviewCache: Initialized (\(cachedCount)/\(totalCount) cached on disk)")
         #endif
     }
     
@@ -108,13 +120,11 @@ final class VoicePreviewCacheService: VoicePreviewCacheServiceProtocol {
             return true
         }
         
-        // Check manifest (file exists but not loaded)
+        // Check manifest (file exists on disk)
         if manifest?.cachedVoices.contains(voiceId) == true {
-            // Try to load from disk
-            if let data = loadFromDisk(voiceId: voiceId) {
-                memoryCache[voiceId] = data
-                return true
-            }
+            // Verify file actually exists
+            let fileURL = previewFileURL(for: voiceId)
+            return FileManager.default.fileExists(atPath: fileURL.path)
         }
         
         return false
@@ -123,12 +133,15 @@ final class VoicePreviewCacheService: VoicePreviewCacheServiceProtocol {
     func getPreviewAudio(for voiceId: String) -> Data? {
         // Try memory cache first
         if let data = memoryCache[voiceId] {
+            // Update LRU order
+            updateAccessOrder(voiceId)
             return data
         }
         
-        // Try loading from disk
+        // Try loading from disk (lazy load)
         if let data = loadFromDisk(voiceId: voiceId) {
-            memoryCache[voiceId] = data
+            // Add to memory cache with LRU eviction
+            addToMemoryCache(voiceId: voiceId, data: data)
             return data
         }
         
@@ -225,6 +238,7 @@ final class VoicePreviewCacheService: VoicePreviewCacheServiceProtocol {
     func clearCache() {
         // Clear memory cache
         memoryCache.removeAll()
+        memoryCacheAccessOrder.removeAll()
         
         // Clear disk cache
         try? FileManager.default.removeItem(at: cacheDirectoryURL)
@@ -238,7 +252,21 @@ final class VoicePreviewCacheService: VoicePreviewCacheServiceProtocol {
         #endif
     }
     
-    // MARK: - Private Methods
+    /// Clears only the in-memory cache, keeping disk cache intact.
+    ///
+    /// Call this when app enters background to reduce memory footprint
+    /// while preserving synthesized previews for when app returns.
+    func clearMemoryCache() {
+        let count = memoryCache.count
+        memoryCache.removeAll()
+        memoryCacheAccessOrder.removeAll()
+        
+        #if DEBUG
+        print("🎤 VoicePreviewCache: Memory cache cleared (\(count) items)")
+        #endif
+    }
+    
+    // MARK: - Private Methods - Synthesis
     
     private func synthesizeAndCache(voiceId: String) async throws -> Data {
         // Synthesize using TTS service
@@ -252,8 +280,8 @@ final class VoicePreviewCacheService: VoicePreviewCacheServiceProtocol {
         print("🎤 VoicePreviewCache: Synthesized \(voiceId) (\(audioData.count) bytes)")
         #endif
         
-        // Cache to memory
-        memoryCache[voiceId] = audioData
+        // Cache to memory (with LRU eviction)
+        addToMemoryCache(voiceId: voiceId, data: audioData)
         
         // Cache to disk
         saveToDisk(voiceId: voiceId, data: audioData)
@@ -263,6 +291,46 @@ final class VoicePreviewCacheService: VoicePreviewCacheServiceProtocol {
         
         return audioData
     }
+    
+    // MARK: - Private Methods - Memory Cache (LRU)
+    
+    private func addToMemoryCache(voiceId: String, data: Data) {
+        // If already in cache, just update access order
+        if memoryCache[voiceId] != nil {
+            updateAccessOrder(voiceId)
+            return
+        }
+        
+        // Evict oldest entries if at capacity
+        while memoryCache.count >= Self.maxMemoryCacheSize {
+            evictOldestFromMemoryCache()
+        }
+        
+        // Add to cache
+        memoryCache[voiceId] = data
+        memoryCacheAccessOrder.append(voiceId)
+    }
+    
+    private func updateAccessOrder(_ voiceId: String) {
+        // Move to end of access order (most recently used)
+        if let index = memoryCacheAccessOrder.firstIndex(of: voiceId) {
+            memoryCacheAccessOrder.remove(at: index)
+        }
+        memoryCacheAccessOrder.append(voiceId)
+    }
+    
+    private func evictOldestFromMemoryCache() {
+        guard let oldest = memoryCacheAccessOrder.first else { return }
+        
+        memoryCacheAccessOrder.removeFirst()
+        memoryCache.removeValue(forKey: oldest)
+        
+        #if DEBUG
+        print("🎤 VoicePreviewCache: Evicted \(oldest) from memory cache")
+        #endif
+    }
+    
+    // MARK: - Private Methods - Disk Cache
     
     private func previewFileURL(for voiceId: String) -> URL {
         cacheDirectoryURL.appendingPathComponent("preview_\(voiceId).wav")
@@ -277,6 +345,8 @@ final class VoicePreviewCacheService: VoicePreviewCacheServiceProtocol {
         let fileURL = previewFileURL(for: voiceId)
         try? data.write(to: fileURL)
     }
+    
+    // MARK: - Private Methods - Manifest
     
     private func loadManifest() {
         guard FileManager.default.fileExists(atPath: manifestURL.path) else { return }
@@ -296,7 +366,7 @@ final class VoicePreviewCacheService: VoicePreviewCacheServiceProtocol {
         
         do {
             let data = try JSONEncoder().encode(manifest)
-            try data.write(to: manifestURL)
+            try data.write(to: manifestURL, options: .atomic)
         } catch {
             #if DEBUG
             print("⚠️ VoicePreviewCache: Failed to save manifest: \(error)")
@@ -318,21 +388,5 @@ final class VoicePreviewCacheService: VoicePreviewCacheServiceProtocol {
             manifest?.cachedVoices.append(voiceId)
             saveManifest()
         }
-    }
-    
-    private func loadCachedAudioIntoMemory() {
-        guard let manifest = manifest else { return }
-        
-        var loadedCount = 0
-        for voiceId in manifest.cachedVoices {
-            if let data = loadFromDisk(voiceId: voiceId) {
-                memoryCache[voiceId] = data
-                loadedCount += 1
-            }
-        }
-        
-        #if DEBUG
-        print("🎤 VoicePreviewCache: Loaded \(loadedCount) previews into memory")
-        #endif
     }
 }

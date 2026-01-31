@@ -728,8 +728,40 @@ extension PracticeStore {
     ///
     /// Called when the DockModule's segment animation reaches 100%.
     /// This replaces the old scheduleAutoAdvance() mechanism.
+    ///
+    /// ## Background Pause Protection
+    ///
+    /// The segment timer runs in the SwiftUI View layer (DockSegmentsView) and
+    /// continues firing even when the app is backgrounded. When the app backgrounds:
+    ///
+    /// 1. MainPracticeView sends `.pauseSession`
+    /// 2. `pauseSession` handler calls `resetToIdle()` which sets flow to `.idle`
+    /// 3. This handler checks `flow.isIdle` and ignores the timer if true
+    ///
+    /// Without the idle guard, the session would auto-advance through affirmations
+    /// while backgrounded, causing:
+    /// - TTS playback failures ("Session activation failed")
+    /// - User returns to find they're on a different affirmation
+    /// - Unexpected state when resuming
     func handleSegmentTimerCompleted() {
         guard isSessionActive else { return }
+        
+        // CRITICAL: Don't auto-advance when session is paused (idle state).
+        //
+        // When the app enters background:
+        // 1. MainPracticeView sends .pauseSession
+        // 2. pauseSession handler calls resetToIdle() -> flow becomes .readAloud(.idle)
+        // 3. This guard catches the segment timer and ignores it
+        //
+        // Without this guard, the segment timer (running in SwiftUI View layer)
+        // would trigger auto-advance while backgrounded, causing audio failures
+        // and unexpected state when the user returns.
+        guard !flow.isIdle else {
+            #if DEBUG
+            print("[DEBUG] handleSegmentTimerCompleted: Ignored (session paused/idle)")
+            #endif
+            return
+        }
         
         // Check if we've completed the current loop
         if sessionIndex >= sessionAffirmations.count - 1 {

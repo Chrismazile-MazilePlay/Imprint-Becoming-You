@@ -28,7 +28,9 @@ import AVFoundation
 ///
 /// ## Memory Management
 /// Audio data is stored in memory for the session duration (~500KB × N).
-/// Cache is cleared when `cancelAll()` is called at session end.
+/// Cache is cleared when `cancelAll()` or `clearQueue()` is called.
+/// `clearQueue()` is specifically for background memory release without
+/// fully resetting the service state.
 ///
 /// ## Preparation Phases
 /// ```
@@ -227,89 +229,77 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         Task { @MainActor in onPhaseChange(.complete) }
         
         #if DEBUG
-        print("✅ SessionTTSQueue: Preparation complete (\(preparedCount)/\(affirmations.count))")
+        print("✅ SessionTTSQueue: Session preparation complete (\(preparedCount)/\(totalCount))")
         #endif
     }
-    
-    // MARK: - Kokoro Wait
     
     /// Waits for Kokoro TTS engine to become ready.
     ///
-    /// Uses the existing app-level warm-up (triggered at launch).
-    /// Does NOT trigger a new warm-up.
+    /// Returns immediately if Kokoro is already ready, otherwise polls
+    /// every 100ms until timeout.
     ///
-    /// - Returns: `true` if Kokoro is ready, `false` if timeout reached
+    /// - Returns: `true` if Kokoro became ready, `false` if timeout
     private func waitForKokoroReady() async -> Bool {
         // Check if already ready
         if ttsService.isKokoroReady {
-            #if DEBUG
-            print("🎵 SessionTTSQueue: Kokoro already ready")
-            #endif
             return true
         }
         
-        // Set up notification observer
+        // Poll for readiness
         let startTime = Date()
+        let checkInterval: Duration = .milliseconds(100)
         
-        // Poll for readiness with notification observation
-        while true {
-            // Check for cancellation
-            if Task.isCancelled || state == .cancelled {
-                return false
-            }
+        while Date().timeIntervalSince(startTime) < kokoroWarmupTimeout {
+            try? await Task.sleep(for: checkInterval)
             
-            // Check if ready
             if ttsService.isKokoroReady {
-                #if DEBUG
-                let elapsed = Date().timeIntervalSince(startTime)
-                print("🎵 SessionTTSQueue: Kokoro became ready after \(String(format: "%.2f", elapsed))s")
-                #endif
                 return true
             }
             
-            // Check timeout
-            let elapsed = Date().timeIntervalSince(startTime)
-            if elapsed >= kokoroWarmupTimeout {
-                #if DEBUG
-                print("⚠️ SessionTTSQueue: Kokoro wait timeout (\(String(format: "%.2f", elapsed))s)")
-                #endif
+            // Check if cancelled
+            if Task.isCancelled || state == .cancelled {
                 return false
             }
-            
-            // Wait a bit before checking again
-            try? await Task.sleep(for: .milliseconds(100))
         }
+        
+        return false
     }
     
-    // MARK: - Audio Access
+    // MARK: - Protocol Methods
     
     func getAudio(for index: Int) -> Data? {
-        audioCache[index]
+        return audioCache[index]
     }
     
     func isReady(_ index: Int) -> Bool {
-        audioCache[index] != nil
+        return audioCache[index] != nil
     }
     
     func notifyPlaying(index: Int) {
+        currentPlaybackIndex = index
+        
+        // Reprioritize background synthesis if active
+        reprioritizeQueue(from: index)
+        
         #if DEBUG
         print("🎵 SessionTTSQueue: Now playing index \(index)")
         #endif
-        
-        currentPlaybackIndex = index
-        reprioritizeQueue(from: index)
     }
     
     func synthesizeOnDemand(index: Int) async throws -> Data {
+        // Return cached if available
         if let cached = audioCache[index] {
             return cached
         }
         
+        // Bounds check
         guard index >= 0 && index < sessionAffirmations.count else {
             throw TTSError.synthesisFailedError(message: "Index out of bounds: \(index)")
         }
         
+        // Wait if currently being synthesized by background task
         if synthesizingIndices.contains(index) {
+            // Poll for completion (max 5 seconds)
             for _ in 0..<100 {
                 try await Task.sleep(for: .milliseconds(50))
                 if let cached = audioCache[index] {
@@ -319,9 +309,14 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
             throw TTSError.synthesisFailedError(message: "Timeout waiting for synthesis of index \(index)")
         }
         
+        // Synthesize on-demand if not cached and not in progress
         let info = sessionAffirmations[index]
         let audioData = try await synthesizeAffirmation(info)
         audioCache[index] = audioData
+        
+        #if DEBUG
+        print("🎵 SessionTTSQueue: On-demand synthesis complete for index \(index)")
+        #endif
         
         return audioData
     }
@@ -341,6 +336,90 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         currentVoiceId = nil
         forceSystemTTS = false
         currentPlaybackIndex = 0
+    }
+    
+    // MARK: - Memory Management
+    
+    /// Clears the audio cache to free memory.
+    ///
+    /// Call this when the app enters background to reduce memory footprint.
+    /// Unlike `cancelAll()`, this preserves session metadata so the session
+    /// can potentially be resumed (though audio will need to be re-synthesized).
+    ///
+    /// This can free ~500KB × N bytes where N is the number of cached affirmations.
+    func clearQueue() {
+        #if DEBUG
+        let cacheSize = audioCache.values.reduce(0) { $0 + $1.count }
+        print("🎵 SessionTTSQueue: Clearing queue (\(audioCache.count) items, ~\(cacheSize / 1024)KB)")
+        #endif
+        
+        // Cancel background synthesis
+        backgroundTask?.cancel()
+        backgroundTask = nil
+        
+        // Clear audio cache (main memory savings)
+        audioCache.removeAll()
+        synthesizingIndices.removeAll()
+        
+        // Note: We preserve sessionAffirmations, currentVoiceId, etc.
+        // so the session structure is maintained. If playback resumes,
+        // audio will be re-synthesized on demand.
+    }
+    
+    // MARK: - Background Synthesis
+    
+    func startBackgroundSynthesis(startingFrom startIndex: Int) {
+        backgroundTask?.cancel()
+        
+        // Update state to background mode
+        state = .synthesizingBackground(prepared: preparedCount, total: sessionAffirmations.count)
+        
+        backgroundTask = Task { [weak self] in
+            guard let self = self else { return }
+            
+            let indices = self.buildPriorityQueue(from: startIndex)
+            
+            for index in indices {
+                guard !Task.isCancelled else { return }
+                guard self.state != .cancelled else { return }
+                guard self.audioCache[index] == nil else { continue }
+                guard !self.synthesizingIndices.contains(index) else { continue }
+                
+                do {
+                    let info = self.sessionAffirmations[index]
+                    let audioData = try await self.synthesizeAffirmation(info)
+                    
+                    guard !Task.isCancelled else { return }
+                    guard self.state != .cancelled else { return }
+                    
+                    self.audioCache[index] = audioData
+                    
+                    self.state = .synthesizingBackground(
+                        prepared: self.preparedCount,
+                        total: self.sessionAffirmations.count
+                    )
+                    
+                    #if DEBUG
+                    print("🎵 SessionTTSQueue: Background synthesized index \(index) (\(self.preparedCount)/\(self.sessionAffirmations.count))")
+                    #endif
+                    
+                } catch {
+                    #if DEBUG
+                    print("⚠️ SessionTTSQueue: Background synthesis failed for index \(index): \(error)")
+                    #endif
+                }
+                
+                try? await Task.sleep(for: .milliseconds(Constants.SessionPreparation.backgroundThrottleMs))
+            }
+            
+            if !Task.isCancelled && self.state != .cancelled {
+                self.state = .complete
+                
+                #if DEBUG
+                print("✅ SessionTTSQueue: Background synthesis complete (\(self.preparedCount)/\(self.sessionAffirmations.count))")
+                #endif
+            }
+        }
     }
     
     // MARK: - Bounded Parallel Synthesis
@@ -432,60 +511,6 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
             return try await ttsService.synthesizeWithSystemTTS(text: info.text)
         } else {
             return try await ttsService.synthesize(text: info.text, voiceId: currentVoiceId)
-        }
-    }
-    
-    func startBackgroundSynthesis(startingFrom startIndex: Int) {
-        backgroundTask?.cancel()
-        
-        // Update state to background mode
-        state = .synthesizingBackground(prepared: preparedCount, total: sessionAffirmations.count)
-        
-        backgroundTask = Task { [weak self] in
-            guard let self = self else { return }
-            
-            let indices = self.buildPriorityQueue(from: startIndex)
-            
-            for index in indices {
-                guard !Task.isCancelled else { return }
-                guard self.state != .cancelled else { return }
-                guard self.audioCache[index] == nil else { continue }
-                guard !self.synthesizingIndices.contains(index) else { continue }
-                
-                do {
-                    let info = self.sessionAffirmations[index]
-                    let audioData = try await self.synthesizeAffirmation(info)
-                    
-                    guard !Task.isCancelled else { return }
-                    guard self.state != .cancelled else { return }
-                    
-                    self.audioCache[index] = audioData
-                    
-                    self.state = .synthesizingBackground(
-                        prepared: self.preparedCount,
-                        total: self.sessionAffirmations.count
-                    )
-                    
-                    #if DEBUG
-                    print("🎵 SessionTTSQueue: Background synthesized index \(index) (\(self.preparedCount)/\(self.sessionAffirmations.count))")
-                    #endif
-                    
-                } catch {
-                    #if DEBUG
-                    print("⚠️ SessionTTSQueue: Background synthesis failed for index \(index): \(error)")
-                    #endif
-                }
-                
-                try? await Task.sleep(for: .milliseconds(Constants.SessionPreparation.backgroundThrottleMs))
-            }
-            
-            if !Task.isCancelled && self.state != .cancelled {
-                self.state = .complete
-                
-                #if DEBUG
-                print("✅ SessionTTSQueue: Background synthesis complete (\(self.preparedCount)/\(self.sessionAffirmations.count))")
-                #endif
-            }
         }
     }
     

@@ -14,9 +14,16 @@ import SwiftData
 ///
 /// Responsibilities:
 /// - SwiftData model container initialization
+/// - Memory management setup (via MemoryManager)
 /// - Dependency injection setup
 /// - Global UI appearance configuration
 /// - App state management
+///
+/// ## Memory Management
+/// At launch, MemoryManager is initialized to monitor:
+/// - iOS memory warnings
+/// - Background/foreground transitions
+/// - Coordinated release of heavy resources (Kokoro ML pipelines)
 ///
 /// Note: All view logic lives in `RootView.swift` and its children.
 /// This file focuses purely on app configuration and setup.
@@ -36,12 +43,16 @@ struct ImprintApp: App {
     init() {
         // Initialize SwiftData container
         do {
+            // CRITICAL: Schema must include ALL @Model types used in the app
+            // Missing types cause runtime crashes when SwiftData encounters them
             let schema = Schema([
                 UserProfile.self,
                 Affirmation.self,
                 CustomPrompt.self,
                 ProgressData.self,
-                SavedSession.self
+                SavedSession.self,
+                VoiceRecord.self,        // Required for voice selection persistence
+                VoiceUsageRecord.self    // Required for voice usage tracking
             ])
             
             let modelConfiguration = ModelConfiguration(
@@ -79,27 +90,48 @@ struct ImprintApp: App {
     
     // MARK: - Private Methods
     
-    /// Starts background services including TTS warm-up and voice preview synthesis.
+    /// Starts background services including memory management, TTS warm-up, and voice preview synthesis.
     @MainActor
     private func startBackgroundServices() async {
         let dependencies = DependencyContainer.shared
         
-        // Warm up TTS engine first
+        // ===============================================================
+        // MEMORY MANAGEMENT: Start monitoring before loading heavy resources
+        // ===============================================================
         #if DEBUG
-        print("🔊 ImprintApp: Warming up TTS engine...")
+        print("📊 ImprintApp: Starting memory management...")
+        MemoryManager.shared.logMemoryUsage()
+        #endif
+        
+        MemoryManager.shared.startMonitoring(dependencies: dependencies)
+        
+        // ===============================================================
+        // TTS: Warm up Kokoro engine
+        // This loads ~500MB-1GB of ML models into memory
+        // ===============================================================
+        #if DEBUG
+        print("📊 ImprintApp: Warming up TTS engine...")
         #endif
         let startTime = Date()
         await dependencies.ttsService.warmUp()
         #if DEBUG
         let elapsed = Date().timeIntervalSince(startTime)
-        print("🔊 ImprintApp: TTS warm-up complete (\(String(format: "%.2f", elapsed))s)")
+        print("📊 ImprintApp: TTS warm-up complete (\(String(format: "%.2f", elapsed))s)")
+        MemoryManager.shared.logMemoryUsage()
         #endif
         
-        // Start background voice preview synthesis
+        // ===============================================================
+        // VOICE PREVIEWS: Start background synthesis (disk-cached, lazy memory)
+        // ===============================================================
         #if DEBUG
-        print("🔊 ImprintApp: Starting voice preview synthesis...")
+        print("📊 ImprintApp: Starting voice preview synthesis...")
         #endif
         await dependencies.voicePreviewCacheService.startBackgroundSynthesis()
+        
+        #if DEBUG
+        print("📊 ImprintApp: All background services started")
+        MemoryManager.shared.logMemoryUsage()
+        #endif
     }
     
     /// Configures global UI appearance for UIKit components

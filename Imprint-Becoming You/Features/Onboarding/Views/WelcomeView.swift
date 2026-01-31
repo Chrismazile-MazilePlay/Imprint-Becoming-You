@@ -52,6 +52,7 @@ struct WelcomeView: View {
                 }
                 .scaleEffect(logoScale)
                 .opacity(logoOpacity)
+                .accessibilityHidden(true)
                 
                 // App name
                 VStack(spacing: AppTheme.Spacing.xs) {
@@ -64,6 +65,9 @@ struct WelcomeView: View {
                         .foregroundStyle(AppColors.accent)
                 }
                 .opacity(textOpacity)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Imprint: Becoming You")
+                .accessibilityAddTraits(.isHeader)
             }
             
             Spacer()
@@ -102,10 +106,13 @@ struct WelcomeView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.primary)
+                .accessibilityLabel("Get started")
+                .accessibilityHint("Begin setting up your personalized experience")
                 
                 Text("Your journey to becoming you starts now")
                     .font(AppTypography.caption1)
                     .foregroundStyle(AppColors.textTertiary)
+                    .accessibilityHidden(true)
             }
             .padding(.horizontal, AppTheme.Spacing.lg)
             .padding(.bottom, AppTheme.Spacing.xl)
@@ -158,6 +165,7 @@ struct FeatureRow: View {
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(AppColors.accent)
             }
+            .accessibilityHidden(true)
             
             // Text
             VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
@@ -173,6 +181,7 @@ struct FeatureRow: View {
             Spacer()
         }
         .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title). \(description)")
     }
 }
 

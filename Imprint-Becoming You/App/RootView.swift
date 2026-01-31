@@ -60,11 +60,13 @@ struct RootView: View {
             Button("OK") {
                 appState.clearError()
             }
+            .accessibilityLabel("Dismiss error")
             
             if error.isRecoverable, let suggestion = error.recoverySuggestion {
                 Button(suggestion) {
                     appState.clearError()
                 }
+                .accessibilityLabel("Try recovery action: \(suggestion)")
             }
         } message: { error in
             Text(error.errorDescription ?? "An unknown error occurred.")
@@ -176,6 +178,7 @@ struct LaunchView: View {
                             .font(.system(size: 60))
                             .foregroundStyle(AppColors.accent)
                     )
+                    .accessibilityHidden(true)
                 
                 VStack(spacing: AppTheme.Spacing.xs) {
                     Text("Imprint")
@@ -189,6 +192,8 @@ struct LaunchView: View {
             }
             .scaleEffect(scale)
             .opacity(opacity)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Imprint: Becoming You. Loading...")
         }
         .onAppear {
             withAnimation(AppTheme.Animation.slow) {

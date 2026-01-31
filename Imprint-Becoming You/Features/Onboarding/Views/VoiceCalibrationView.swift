@@ -47,6 +47,7 @@ struct VoiceCalibrationView: View {
                 Text("Let's Learn Your Voice")
                     .font(AppTypography.title1)
                     .foregroundStyle(AppColors.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
                 
                 Text("Read each affirmation aloud so we can personalize your experience")
                     .font(AppTypography.body)
@@ -55,6 +56,8 @@ struct VoiceCalibrationView: View {
             }
             .padding(.horizontal, AppTheme.Spacing.lg)
             .padding(.top, AppTheme.Spacing.lg)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Let's learn your voice. Read each affirmation aloud so we can personalize your experience")
             
             Spacer()
             
@@ -89,6 +92,8 @@ struct VoiceCalibrationView: View {
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.primary)
+                    .accessibilityLabel("Start calibration")
+                    .accessibilityHint("Begin voice calibration by reading affirmations aloud")
                     
                     Button {
                         viewModel.skipCalibration()
@@ -96,6 +101,8 @@ struct VoiceCalibrationView: View {
                         Text("Skip for Now")
                     }
                     .buttonStyle(.ghost)
+                    .accessibilityLabel("Skip for now")
+                    .accessibilityHint("Skip voice calibration and continue to the app")
                 } else {
                     // Cancel button during calibration
                     Button {
@@ -104,6 +111,8 @@ struct VoiceCalibrationView: View {
                         Text("Cancel")
                     }
                     .buttonStyle(.ghost)
+                    .accessibilityLabel("Cancel")
+                    .accessibilityHint("Stop voice calibration")
                 }
             }
             .padding(.horizontal, AppTheme.Spacing.lg)
@@ -113,7 +122,10 @@ struct VoiceCalibrationView: View {
             Button("Open Settings") {
                 openSettings()
             }
+            .accessibilityLabel("Open Settings")
+            
             Button("Cancel", role: .cancel) {}
+                .accessibilityLabel("Cancel")
         } message: {
             Text("Imprint needs microphone access to calibrate your voice. Please enable it in Settings.")
         }
@@ -176,6 +188,7 @@ struct CalibrationReadyView: View {
                     iconScale = 1.1
                 }
             }
+            .accessibilityHidden(true)
             
             // Instructions
             VStack(spacing: AppTheme.Spacing.md) {
@@ -196,6 +209,7 @@ struct CalibrationReadyView: View {
             }
             .padding(.horizontal, AppTheme.Spacing.xl)
         }
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -215,6 +229,7 @@ struct InstructionRow: View {
                 .foregroundStyle(AppColors.backgroundPrimary)
                 .frame(width: 28, height: 28)
                 .background(AppColors.accent, in: Circle())
+                .accessibilityHidden(true)
             
             Text(text)
                 .font(AppTypography.body)
@@ -222,6 +237,8 @@ struct InstructionRow: View {
             
             Spacer()
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Step \(number): \(text)")
     }
 }
 
@@ -248,10 +265,12 @@ struct CalibrationInProgressView: View {
                         .frame(width: 8, height: 8)
                 }
             }
+            .accessibilityHidden(true)
             
             Text("Phrase \(phraseIndex + 1) of \(totalPhrases)")
                 .font(AppTypography.caption1)
                 .foregroundStyle(AppColors.textTertiary)
+                .accessibilityLabel("Phrase \(phraseIndex + 1) of \(totalPhrases)")
             
             // Animated microphone
             ZStack {
@@ -292,6 +311,9 @@ struct CalibrationInProgressView: View {
                 isAnimating = false
                 pulseScale = 1.0
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Microphone listening")
+            .accessibilityValue("Audio level: \(Int(audioLevel * 100)) percent")
             
             // Current phrase to speak
             VStack(spacing: AppTheme.Spacing.sm) {
@@ -305,6 +327,8 @@ struct CalibrationInProgressView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, AppTheme.Spacing.lg)
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Say: \(currentPhrase)")
         }
     }
 }

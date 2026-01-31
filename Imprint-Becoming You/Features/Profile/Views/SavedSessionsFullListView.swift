@@ -112,11 +112,14 @@ struct SavedSessionsFullListView: View {
                         cancelEditing()
                     }
                     .foregroundStyle(AppColors.accent)
+                    .accessibilityLabel("Cancel editing")
                 } else {
                     Button("Close") {
                         dismiss()
                     }
                     .foregroundStyle(AppColors.accent)
+                    .accessibilityLabel("Close")
+                    .accessibilityHint("Return to profile")
                 }
             }
             
@@ -126,6 +129,8 @@ struct SavedSessionsFullListView: View {
                         saveAndExitEditing()
                     }
                     .foregroundStyle(AppColors.accent)
+                    .accessibilityLabel("Done editing")
+                    .accessibilityHint("Save changes to session name")
                 }
             }
         }
@@ -172,10 +177,12 @@ struct SavedSessionsFullListView: View {
             Image(systemName: "folder")
                 .font(.system(size: 48))
                 .foregroundStyle(AppColors.textTertiary)
+                .accessibilityHidden(true)
             
             Text("No Saved Sessions")
                 .font(AppTypography.title3)
                 .foregroundStyle(AppColors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
             
             Text("Complete a practice session and save it to create your own custom sessions.")
                 .font(AppTypography.body)
@@ -188,6 +195,8 @@ struct SavedSessionsFullListView: View {
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: dockAreaHeight)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("No saved sessions. Complete a practice session and save it to create your own custom sessions.")
     }
     
     // MARK: - Sessions List
@@ -220,6 +229,9 @@ struct SavedSessionsFullListView: View {
                             saveAndExitEditing()
                         }
                     )
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(session.name). \(session.affirmations.count) affirmations. \(selectedSessionId == session.id ? "Selected" : "")")
+                    .accessibilityHint(selectedSessionId == session.id ? "Double tap to deselect" : "Double tap to select for playback")
                 }
             }
             .padding(.horizontal, AppTheme.Spacing.lg)
@@ -228,6 +240,7 @@ struct SavedSessionsFullListView: View {
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: dockAreaHeight)
         }
+        .accessibilityLabel("Saved sessions list, \(savedSessions.count) items")
     }
     
     // MARK: - Dock Adapter
@@ -374,10 +387,13 @@ struct SavedSessionInfoSheetSimplified: View {
                                 isFavorited: affirmation.isFavorited,
                                 onToggleFavorite: { }
                             )
+                            .accessibilityElement(children: .combine)
+                            .accessibilityLabel("\(affirmation.text). Category: \(affirmation.category)")
                         }
                     }
                     .padding(AppTheme.Spacing.lg)
                 }
+                .accessibilityLabel("Session affirmations, \(affirmations.count) items")
             }
             .navigationTitle(session.name)
             .navigationBarTitleDisplayMode(.inline)
@@ -390,6 +406,8 @@ struct SavedSessionInfoSheetSimplified: View {
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(AppColors.textSecondary)
                     }
+                    .accessibilityLabel("Close")
+                    .accessibilityHint("Dismiss session details")
                 }
             }
         }

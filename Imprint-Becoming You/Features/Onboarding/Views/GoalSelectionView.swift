@@ -48,6 +48,7 @@ struct GoalSelectionView: View {
             // Footer
             footer
         }
+        .accessibilityElement(children: .contain)
     }
     
     // MARK: - Header
@@ -57,6 +58,7 @@ struct GoalSelectionView: View {
             Text("What matters to you?")
                 .font(AppTypography.title1)
                 .foregroundStyle(AppColors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
             
             Text("Choose up to \(viewModel.maxGoals) areas to focus your affirmations")
                 .font(AppTypography.body)
@@ -65,6 +67,8 @@ struct GoalSelectionView: View {
         }
         .padding(.horizontal, AppTheme.Spacing.lg)
         .padding(.top, AppTheme.Spacing.lg)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("What matters to you? Choose up to \(viewModel.maxGoals) areas to focus your affirmations")
     }
     
     // MARK: - Footer
@@ -79,6 +83,8 @@ struct GoalSelectionView: View {
             }
             .buttonStyle(.primary)
             .disabled(!viewModel.canProceedFromGoals)
+            .accessibilityLabel("Continue")
+            .accessibilityHint(viewModel.canProceedFromGoals ? "Proceed to next step" : "Select at least one goal to continue")
             
             if !viewModel.selectedGoals.isEmpty {
                 Button {
@@ -87,6 +93,8 @@ struct GoalSelectionView: View {
                     Text("Clear Selection")
                 }
                 .buttonStyle(.ghost)
+                .accessibilityLabel("Clear selection")
+                .accessibilityHint("Remove all selected goals")
             }
         }
         .padding(.horizontal, AppTheme.Spacing.lg)

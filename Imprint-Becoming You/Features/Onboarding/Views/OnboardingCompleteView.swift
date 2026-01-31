@@ -61,12 +61,15 @@ struct OnboardingCompleteView: View {
                         .opacity(showCheckmark ? 1 : 0)
                         .scaleEffect(showCheckmark ? 1 : 0.5)
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Success checkmark")
                 
                 // Success message
                 VStack(spacing: AppTheme.Spacing.sm) {
                     Text("You're All Set!")
                         .font(AppTypography.largeTitle)
                         .foregroundStyle(AppColors.textPrimary)
+                        .accessibilityAddTraits(.isHeader)
                     
                     Text("Your personalized affirmation journey begins now")
                         .font(AppTypography.body)
@@ -75,6 +78,7 @@ struct OnboardingCompleteView: View {
                 }
                 .opacity(showContent ? 1 : 0)
                 .offset(y: showContent ? 0 : 20)
+                .accessibilityElement(children: .combine)
             }
             
             Spacer()
@@ -85,12 +89,15 @@ struct OnboardingCompleteView: View {
                     Text("Your Focus Areas")
                         .font(AppTypography.headline)
                         .foregroundStyle(AppColors.textSecondary)
+                        .accessibilityAddTraits(.isHeader)
                     
                     FlowLayout(spacing: AppTheme.Spacing.sm) {
                         ForEach(Array(viewModel.selectedGoals), id: \.self) { goal in
                             GoalBadge(category: goal)
                         }
                     }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Selected focus areas: \(viewModel.selectedGoals.map { $0.rawValue }.joined(separator: ", "))")
                 }
                 .padding(.horizontal, AppTheme.Spacing.lg)
                 .opacity(showContent ? 1 : 0)
@@ -116,15 +123,19 @@ struct OnboardingCompleteView: View {
                 }
                 .buttonStyle(.primary)
                 .disabled(viewModel.isCompleting)
+                .accessibilityLabel(viewModel.isCompleting ? "Loading" : "Begin your journey")
+                .accessibilityHint("Start using Imprint")
                 
                 // Calibration status
                 if viewModel.skippedCalibration {
                     HStack(spacing: AppTheme.Spacing.xs) {
                         Image(systemName: "info.circle")
-                        Text("Voice calibration skipped – you can do this later in Settings")
+                        Text("Voice calibration skipped — you can do this later in Settings")
                     }
                     .font(AppTypography.caption1)
                     .foregroundStyle(AppColors.textTertiary)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Voice calibration skipped. You can do this later in Settings")
                 } else if viewModel.calibrationData != nil {
                     HStack(spacing: AppTheme.Spacing.xs) {
                         Image(systemName: "checkmark.circle.fill")
@@ -133,6 +144,8 @@ struct OnboardingCompleteView: View {
                     }
                     .font(AppTypography.caption1)
                     .foregroundStyle(AppColors.textSecondary)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Voice calibrated for personalized scoring")
                 }
             }
             .padding(.horizontal, AppTheme.Spacing.lg)
@@ -200,6 +213,8 @@ struct GoalBadge: View {
         .padding(.vertical, AppTheme.Spacing.xs)
         .background(AppColors.accent.opacity(0.15))
         .clipShape(Capsule())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(category.rawValue)
     }
 }
 

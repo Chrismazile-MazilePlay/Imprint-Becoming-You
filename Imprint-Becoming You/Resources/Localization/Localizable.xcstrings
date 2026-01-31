@@ -23,6 +23,9 @@
         }
       }
     },
+    "%@ phrase" : {
+
+    },
     "%@ voice" : {
 
     },
@@ -36,10 +39,59 @@
         }
       }
     },
+    "%@. %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@. %2$@"
+          }
+        }
+      }
+    },
+    "%@. %lld affirmations. %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@. %2$lld affirmations. %3$@"
+          }
+        }
+      }
+    },
+    "%@. Category: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@. Category: %2$@"
+          }
+        }
+      }
+    },
+    "%@. Category: %@. Favorited." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@. Category: %2$@. Favorited."
+          }
+        }
+      }
+    },
     "%lld" : {
 
     },
     "%lld affirmations" : {
+
+    },
+    "%lld affirmations practiced" : {
+
+    },
+    "%lld day streak" : {
+
+    },
+    "%lld favorites" : {
 
     },
     "%lld of %lld goals selected" : {
@@ -80,7 +132,13 @@
     "Aa" : {
 
     },
+    "Account, %@" : {
+
+    },
     "Add to favorites" : {
+
+    },
+    "Affirmation: %@" : {
 
     },
     "AI Prompts" : {
@@ -92,7 +150,25 @@
     "Are you sure you want to delete" : {
 
     },
+    "Audio is playing" : {
+
+    },
+    "Audio level: %lld percent" : {
+
+    },
+    "Back to Practice" : {
+
+    },
     "Becoming You" : {
+
+    },
+    "Begin setting up your personalized experience" : {
+
+    },
+    "Begin voice calibration by reading affirmations aloud" : {
+
+    },
+    "Begin your journey" : {
 
     },
     "Begin Your Journey" : {
@@ -105,6 +181,9 @@
 
     },
     "Cancel delete" : {
+
+    },
+    "Cancel editing" : {
 
     },
     "Cancel session preparation" : {
@@ -122,6 +201,15 @@
     "Category: %@" : {
 
     },
+    "Change the waveform visualization style" : {
+
+    },
+    "Change your voice settings" : {
+
+    },
+    "Check Kokoro engine status again" : {
+
+    },
     "Choose how your waveform looks during practice sessions." : {
 
     },
@@ -129,6 +217,9 @@
 
     },
     "Choose Your Voice" : {
+
+    },
+    "Clear selection" : {
 
     },
     "Clear Selection" : {
@@ -155,6 +246,9 @@
     "Continue" : {
 
     },
+    "Continue in read-only mode" : {
+
+    },
     "Continue in Read-Only Mode" : {
 
     },
@@ -170,6 +264,9 @@
     "Current Voice" : {
 
     },
+    "Currently selected voice" : {
+
+    },
     "Cycles through 1, 3, and 5 loops" : {
 
     },
@@ -179,16 +276,49 @@
     "Delete session" : {
 
     },
+    "Discard changes and restore previous selection" : {
+
+    },
+    "Dismiss category selection without saving" : {
+
+    },
+    "Dismiss error" : {
+
+    },
+    "Dismiss session details" : {
+
+    },
     "Done" : {
+
+    },
+    "Done editing" : {
+
+    },
+    "Double tap to deselect" : {
 
     },
     "Double tap to navigate to the practice page" : {
 
     },
+    "Double tap to remove from favorites" : {
+
+    },
+    "Double tap to select for playback" : {
+
+    },
+    "Double tap to select this voice" : {
+
+    },
     "Edit session name" : {
 
     },
+    "End the current practice session" : {
+
+    },
     "Enter a name" : {
+
+    },
+    "Enter the text you want to hear spoken" : {
 
     },
     "Error" : {
@@ -206,6 +336,9 @@
     "Expand section" : {
 
     },
+    "Faith Content, %@" : {
+
+    },
     "Faith-Based Content" : {
 
     },
@@ -213,6 +346,9 @@
 
     },
     "Favorites" : {
+
+    },
+    "Favorites list, %lld items" : {
 
     },
     "Free" : {
@@ -227,6 +363,9 @@
           }
         }
       }
+    },
+    "Get started" : {
+
     },
     "Get Started" : {
 
@@ -243,6 +382,21 @@
     "Imprint needs microphone access to calibrate your voice. Please enable it in Settings." : {
 
     },
+    "Imprint: Becoming You" : {
+
+    },
+    "Imprint: Becoming You. Loading..." : {
+
+    },
+    "In progress" : {
+
+    },
+    "Kokoro engine not ready" : {
+
+    },
+    "Kokoro engine ready" : {
+
+    },
     "Kokoro Not Ready" : {
 
     },
@@ -250,6 +404,9 @@
 
     },
     "Let's Learn Your Voice" : {
+
+    },
+    "Let's learn your voice. Read each affirmation aloud so we can personalize your experience" : {
 
     },
     "Listening" : {
@@ -261,13 +418,28 @@
     "Listening Timed Out" : {
 
     },
+    "Loading" : {
+
+    },
+    "Loading. Preparing your practice." : {
+
+    },
     "Loop" : {
 
     },
     "Loop count: %lld" : {
 
     },
+    "Manage your account settings" : {
+
+    },
     "Microphone Access Required" : {
+
+    },
+    "Microphone listening" : {
+
+    },
+    "My Goals, %@" : {
 
     },
     "Neural voice ready" : {
@@ -276,10 +448,19 @@
     "No Favorites Yet" : {
 
     },
+    "No favorites yet. Tap the heart on any affirmation to save it here." : {
+
+    },
     "No items to practice" : {
 
     },
     "No Saved Sessions" : {
+
+    },
+    "No saved sessions. Complete a practice session and save it to create your own custom sessions." : {
+
+    },
+    "Not selected" : {
 
     },
     "Off" : {
@@ -297,6 +478,9 @@
     "Open Settings" : {
 
     },
+    "Open the Settings app to enable permissions" : {
+
+    },
     "Phrase %lld of %lld" : {
       "localizations" : {
         "en" : {
@@ -308,6 +492,9 @@
       }
     },
     "Play" : {
+
+    },
+    "Play the test text with the selected voice" : {
 
     },
     "Practice" : {
@@ -325,6 +512,9 @@
     "Preparing your practice..." : {
 
     },
+    "Proceed to next step" : {
+
+    },
     "Profile" : {
 
     },
@@ -338,10 +528,25 @@
         }
       }
     },
+    "Quick phrase buttons" : {
+
+    },
     "Read each affirmation aloud so we can personalize your experience" : {
 
     },
+    "Ready" : {
+
+    },
+    "Refresh status" : {
+
+    },
+    "Remove all selected goals" : {
+
+    },
     "Remove from favorites" : {
+
+    },
+    "Reset to current" : {
 
     },
     "Reset to Current" : {
@@ -353,13 +558,34 @@
     "Resonance score: %@" : {
 
     },
+    "Resonance Trends. Track your vocal improvement. Coming soon" : {
+
+    },
     "Retry" : {
+
+    },
+    "Retry speaking the affirmation" : {
+
+    },
+    "Return to profile" : {
+
+    },
+    "Return to the practice screen" : {
+
+    },
+    "Return to voice settings" : {
 
     },
     "Save" : {
 
     },
+    "Save changes" : {
+
+    },
     "Save Changes" : {
+
+    },
+    "Save changes to session name" : {
 
     },
     "Save session" : {
@@ -371,16 +597,31 @@
     "Save this combination of affirmations to practice again later." : {
 
     },
+    "Save your category selections" : {
+
+    },
     "Saved %@" : {
 
     },
     "Saved Affirmations" : {
 
     },
+    "Saved Affirmations, %lld affirmations" : {
+
+    },
     "Saved Sessions" : {
 
     },
+    "Saved sessions list, %lld items" : {
+
+    },
+    "Saved Sessions, %lld sessions" : {
+
+    },
     "Say:" : {
+
+    },
+    "Say: %@" : {
 
     },
     "Score" : {
@@ -389,10 +630,25 @@
     "Score: %lld percent" : {
 
     },
+    "Select at least one category to continue" : {
+
+    },
+    "Select at least one goal to continue" : {
+
+    },
+    "Selected" : {
+
+    },
+    "Selected focus areas: %@" : {
+
+    },
     "Selected: %@" : {
 
     },
     "Selected. Tap to preview" : {
+
+    },
+    "Session affirmations, %lld items" : {
 
     },
     "Session Complete" : {
@@ -410,6 +666,9 @@
     "Session Name" : {
 
     },
+    "Set test text to a %@ example phrase" : {
+
+    },
     "Share" : {
 
     },
@@ -422,7 +681,16 @@
     "Skip" : {
 
     },
+    "Skip for now" : {
+
+    },
     "Skip for Now" : {
+
+    },
+    "Skip this affirmation and move to the next one" : {
+
+    },
+    "Skip voice calibration and continue to the app" : {
 
     },
     "Skipped" : {
@@ -434,7 +702,13 @@
     "Speak" : {
 
     },
+    "Speaking" : {
+
+    },
     "Speaking..." : {
+
+    },
+    "Start calibration" : {
 
     },
     "Start Calibration" : {
@@ -447,6 +721,31 @@
 
     },
     "Start session now with %lld affirmations ready" : {
+
+    },
+    "Start using Imprint" : {
+
+    },
+    "Step %lld: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Step %1$lld: %2$@"
+          }
+        }
+      }
+    },
+    "Stop" : {
+
+    },
+    "Stop the current speech playback" : {
+
+    },
+    "Stop voice calibration" : {
+
+    },
+    "Success checkmark" : {
 
     },
     "Tap any voice to hear it" : {
@@ -464,10 +763,16 @@
     "Tap to select and preview" : {
 
     },
+    "Test text input" : {
+
+    },
     "than expected to load" : {
 
     },
     "This cannot be undone." : {
+
+    },
+    "Toggle faith-based affirmation content" : {
 
     },
     "Track your journey" : {
@@ -476,28 +781,58 @@
     "Trial" : {
 
     },
+    "Try again" : {
+
+    },
     "Try Again" : {
+
+    },
+    "Try recovery action: %@" : {
 
     },
     "TTS Test" : {
 
     },
+    "Upgrade to Premium" : {
+
+    },
     "Upgrade to Save More" : {
+
+    },
+    "Use the app without voice features" : {
 
     },
     "Using system voice" : {
 
     },
+    "View and change your goal categories" : {
+
+    },
+    "View and manage your favorite affirmations" : {
+
+    },
+    "View and manage your saved practice sessions" : {
+
+    },
+    "View premium features and pricing" : {
+
+    },
     "Voice calibrated for personalized scoring" : {
 
     },
-    "Voice calibration skipped – you can do this later in Settings" : {
+    "Voice calibration skipped — you can do this later in Settings" : {
+
+    },
+    "Voice calibration skipped. You can do this later in Settings" : {
 
     },
     "Voice engine taking longer" : {
 
     },
     "Voice engine timeout. Choose to continue with system voice or retry." : {
+
+    },
+    "Voice Profile, %@" : {
 
     },
     "Voice Settings" : {
@@ -509,10 +844,19 @@
     "Waveform Style" : {
 
     },
+    "Waveform Style, %@" : {
+
+    },
     "We didn't detect speech matching the affirmation. Would you like to try again?" : {
 
     },
+    "Weekly Practice. View your practice history. Coming soon" : {
+
+    },
     "What matters to you?" : {
+
+    },
+    "What matters to you? Choose up to %lld areas to focus your affirmations" : {
 
     },
     "You can change this anytime in Settings." : {
@@ -534,6 +878,9 @@
 
     },
     "Your Profile" : {
+
+    },
+    "Your Profile. Track your journey" : {
 
     }
   },

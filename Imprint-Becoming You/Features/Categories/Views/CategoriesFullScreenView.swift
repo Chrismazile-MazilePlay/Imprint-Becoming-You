@@ -81,18 +81,22 @@ struct CategoriesFullScreenView: View {
                     .background(AppColors.surfaceTertiary)
                     .clipShape(Circle())
             }
+            .accessibilityLabel("Close")
+            .accessibilityHint("Dismiss category selection without saving")
             
             Spacer()
             
             Text("Categories")
                 .font(AppTypography.headline)
                 .foregroundStyle(AppColors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
             
             Spacer()
             
             // Invisible spacer for centering
             Color.clear
                 .frame(width: 32, height: 32)
+                .accessibilityHidden(true)
         }
         .padding(.horizontal, AppTheme.Spacing.lg)
         .padding(.top, AppTheme.Spacing.xl)
@@ -112,6 +116,8 @@ struct CategoriesFullScreenView: View {
             }
             .buttonStyle(.primary)
             .disabled(selectedGoals.isEmpty)
+            .accessibilityLabel(hasChanges ? "Save changes" : "Done")
+            .accessibilityHint(selectedGoals.isEmpty ? "Select at least one category to continue" : "Save your category selections")
             
             // Cancel/reset option
             if hasChanges && !selectedGoals.isEmpty {
@@ -122,6 +128,8 @@ struct CategoriesFullScreenView: View {
                     Text("Reset to Current")
                 }
                 .buttonStyle(.ghost)
+                .accessibilityLabel("Reset to current")
+                .accessibilityHint("Discard changes and restore previous selection")
             }
         }
         .padding(.horizontal, AppTheme.Spacing.lg)

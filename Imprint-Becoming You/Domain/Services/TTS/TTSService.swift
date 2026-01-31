@@ -25,6 +25,10 @@ import iOS_TTS
 /// Use `preSynthesize()` to prepare the next affirmation while the current
 /// one is playing, reducing latency for seamless transitions.
 ///
+/// ## Memory Management
+/// Use `releaseForBackground()` when entering background to free ML pipelines (~500MB-1GB).
+/// Call `warmUp()` again when returning to foreground.
+///
 /// ## Architecture
 /// ```
 /// TTSService
@@ -66,6 +70,9 @@ final class TTSService: TTSServiceProtocol {
     /// Whether Kokoro engine is ready
     private var _isKokoroReady: Bool = false
     
+    /// Whether we've released resources for background
+    private var _isReleasedForBackground: Bool = false
+    
     // MARK: - Initialization
     
     init() {
@@ -105,6 +112,9 @@ final class TTSService: TTSServiceProtocol {
         print("🎤 TTSService: Warming up Kokoro engine...")
         #endif
         
+        // Reset background release flag
+        _isReleasedForBackground = false
+        
         do {
             try await kokoroEngine.warmUp()
             _isKokoroReady = true
@@ -135,6 +145,7 @@ final class TTSService: TTSServiceProtocol {
         
         // Reset state
         _isKokoroReady = false
+        _isReleasedForBackground = false
         
         // Create a fresh engine instance
         kokoroEngine = KokoroTTSEngine()
@@ -194,6 +205,47 @@ final class TTSService: TTSServiceProtocol {
         playerDelegate = nil
         systemTTS.stopSpeaking()
         _isSpeaking = false
+    }
+    
+    // MARK: - Memory Management
+    
+    /// Releases Kokoro ML pipelines to free memory when app enters background.
+    ///
+    /// This can free ~500MB-1GB of memory. After calling this method,
+    /// `isKokoroReady` will return `false` and all synthesis will fall back
+    /// to System TTS until `warmUp()` is called again.
+    ///
+    /// Call this when:
+    /// - App enters background for extended period (>5 min)
+    /// - iOS sends memory warning
+    func releaseForBackground() async {
+        guard !_isReleasedForBackground else {
+            #if DEBUG
+            print("🎤 TTSService: Already released for background")
+            #endif
+            return
+        }
+        
+        #if DEBUG
+        print("🎤 TTSService: Releasing Kokoro for background...")
+        #endif
+        
+        // Stop any current playback
+        stopSpeaking()
+        
+        // Cancel any pending pre-synthesis
+        cancelPreSynthesis()
+        
+        // Release the Kokoro engine
+        await kokoroEngine.releaseForBackground()
+        
+        // Update state
+        _isKokoroReady = false
+        _isReleasedForBackground = true
+        
+        #if DEBUG
+        print("✅ TTSService: Kokoro released for background")
+        #endif
     }
     
     // MARK: - Pre-Synthesis

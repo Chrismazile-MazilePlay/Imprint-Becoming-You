@@ -22,6 +22,32 @@ import SwiftData
 /// - **Custom voices**: VoiceRecord SwiftData entities
 /// - **Preset voices**: Static catalogs in Voice.swift
 ///
+/// ## Error Handling Contract
+///
+/// This protocol follows a consistent error handling strategy:
+///
+/// ### Fetch Methods
+/// | Scenario | Pattern | Example |
+/// |----------|---------|---------|
+/// | Voice not found | Return `nil` or empty array | `fetchVoice(id:)` → `nil` |
+/// | Database error | Return `nil` or empty (graceful) | Internal fetch failures |
+///
+/// ### Mutation Methods
+/// | Scenario | Pattern | Example |
+/// |----------|---------|---------|
+/// | User profile not found | Throw `VoiceRepositoryError` | `setSelectedVoice` fails |
+/// | Voice not found | Throw `VoiceRepositoryError` | `updateVoice` for missing ID |
+/// | Invalid category | Throw `VoiceRepositoryError` | Save non-custom voice |
+/// | Database error | Throw underlying error | SwiftData save failure |
+///
+/// ### Usage Tracking
+/// | Scenario | Pattern | Example |
+/// |----------|---------|---------|
+/// | Any error | Log + return gracefully | `recordUsage` failures |
+///
+/// The `recordUsage` method is a "best effort" operation that logs and returns
+/// gracefully on any error, since usage tracking is non-critical analytics.
+///
 /// - Note: `@MainActor` isolated for SwiftData compatibility.
 @MainActor
 protocol VoiceRepositoryProtocol: AnyObject {
@@ -29,56 +55,100 @@ protocol VoiceRepositoryProtocol: AnyObject {
     // MARK: - Selected Voice
     
     /// Gets the user's currently selected voice ID.
+    ///
+    /// - Returns: Selected voice ID, or `nil` if none selected
     func getSelectedVoiceId() -> String?
     
     /// Sets the user's selected voice.
+    ///
+    /// - Parameter voiceId: The voice ID to select
+    /// - Throws:
+    ///   - `VoiceRepositoryError.userProfileNotFound` if user profile doesn't exist
+    ///   - `VoiceRepositoryError.voiceNotFound` if voice doesn't exist
     func setSelectedVoice(_ voiceId: String) throws
     
     /// Clears voice selection (falls back to default).
+    ///
+    /// - Throws: `VoiceRepositoryError.userProfileNotFound` if user profile doesn't exist
     func clearSelectedVoice() throws
     
     /// Gets selected voice or default.
+    ///
+    /// - Returns: Currently selected voice, or default voice if none selected
     func getSelectedVoiceOrDefault() -> Voice
     
     // MARK: - Voice Retrieval
     
     /// Fetches a voice by ID (checks custom, then preset catalogs).
+    ///
+    /// - Parameter id: The voice ID
+    /// - Returns: Voice if found, `nil` otherwise
+    /// - Note: Returns `nil` if not found (not an error)
     func fetchVoice(id: String) -> Voice?
     
     /// Fetches voices by category.
+    ///
+    /// - Parameter category: The voice category to fetch
+    /// - Returns: Array of voices in that category
     func fetchVoices(category: VoiceCategory) -> [Voice]
     
     /// Fetches all custom voices (cloned + designed).
+    ///
+    /// - Returns: Array of custom voices
     func fetchCustomVoices() -> [Voice]
     
     /// Fetches all available voices.
+    ///
+    /// - Returns: Array of all voices (preset + custom)
     func fetchAllVoices() -> [Voice]
     
     // MARK: - Custom Voice Management
     
     /// Saves a custom voice.
+    ///
+    /// - Parameter voice: The voice to save (must be `.cloned` or `.designed` category)
+    /// - Throws: `VoiceRepositoryError.invalidVoiceCategory` if not a custom voice
     func saveVoice(_ voice: Voice) throws
     
     /// Updates a custom voice.
+    ///
+    /// - Parameter voice: The voice with updated values
+    /// - Throws: `VoiceRepositoryError.voiceNotFound` if voice doesn't exist
     func updateVoice(_ voice: Voice) throws
     
     /// Deletes a custom voice.
+    ///
+    /// Also clears selection if this voice was selected.
+    ///
+    /// - Parameter id: The voice ID to delete
+    /// - Throws: `VoiceRepositoryError.voiceNotFound` if voice doesn't exist
     func deleteVoice(id: String) throws
     
     /// Checks if a custom voice exists.
+    ///
+    /// - Parameter id: The voice ID to check
+    /// - Returns: `true` if a custom voice with this ID exists
     func customVoiceExists(id: String) -> Bool
     
     // MARK: - Usage Tracking
     
     /// Records voice usage for recommendations.
+    ///
+    /// - Parameter voiceId: The voice ID that was used
+    /// - Note: This is a "best effort" operation - logs and returns on any error
     func recordUsage(voiceId: String)
     
     /// Gets recently used voices.
+    ///
+    /// - Parameter limit: Maximum voices to return
+    /// - Returns: Array of recently used voices, most recent first
     func getRecentlyUsed(limit: Int) -> [Voice]
     
     // MARK: - Default Voice
     
     /// Gets the default voice for new users.
+    ///
+    /// - Returns: The default voice
     func getDefaultVoice() -> Voice
 }
 

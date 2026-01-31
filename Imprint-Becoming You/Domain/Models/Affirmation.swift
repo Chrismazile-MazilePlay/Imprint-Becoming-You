@@ -185,6 +185,34 @@ final class Affirmation {
     /// Date of last interaction with this affirmation
     var lastInteractedAt: Date?
     
+    // MARK: - Queue Optimization Properties
+    
+    /// Pre-computed queue priority score for database-level sorting.
+    ///
+    /// Lower values = higher priority in queue.
+    /// Updated automatically when engagement changes via `recalculateQueueScore()`.
+    ///
+    /// ## Formula
+    /// ```
+    /// score = (source.priority * 10000)
+    ///       + (hasBeenSeen ? 5000 : 0)
+    ///       + (speakCount * 100)
+    ///       + viewCount
+    /// ```
+    ///
+    /// ## Score Ranges by Source
+    /// | Source | Unseen Range | Seen Range |
+    /// |--------|-------------|------------|
+    /// | .generated | 0-4999 | 5000-9999 |
+    /// | .backend | 10000-14999 | 15000-19999 |
+    /// | .seeded | 20000-24999 | 25000-29999 |
+    ///
+    /// ## Performance
+    /// This field enables SwiftData to perform sorting at the database level
+    /// with `SortDescriptor(\.queueScore)` and `fetchLimit`, avoiding loading
+    /// all matching affirmations into memory.
+    var queueScore: Int
+    
     // MARK: - Saved Session Relationship
     
     /// Saved sessions that include this affirmation.
@@ -228,6 +256,7 @@ final class Affirmation {
     ///   - shareCount: Number of shares
     ///   - skipCount: Number of skips
     ///   - lastInteractedAt: Last interaction timestamp
+    ///   - queueScore: Pre-computed queue score (nil auto-calculates)
     init(
         id: UUID = UUID(),
         text: String,
@@ -251,7 +280,8 @@ final class Affirmation {
         speakCount: Int = 0,
         shareCount: Int = 0,
         skipCount: Int = 0,
-        lastInteractedAt: Date? = nil
+        lastInteractedAt: Date? = nil,
+        queueScore: Int? = nil
     ) {
         self.id = id
         self.text = text
@@ -295,6 +325,57 @@ final class Affirmation {
         
         // Sync legacy field with source
         self.isOfflineContent = (source == .seeded)
+        
+        // Calculate queue score if not provided
+        if let queueScore = queueScore {
+            self.queueScore = queueScore
+        } else {
+            // Calculate initial queue score
+            var score = source.priority * 10000
+            if hasBeenSeen {
+                score += 5000
+            }
+            score += speakCount * 100
+            score += viewCount
+            self.queueScore = score
+        }
+    }
+    
+    // MARK: - Queue Score Management
+    
+    /// Recalculates the queue score based on current engagement.
+    ///
+    /// Call this method after any engagement change (view, speak, skip, etc.)
+    /// to keep the database-level sorting accurate.
+    ///
+    /// ## Formula
+    /// ```
+    /// score = (source.priority * 10000)
+    ///       + (hasBeenSeen ? 5000 : 0)
+    ///       + (speakCount * 100)
+    ///       + viewCount
+    /// ```
+    ///
+    /// ## When to Call
+    /// - After `recordView()` - viewCount and hasBeenSeen change
+    /// - After `recordSpeak()` - speakCount changes
+    /// - After any engagement metric update
+    ///
+    /// ## Example
+    /// ```swift
+    /// affirmation.viewCount += 1
+    /// affirmation.hasBeenSeen = true
+    /// affirmation.recalculateQueueScore()
+    /// try modelContext.save()
+    /// ```
+    func recalculateQueueScore() {
+        var score = source.priority * 10000
+        if hasBeenSeen {
+            score += 5000
+        }
+        score += speakCount * 100
+        score += viewCount
+        queueScore = score
     }
 }
 

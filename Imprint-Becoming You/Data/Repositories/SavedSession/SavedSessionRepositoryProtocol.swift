@@ -15,6 +15,32 @@ import Foundation
 /// All methods are `@MainActor` isolated because SwiftData's `ModelContext`
 /// must be accessed from the main thread.
 ///
+/// ## Error Handling Contract
+///
+/// This protocol follows a consistent error handling strategy:
+///
+/// ### Fetch Methods
+/// | Scenario | Pattern | Example |
+/// |----------|---------|---------|
+/// | Empty input (IDs array) | Return empty array | `fetchAffirmations(byIds: [])` → `[]` |
+/// | Entity not found | Return `nil` | `fetchById(_:)` → `nil` |
+/// | Database error | Throw `AppError.loadFailed` | SwiftData fetch failure |
+///
+/// ### Mutation Methods
+/// | Scenario | Pattern | Example |
+/// |----------|---------|---------|
+/// | Database error on save | Throw `AppError.saveFailed` | SwiftData save failure |
+/// | Database error on delete | Throw `AppError.saveFailed` | SwiftData delete failure |
+///
+/// ### Playback Tracking
+/// | Scenario | Pattern | Example |
+/// |----------|---------|---------|
+/// | Session not found | Log + return gracefully | `recordPlayback` for deleted session |
+/// | Database error | Throw `AppError.saveFailed` | SwiftData save failure |
+///
+/// The `recordPlayback` method is a "best effort" operation that logs and returns
+/// gracefully when the session is not found, since the user action has already completed.
+///
 /// ## Usage
 /// ```swift
 /// // Fetch all saved sessions
@@ -41,8 +67,9 @@ protocol SavedSessionRepositoryProtocol {
     /// Fetches a saved session by ID.
     ///
     /// - Parameter id: The saved session UUID
-    /// - Returns: The saved session if found, nil otherwise
+    /// - Returns: The saved session if found, `nil` otherwise
     /// - Throws: `AppError.loadFailed` if fetch fails
+    /// - Note: Returns `nil` if not found (not an error)
     func fetchById(_ id: UUID) throws -> SavedSession?
     
     /// Fetches affirmations by their IDs in the specified order.
@@ -53,6 +80,7 @@ protocol SavedSessionRepositoryProtocol {
     /// - Parameter ids: Array of affirmation UUIDs in desired order
     /// - Returns: Array of affirmations matching the IDs, preserving order
     /// - Throws: `AppError.loadFailed` if fetch fails
+    /// - Note: Returns empty array if `ids` is empty (not an error)
     func fetchAffirmations(byIds ids: [UUID]) throws -> [Affirmation]
     
     // MARK: - Counting
@@ -68,8 +96,9 @@ protocol SavedSessionRepositoryProtocol {
     /// Used to prevent duplicate saves of the same session.
     ///
     /// - Parameter ids: Array of affirmation UUIDs to check
-    /// - Returns: True if a saved session with these exact IDs exists
+    /// - Returns: `true` if a saved session with these exact IDs exists
     /// - Throws: `AppError.loadFailed` if check fails
+    /// - Note: Returns `false` if `ids` is empty (not an error)
     func exists(withAffirmationIds ids: [UUID]) throws -> Bool
     
     // MARK: - Persistence
@@ -116,5 +145,6 @@ protocol SavedSessionRepositoryProtocol {
     ///
     /// - Parameter sessionId: The ID of the session that was played
     /// - Throws: `AppError.saveFailed` if update fails
+    /// - Note: Logs and returns gracefully if session not found (best effort operation)
     func recordPlayback(sessionId: UUID) throws
 }

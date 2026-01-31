@@ -22,6 +22,23 @@ import SwiftData
 /// This class is `@MainActor` isolated because SwiftData's `ModelContext`
 /// must be accessed from the main thread. All operations are synchronous.
 ///
+/// ## Error Handling Strategy
+///
+/// This repository follows a consistent error handling contract:
+///
+/// - **Empty input**: Return empty array or `false` for queries with empty input.
+///   This is expected behavior, not an error condition.
+///
+/// - **Entity not found**: Return `nil` for fetch-by-ID methods.
+///   This is expected behavior, not an error condition.
+///
+/// - **Best-effort operations**: The `recordPlayback` method logs and returns
+///   gracefully when the session is not found, since the user action has
+///   already completed and this is non-critical tracking.
+///
+/// - **Database errors**: Throw `AppError.loadFailed` for fetch failures and
+///   `AppError.saveFailed` for write failures.
+///
 /// ## Affirmation Protection
 /// When a saved session is created, relationships are established with
 /// the referenced affirmations. This enables `Affirmation.isProtected`
@@ -63,6 +80,7 @@ final class SavedSessionRepository: SavedSessionRepositoryProtocol {
                     session.id == id
                 }
             )
+            // Return nil if not found - not an error
             return try modelContext.fetch(descriptor).first
         } catch {
             throw AppError.loadFailed(reason: "Failed to fetch saved session: \(error.localizedDescription)")
@@ -70,6 +88,7 @@ final class SavedSessionRepository: SavedSessionRepositoryProtocol {
     }
     
     func fetchAffirmations(byIds ids: [UUID]) throws -> [Affirmation] {
+        // Empty input returns empty result - not an error
         guard !ids.isEmpty else { return [] }
         
         do {
@@ -104,6 +123,7 @@ final class SavedSessionRepository: SavedSessionRepositoryProtocol {
     }
     
     func exists(withAffirmationIds ids: [UUID]) throws -> Bool {
+        // Empty input returns false - not an error
         guard !ids.isEmpty else { return false }
         
         do {
@@ -119,6 +139,8 @@ final class SavedSessionRepository: SavedSessionRepositoryProtocol {
             }
             
             return false
+        } catch let appError as AppError {
+            throw appError
         } catch {
             throw AppError.loadFailed(reason: "Failed to check for existing session: \(error.localizedDescription)")
         }
@@ -139,9 +161,11 @@ final class SavedSessionRepository: SavedSessionRepositoryProtocol {
             modelContext.insert(session)
             try modelContext.save()
             
-            #if DEBUG
-            print("[OK] SavedSessionRepository: Saved session '\(session.name)' with \(affirmations.count) affirmations")
-            #endif
+            AppLogger.info(
+                "Saved session",
+                category: .data,
+                context: ["name": session.name, "affirmationCount": affirmations.count]
+            )
             
         } catch let appError as AppError {
             throw appError
@@ -154,9 +178,11 @@ final class SavedSessionRepository: SavedSessionRepositoryProtocol {
         do {
             try modelContext.save()
             
-            #if DEBUG
-            print("[OK] SavedSessionRepository: Updated session '\(session.name)'")
-            #endif
+            AppLogger.debug(
+                "Updated session",
+                category: .data,
+                context: ["name": session.name]
+            )
             
         } catch {
             throw AppError.saveFailed(reason: "Failed to update session: \(error.localizedDescription)")
@@ -165,15 +191,19 @@ final class SavedSessionRepository: SavedSessionRepositoryProtocol {
     
     func delete(_ session: SavedSession) throws {
         do {
+            let sessionName = session.name
+            
             // Clear relationships first
             session.affirmations = []
             
             modelContext.delete(session)
             try modelContext.save()
             
-            #if DEBUG
-            print("[OK] SavedSessionRepository: Deleted session '\(session.name)'")
-            #endif
+            AppLogger.info(
+                "Deleted session",
+                category: .data,
+                context: ["name": sessionName]
+            )
             
         } catch {
             throw AppError.saveFailed(reason: "Failed to delete session: \(error.localizedDescription)")
@@ -189,9 +219,11 @@ final class SavedSessionRepository: SavedSessionRepositoryProtocol {
             }
             try modelContext.save()
             
-            #if DEBUG
-            print("[OK] SavedSessionRepository: Updated sort order for \(sessions.count) sessions")
-            #endif
+            AppLogger.debug(
+                "Updated sort order",
+                category: .data,
+                context: ["sessionCount": sessions.count]
+            )
             
         } catch {
             throw AppError.saveFailed(reason: "Failed to update sort order: \(error.localizedDescription)")
@@ -199,13 +231,19 @@ final class SavedSessionRepository: SavedSessionRepositoryProtocol {
     }
     
     // MARK: - Playback Tracking
+    //
+    // This is a "best effort" operation - logs and returns gracefully
+    // when session is not found since playback has already completed.
     
     func recordPlayback(sessionId: UUID) throws {
         do {
             guard let session = try fetchById(sessionId) else {
-                #if DEBUG
-                print("[WARN] SavedSessionRepository: Session not found for playback recording")
-                #endif
+                // Session not found is expected for deleted sessions - log and return
+                AppLogger.debug(
+                    "Session not found for playback recording",
+                    category: .data,
+                    context: ["sessionId": sessionId.uuidString]
+                )
                 return
             }
             
@@ -242,6 +280,7 @@ final class MockSavedSessionRepository: SavedSessionRepositoryProtocol {
     }
     
     func fetchAffirmations(byIds ids: [UUID]) throws -> [Affirmation] {
+        guard !ids.isEmpty else { return [] }
         let idToAffirmation = Dictionary(uniqueKeysWithValues: mockAffirmations.map { ($0.id, $0) })
         return ids.compactMap { idToAffirmation[$0] }
     }
@@ -253,6 +292,7 @@ final class MockSavedSessionRepository: SavedSessionRepositoryProtocol {
     }
     
     func exists(withAffirmationIds ids: [UUID]) throws -> Bool {
+        guard !ids.isEmpty else { return false }
         let targetSet = Set(ids)
         return savedSessions.contains { Set($0.affirmationIds) == targetSet }
     }
@@ -286,5 +326,6 @@ final class MockSavedSessionRepository: SavedSessionRepositoryProtocol {
         if let session = savedSessions.first(where: { $0.id == sessionId }) {
             session.recordPlayback()
         }
+        // Mock: silently ignore if not found
     }
 }

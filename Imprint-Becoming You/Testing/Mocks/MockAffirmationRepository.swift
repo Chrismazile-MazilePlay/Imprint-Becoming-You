@@ -15,8 +15,26 @@ import Foundation
 /// - In-memory storage using arrays
 /// - Configurable initial data
 /// - Simulation of all repository operations
-/// - Source-aware queue sorting
+/// - Queue score-based sorting (matches real repository)
 /// - No dependency on SwiftData
+///
+/// ## Error Handling Contract
+///
+/// This mock follows the same error handling contract as `AffirmationRepository`:
+/// - **Input validation errors**: Throws `AppError.validationFailed` for empty categories or non-positive limits
+/// - **Entity not found**: Returns `nil` or empty array for fetch methods
+/// - **Best-effort operations**: Engagement tracking silently ignores missing entities
+/// - **User actions**: `toggleFavorite` throws if entity not found
+///
+/// ## Queue Score Algorithm
+///
+/// Uses the same pre-computed `queueScore` formula as the real repository:
+/// ```
+/// score = (source.priority * 10000)
+///       + (hasBeenSeen ? 5000 : 0)
+///       + (speakCount * 100)
+///       + viewCount
+/// ```
 ///
 /// ## Usage
 /// ```swift
@@ -81,14 +99,33 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
     
     func fetchQueue(forCategories categories: [String], limit: Int) throws -> [Affirmation] {
         try throwIfErrorConfigured()
+        
+        // Validate input - throw for invalid parameters (matches real repository)
+        guard !categories.isEmpty else {
+            throw AppError.validationFailed(
+                field: "categories",
+                reason: "At least one category is required"
+            )
+        }
+        
+        guard limit > 0 else {
+            throw AppError.validationFailed(
+                field: "limit",
+                reason: "Limit must be a positive number"
+            )
+        }
+        
         fetchQueueCallCount += 1
         
+        // Filter by categories
         let filtered = mockAffirmations.filter { categories.contains($0.category) }
         
-        // Apply source-aware smart queue logic
-        let sorted = applySmartQueueSorting(filtered, excluding: [])
+        // Sort by queueScore (matches real repository database-level sorting)
+        let sorted = filtered.sorted { $0.queueScore < $1.queueScore }
         
-        return Array(sorted.prefix(limit))
+        // Take limit and shuffle within score tiers for variety
+        let limited = Array(sorted.prefix(limit))
+        return shuffleWithinScoreTiers(limited)
     }
     
     func fetchSessionQueue(
@@ -97,15 +134,39 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
         limit: Int
     ) throws -> [Affirmation] {
         try throwIfErrorConfigured()
+        
+        // Validate input - throw for invalid parameters (matches real repository)
+        guard !categories.isEmpty else {
+            throw AppError.validationFailed(
+                field: "categories",
+                reason: "At least one category is required"
+            )
+        }
+        
+        guard limit > 0 else {
+            throw AppError.validationFailed(
+                field: "limit",
+                reason: "Limit must be a positive number"
+            )
+        }
+        
         fetchSessionQueueCallCount += 1
         lastSessionExclusionSet = excluding
         
-        let filtered = mockAffirmations.filter { categories.contains($0.category) }
+        // Filter by categories
+        var filtered = mockAffirmations.filter { categories.contains($0.category) }
         
-        // Apply source-aware smart queue logic with exclusions
-        let sorted = applySmartQueueSorting(filtered, excluding: excluding)
+        // Filter out excluded IDs
+        if !excluding.isEmpty {
+            filtered = filtered.filter { !excluding.contains($0.id) }
+        }
         
-        return Array(sorted.prefix(limit))
+        // Sort by queueScore (matches real repository database-level sorting)
+        let sorted = filtered.sorted { $0.queueScore < $1.queueScore }
+        
+        // Take limit and shuffle within score tiers for variety
+        let limited = Array(sorted.prefix(limit))
+        return shuffleWithinScoreTiers(limited)
     }
     
     // MARK: - Basic Fetching
@@ -121,12 +182,16 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
     func fetchByIds(_ ids: [UUID]) throws -> [Affirmation] {
         try throwIfErrorConfigured()
         
+        // Empty input returns empty result - not an error
+        guard !ids.isEmpty else { return [] }
+        
         return mockAffirmations.filter { ids.contains($0.id) }
     }
     
     func fetchById(_ id: UUID) throws -> Affirmation? {
         try throwIfErrorConfigured()
         
+        // Return nil if not found - not an error
         return mockAffirmations.first { $0.id == id }
     }
     
@@ -141,6 +206,9 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
     func countForCategories(_ categories: [String]) throws -> Int {
         try throwIfErrorConfigured()
         
+        // Empty categories returns 0 - not an error
+        guard !categories.isEmpty else { return 0 }
+        
         return mockAffirmations.filter { categories.contains($0.category) }.count
     }
     
@@ -151,15 +219,25 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
     }
     
     // MARK: - Engagement Tracking
+    //
+    // These are "best effort" operations - they silently ignore missing entities
+    // since the user action has already completed.
+    //
+    // IMPORTANT: All engagement tracking methods must call recalculateQueueScore()
+    // after updating engagement metrics to keep sorting accurate.
     
     func recordView(affirmationId: UUID) throws {
         try throwIfErrorConfigured()
         recordViewCallCount += 1
         
+        // Silently ignore if not found (best effort)
         if let index = mockAffirmations.firstIndex(where: { $0.id == affirmationId }) {
             mockAffirmations[index].viewCount += 1
             mockAffirmations[index].hasBeenSeen = true
             mockAffirmations[index].lastInteractedAt = Date()
+            
+            // Recalculate queue score for sorting
+            mockAffirmations[index].recalculateQueueScore()
         }
     }
     
@@ -167,10 +245,14 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
         try throwIfErrorConfigured()
         recordSpeakCallCount += 1
         
+        // Silently ignore if not found (best effort)
         if let index = mockAffirmations.firstIndex(where: { $0.id == affirmationId }) {
             mockAffirmations[index].speakCount += 1
             mockAffirmations[index].lastPracticedAt = Date()
             mockAffirmations[index].lastInteractedAt = Date()
+            
+            // Recalculate queue score for sorting
+            mockAffirmations[index].recalculateQueueScore()
         }
     }
     
@@ -179,41 +261,54 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
         try throwIfErrorConfigured()
         toggleFavoriteCallCount += 1
         
-        if let index = mockAffirmations.firstIndex(where: { $0.id == affirmationId }) {
-            mockAffirmations[index].isFavorited.toggle()
-            mockAffirmations[index].favoritedAt = mockAffirmations[index].isFavorited ? Date() : nil
-            mockAffirmations[index].lastInteractedAt = Date()
-            return mockAffirmations[index].isFavorited
+        // For user-initiated actions, not finding the entity IS an error
+        guard let index = mockAffirmations.firstIndex(where: { $0.id == affirmationId }) else {
+            throw AppError.loadFailed(reason: "Affirmation not found")
         }
         
-        throw AppError.loadFailed(reason: "Affirmation not found")
+        mockAffirmations[index].isFavorited.toggle()
+        mockAffirmations[index].favoritedAt = mockAffirmations[index].isFavorited ? Date() : nil
+        mockAffirmations[index].lastInteractedAt = Date()
+        
+        // Note: toggleFavorite doesn't affect queueScore (not in formula)
+        
+        return mockAffirmations[index].isFavorited
     }
     
     func recordSkip(affirmationId: UUID) throws {
         try throwIfErrorConfigured()
         
+        // Silently ignore if not found (best effort)
         if let index = mockAffirmations.firstIndex(where: { $0.id == affirmationId }) {
             mockAffirmations[index].skipCount += 1
             mockAffirmations[index].lastInteractedAt = Date()
+            
+            // Note: skipCount doesn't affect queueScore (not in formula)
         }
     }
     
     func recordShare(affirmationId: UUID) throws {
         try throwIfErrorConfigured()
         
+        // Silently ignore if not found (best effort)
         if let index = mockAffirmations.firstIndex(where: { $0.id == affirmationId }) {
             mockAffirmations[index].shareCount += 1
             mockAffirmations[index].lastInteractedAt = Date()
+            
+            // Note: shareCount doesn't affect queueScore (not in formula)
         }
     }
     
     func addResonanceRecord(affirmationId: UUID, record: ResonanceRecord) throws {
         try throwIfErrorConfigured()
         
+        // Silently ignore if not found (best effort)
         if let index = mockAffirmations.firstIndex(where: { $0.id == affirmationId }) {
             mockAffirmations[index].resonanceScores.append(record)
             mockAffirmations[index].lastPracticedAt = Date()
             mockAffirmations[index].lastInteractedAt = Date()
+            
+            // Note: resonanceScores doesn't affect queueScore (not in formula)
         }
     }
     
@@ -222,6 +317,14 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
     func insertBatch(_ affirmations: [Affirmation]) throws {
         try throwIfErrorConfigured()
         insertBatchCallCount += 1
+        
+        // Empty batch is a no-op - not an error
+        guard !affirmations.isEmpty else { return }
+        
+        // Ensure queueScore is calculated for each new affirmation
+        for affirmation in affirmations {
+            affirmation.recalculateQueueScore()
+        }
         
         mockAffirmations.append(contentsOf: affirmations)
     }
@@ -243,6 +346,9 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
     
     func categoriesNeedingRefresh(from categories: [String]) throws -> [String] {
         try throwIfErrorConfigured()
+        
+        // Empty categories returns empty result - not an error
+        guard !categories.isEmpty else { return [] }
         
         let threshold = Constants.ContentRefresh.depletedViewCountThreshold
         var depleted: [String] = []
@@ -289,6 +395,7 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
                 source: source,
                 batchIndex: mockAffirmations.count + i
             )
+            // queueScore is auto-calculated in init
             mockAffirmations.append(affirmation)
         }
     }
@@ -303,67 +410,30 @@ final class MockAffirmationRepository: AffirmationRepositoryProtocol {
         }
     }
     
-    /// Applies source-aware smart queue sorting.
-    private func applySmartQueueSorting(
-        _ affirmations: [Affirmation],
-        excluding: Set<UUID>
-    ) -> [Affirmation] {
-        // Filter out excluded IDs
-        var filtered = affirmations
-        if !excluding.isEmpty {
-            filtered = affirmations.filter { !excluding.contains($0.id) }
+    /// Shuffles results while keeping same-score items together for variety.
+    ///
+    /// This matches the real repository's behavior of providing randomness
+    /// within priority tiers without breaking overall priority order.
+    ///
+    /// - Parameter affirmations: Sorted affirmations
+    /// - Returns: Affirmations with same-score tiers shuffled for variety
+    private func shuffleWithinScoreTiers(_ affirmations: [Affirmation]) -> [Affirmation] {
+        // Early return for small arrays where shuffling has minimal effect
+        guard affirmations.count > 2 else { return affirmations }
+        
+        // Group by queueScore
+        let grouped = Dictionary(grouping: affirmations) { $0.queueScore }
+        
+        // Shuffle within each group, maintain group order by score
+        var result: [Affirmation] = []
+        result.reserveCapacity(affirmations.count)
+        
+        for score in grouped.keys.sorted() {
+            var tier = grouped[score] ?? []
+            tier.shuffle()
+            result.append(contentsOf: tier)
         }
         
-        // Group by source priority
-        var generated: [Affirmation] = []
-        var backend: [Affirmation] = []
-        var seeded: [Affirmation] = []
-        
-        for affirmation in filtered {
-            switch affirmation.source {
-            case .generated:
-                generated.append(affirmation)
-            case .backend:
-                backend.append(affirmation)
-            case .seeded:
-                seeded.append(affirmation)
-            }
-        }
-        
-        // Sort each tier
-        generated = sortByEngagement(generated)
-        backend = sortByEngagement(backend)
-        seeded = sortByEngagement(seeded)
-        
-        // Combine in priority order
-        return generated + backend + seeded
-    }
-    
-    /// Sorts by engagement metrics.
-    private func sortByEngagement(_ affirmations: [Affirmation]) -> [Affirmation] {
-        var unseen: [Affirmation] = []
-        var seen: [Affirmation] = []
-        
-        for affirmation in affirmations {
-            if !affirmation.hasBeenSeen {
-                unseen.append(affirmation)
-            } else {
-                seen.append(affirmation)
-            }
-        }
-        
-        unseen.shuffle()
-        
-        seen.sort { a, b in
-            if a.speakCount != b.speakCount {
-                return a.speakCount < b.speakCount
-            }
-            if a.viewCount != b.viewCount {
-                return a.viewCount < b.viewCount
-            }
-            return true
-        }
-        
-        return unseen + seen
+        return result
     }
 }

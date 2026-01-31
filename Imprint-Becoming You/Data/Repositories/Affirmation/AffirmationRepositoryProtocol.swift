@@ -23,6 +23,46 @@ import SwiftData
 /// must be accessed from the main thread. All methods are synchronous since
 /// SwiftData operations do not require async/await.
 ///
+/// ## Error Handling Contract
+///
+/// This protocol follows a consistent error handling strategy:
+///
+/// ### Fetch Methods
+/// | Scenario | Pattern | Example |
+/// |----------|---------|---------|
+/// | Invalid input (empty categories) | Throw `AppError.validationFailed` | `fetchQueue(forCategories: [])` |
+/// | Invalid input (zero/negative limit) | Throw `AppError.validationFailed` | `fetchQueue(limit: 0)` |
+/// | Entity not found | Return `nil` or empty array | `fetchById(_:)` → `nil` |
+/// | Database error | Throw `AppError.loadFailed` | SwiftData fetch failure |
+///
+/// ### Mutation Methods
+/// | Scenario | Pattern | Example |
+/// |----------|---------|---------|
+/// | Invalid input | Throw `AppError.validationFailed` | Empty batch insert |
+/// | Entity not found for tracking | Log + return gracefully | `recordView` for deleted affirmation |
+/// | Entity not found for user action | Throw `AppError.loadFailed` | `toggleFavorite` for missing ID |
+/// | Database error | Throw `AppError.saveFailed` | SwiftData save failure |
+///
+/// ### "Best Effort" Operations
+/// Engagement tracking methods (`recordView`, `recordSpeak`, `recordSkip`, `recordShare`,
+/// `addResonanceRecord`) are "best effort" - they log and return gracefully when the
+/// entity is not found, since:
+/// 1. The entity may have been deleted/expired
+/// 2. These are non-critical analytics that shouldn't block user flow
+/// 3. The user action has already completed successfully
+///
+/// ## Example Error Handling
+/// ```swift
+/// do {
+///     // This throws if categories is empty
+///     let queue = try repository.fetchQueue(forCategories: categories, limit: 30)
+/// } catch AppError.validationFailed(let field, let reason) {
+///     // Handle validation error - show inline error
+/// } catch AppError.loadFailed {
+///     // Handle database error - show retry option
+/// }
+/// ```
+///
 /// ## Smart Queue Algorithm
 /// The `fetchQueue` method implements intelligent affirmation selection:
 /// 1. Filter by user's selected categories
@@ -71,9 +111,11 @@ protocol AffirmationRepositoryProtocol {
     ///
     /// - Parameters:
     ///   - categories: Array of category names (e.g., ["Confidence", "Focus"])
-    ///   - limit: Maximum number of affirmations to return
+    ///   - limit: Maximum number of affirmations to return (must be > 0)
     /// - Returns: Ordered array of affirmations
-    /// - Throws: `AppError.loadFailed` if fetch fails
+    /// - Throws:
+    ///   - `AppError.validationFailed` if categories is empty or limit ≤ 0
+    ///   - `AppError.loadFailed` if fetch fails
     func fetchQueue(forCategories categories: [String], limit: Int) throws -> [Affirmation]
     
     /// Fetches a fresh queue for session mode, excluding recently browsed affirmations.
@@ -91,9 +133,11 @@ protocol AffirmationRepositoryProtocol {
     /// - Parameters:
     ///   - categories: Array of category names
     ///   - excluding: Set of affirmation IDs to exclude (recently browsed)
-    ///   - limit: Maximum affirmations to return (typically 10)
+    ///   - limit: Maximum affirmations to return (typically 10, must be > 0)
     /// - Returns: Fresh affirmations for session practice
-    /// - Throws: `AppError.loadFailed` if fetch fails
+    /// - Throws:
+    ///   - `AppError.validationFailed` if categories is empty or limit ≤ 0
+    ///   - `AppError.loadFailed` if fetch fails
     func fetchSessionQueue(
         forCategories categories: [String],
         excluding: Set<UUID>,
@@ -111,15 +155,17 @@ protocol AffirmationRepositoryProtocol {
     /// Fetches affirmations by specific IDs.
     ///
     /// - Parameter ids: Array of affirmation UUIDs
-    /// - Returns: Array of matching affirmations
+    /// - Returns: Array of matching affirmations (may be fewer than requested if some not found)
     /// - Throws: `AppError.loadFailed` if fetch fails
+    /// - Note: Returns empty array if `ids` is empty (not an error)
     func fetchByIds(_ ids: [UUID]) throws -> [Affirmation]
     
     /// Fetches a single affirmation by ID.
     ///
     /// - Parameter id: The affirmation UUID
-    /// - Returns: The affirmation if found, nil otherwise
+    /// - Returns: The affirmation if found, `nil` otherwise
     /// - Throws: `AppError.loadFailed` if fetch fails
+    /// - Note: Returns `nil` if not found (not an error)
     func fetchById(_ id: UUID) throws -> Affirmation?
     
     // MARK: - Counting
@@ -135,6 +181,7 @@ protocol AffirmationRepositoryProtocol {
     /// - Parameter categories: Array of category names
     /// - Returns: Count of affirmations matching categories
     /// - Throws: `AppError.loadFailed` if count fails
+    /// - Note: Returns 0 if `categories` is empty (not an error)
     func countForCategories(_ categories: [String]) throws -> Int
     
     /// Counts affirmations by source type.
@@ -145,6 +192,9 @@ protocol AffirmationRepositoryProtocol {
     func countBySource(_ source: AffirmationSource) throws -> Int
     
     // MARK: - Engagement Tracking
+    //
+    // NOTE: These are "best effort" operations - they log and return gracefully
+    // when entity is not found, since the user action has already completed.
     
     /// Records a view of an affirmation.
     ///
@@ -152,6 +202,7 @@ protocol AffirmationRepositoryProtocol {
     ///
     /// - Parameter affirmationId: The affirmation UUID
     /// - Throws: `AppError.saveFailed` if update fails
+    /// - Note: Logs and returns gracefully if affirmation not found (best effort)
     func recordView(affirmationId: UUID) throws
     
     /// Records that user spoke an affirmation.
@@ -160,13 +211,16 @@ protocol AffirmationRepositoryProtocol {
     ///
     /// - Parameter affirmationId: The affirmation UUID
     /// - Throws: `AppError.saveFailed` if update fails
+    /// - Note: Logs and returns gracefully if affirmation not found (best effort)
     func recordSpeak(affirmationId: UUID) throws
     
     /// Toggles favorite status of an affirmation.
     ///
     /// - Parameter affirmationId: The affirmation UUID
     /// - Returns: New favorite status
-    /// - Throws: `AppError.saveFailed` if update fails
+    /// - Throws:
+    ///   - `AppError.loadFailed` if affirmation not found (user expects action)
+    ///   - `AppError.saveFailed` if update fails
     @discardableResult
     func toggleFavorite(affirmationId: UUID) throws -> Bool
     
@@ -174,12 +228,14 @@ protocol AffirmationRepositoryProtocol {
     ///
     /// - Parameter affirmationId: The affirmation UUID
     /// - Throws: `AppError.saveFailed` if update fails
+    /// - Note: Logs and returns gracefully if affirmation not found (best effort)
     func recordSkip(affirmationId: UUID) throws
     
     /// Records a share of an affirmation.
     ///
     /// - Parameter affirmationId: The affirmation UUID
     /// - Throws: `AppError.saveFailed` if update fails
+    /// - Note: Logs and returns gracefully if affirmation not found (best effort)
     func recordShare(affirmationId: UUID) throws
     
     /// Adds a resonance score record to an affirmation.
@@ -188,6 +244,7 @@ protocol AffirmationRepositoryProtocol {
     ///   - affirmationId: The affirmation UUID
     ///   - record: The resonance score record to add
     /// - Throws: `AppError.saveFailed` if update fails
+    /// - Note: Logs and returns gracefully if affirmation not found (best effort)
     func addResonanceRecord(affirmationId: UUID, record: ResonanceRecord) throws
     
     // MARK: - Content Management
@@ -199,6 +256,7 @@ protocol AffirmationRepositoryProtocol {
     ///
     /// - Parameter affirmations: Array of affirmations to insert
     /// - Throws: `AppError.saveFailed` if insert fails
+    /// - Note: Returns successfully if `affirmations` is empty (no-op)
     func insertBatch(_ affirmations: [Affirmation]) throws
     
     /// Deletes expired affirmations.
@@ -219,6 +277,7 @@ protocol AffirmationRepositoryProtocol {
     /// - Parameter categories: Array of category names to check
     /// - Returns: Array of category names that need fresh content
     /// - Throws: `AppError.loadFailed` if check fails
+    /// - Note: Returns empty array if `categories` is empty (not an error)
     func categoriesNeedingRefresh(from categories: [String]) throws -> [String]
 }
 

@@ -24,13 +24,22 @@ import SwiftData
 /// must be accessed from the main thread. All operations are synchronous.
 ///
 /// ## Smart Queue Algorithm
+/// The queue uses a pre-computed `queueScore` field for database-level sorting,
+/// enabling efficient queries with `fetchLimit` instead of loading all records.
+///
 /// ```
-/// Priority Order:
-/// 1. source.priority (generated=0, backend=1, seeded=2)
-/// 2. hasBeenSeen == false (unseen first)
-/// 3. viewCount ascending (least viewed)
-/// 4. lastPracticedAt ascending (oldest practiced)
-/// 5. Shuffle within same priority tier
+/// queueScore Formula:
+/// score = (source.priority * 10000)
+///       + (hasBeenSeen ? 5000 : 0)
+///       + (speakCount * 100)
+///       + viewCount
+///
+/// Score Ranges by Source:
+/// | Source | Unseen Range | Seen Range |
+/// |--------|-------------|------------|
+/// | .generated | 0-4999 | 5000-9999 |
+/// | .backend | 10000-14999 | 15000-19999 |
+/// | .seeded | 20000-24999 | 25000-29999 |
 /// ```
 ///
 /// ## Source-Aware Lifecycle
@@ -39,10 +48,21 @@ import SwiftData
 /// - `.generated`: Deleted when expired
 ///
 /// ## Error Handling Strategy
-/// - **Critical operations** (fetch, save): Throw errors to caller
-/// - **Best-effort operations** (engagement tracking): Log and return gracefully
-///   - These are non-critical analytics that shouldn't block user flow
-///   - Entity not found is expected (deleted content) - logged at debug level
+///
+/// This repository follows a consistent error handling contract:
+///
+/// - **Input validation errors**: Throw `AppError.validationFailed` for invalid inputs
+///   (empty categories, non-positive limits). This allows callers to show specific validation feedback.
+///
+/// - **Entity not found**: Return `nil` or empty array for fetch methods. This is expected
+///   behavior, not an error condition.
+///
+/// - **Database errors**: Throw `AppError.loadFailed` or `AppError.saveFailed` for
+///   SwiftData operation failures.
+///
+/// - **Best-effort operations**: Engagement tracking methods (`recordView`, `recordSpeak`,
+///   `recordSkip`, `recordShare`, `addResonanceRecord`) log and return gracefully when
+///   entity is not found. These are non-critical analytics that shouldn't block user flow.
 @MainActor
 final class AffirmationRepository: AffirmationRepositoryProtocol {
     
@@ -63,26 +83,39 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     // MARK: - Queue Fetching
     
     func fetchQueue(forCategories categories: [String], limit: Int) throws -> [Affirmation] {
+        // Validate input - throw for invalid parameters
         guard !categories.isEmpty else {
-            return []
+            throw AppError.validationFailed(
+                field: "categories",
+                reason: "At least one category is required"
+            )
+        }
+        
+        guard limit > 0 else {
+            throw AppError.validationFailed(
+                field: "limit",
+                reason: "Limit must be a positive number"
+            )
         }
         
         do {
-            // Fetch all affirmations matching categories
-            let descriptor = FetchDescriptor<Affirmation>(
+            // Use database-level sorting on pre-computed queueScore
+            // This is much more efficient than fetching all and sorting in-memory
+            var descriptor = FetchDescriptor<Affirmation>(
                 predicate: #Predicate<Affirmation> { affirmation in
                     categories.contains(affirmation.category)
-                }
+                },
+                sortBy: [SortDescriptor(\.queueScore, order: .forward)]
             )
+            descriptor.fetchLimit = limit
             
-            var results = try modelContext.fetch(descriptor)
+            let results = try modelContext.fetch(descriptor)
             
-            // Apply source-aware smart queue sorting
-            results = applySmartQueueSorting(results, excluding: [])
+            // Light shuffle within same-score tier for variety
+            return shuffleWithinScoreTiers(results)
             
-            // Limit results
-            return Array(results.prefix(limit))
-            
+        } catch let appError as AppError {
+            throw appError
         } catch {
             throw AppError.loadFailed(reason: "Failed to fetch affirmation queue: \(error.localizedDescription)")
         }
@@ -93,34 +126,59 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
         excluding: Set<UUID>,
         limit: Int
     ) throws -> [Affirmation] {
+        // Validate input - throw for invalid parameters
         guard !categories.isEmpty else {
-            return []
+            throw AppError.validationFailed(
+                field: "categories",
+                reason: "At least one category is required"
+            )
+        }
+        
+        guard limit > 0 else {
+            throw AppError.validationFailed(
+                field: "limit",
+                reason: "Limit must be a positive number"
+            )
         }
         
         do {
-            // Fetch all affirmations matching categories
-            let descriptor = FetchDescriptor<Affirmation>(
+            // For session queue with exclusions, we need to fetch more than limit
+            // since some results will be filtered out by exclusion set
+            // Fetch extra to account for potential exclusions
+            let fetchMultiplier = excluding.isEmpty ? 1 : 2
+            let fetchCount = min(limit * fetchMultiplier + excluding.count, 500)
+            
+            var descriptor = FetchDescriptor<Affirmation>(
                 predicate: #Predicate<Affirmation> { affirmation in
                     categories.contains(affirmation.category)
-                }
+                },
+                sortBy: [SortDescriptor(\.queueScore, order: .forward)]
             )
+            descriptor.fetchLimit = fetchCount
             
             var results = try modelContext.fetch(descriptor)
             
-            // Apply source-aware smart queue sorting with exclusions
-            results = applySmartQueueSorting(results, excluding: excluding)
+            // Filter out excluded IDs (done in-memory, but on a smaller set)
+            if !excluding.isEmpty {
+                results = results.filter { !excluding.contains($0.id) }
+            }
             
-            // Take limited results
+            // Take limited results after filtering
             let sessionQueue = Array(results.prefix(limit))
+            
+            // Light shuffle within same-score tier for variety
+            let shuffledQueue = shuffleWithinScoreTiers(sessionQueue)
             
             AppLogger.debug(
                 "Session queue fetched",
                 category: .data,
-                context: ["excluded": excluding.count, "returned": sessionQueue.count]
+                context: ["excluded": excluding.count, "returned": shuffledQueue.count]
             )
             
-            return sessionQueue
+            return shuffledQueue
             
+        } catch let appError as AppError {
+            throw appError
         } catch {
             throw AppError.loadFailed(reason: "Failed to fetch session queue: \(error.localizedDescription)")
         }
@@ -143,6 +201,7 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     }
     
     func fetchByIds(_ ids: [UUID]) throws -> [Affirmation] {
+        // Empty input returns empty result - not an error
         guard !ids.isEmpty else { return [] }
         
         do {
@@ -165,6 +224,7 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
                 predicate: #Predicate<Affirmation> { $0.id == id }
             )
             
+            // Return nil if not found - not an error
             return try modelContext.fetch(descriptor).first
             
         } catch {
@@ -185,6 +245,7 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     }
     
     func countForCategories(_ categories: [String]) throws -> Int {
+        // Empty categories returns 0 - not an error
         guard !categories.isEmpty else { return 0 }
         
         do {
@@ -220,12 +281,16 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     
     // MARK: - Engagement Tracking
     //
-    // These are "best-effort" operations - they track analytics but shouldn't
-    // block user flow if they fail. Entity not found is expected for deleted content.
+    // These are "best effort" operations - they track analytics but shouldn't
+    // block user flow if the entity is not found. Entity not found is expected
+    // for deleted/expired content.
+    //
+    // IMPORTANT: All engagement tracking methods must call recalculateQueueScore()
+    // after updating engagement metrics to keep database-level sorting accurate.
     
     func recordView(affirmationId: UUID) throws {
         guard let affirmation = try fetchById(affirmationId) else {
-            // Entity not found is expected for deleted/expired content
+            // Entity not found is expected for deleted/expired content - log and return
             AppLogger.entityNotFound("Affirmation", id: affirmationId)
             return
         }
@@ -234,6 +299,9 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
             affirmation.viewCount += 1
             affirmation.hasBeenSeen = true
             affirmation.lastInteractedAt = Date()
+            
+            // Recalculate queue score for database-level sorting
+            affirmation.recalculateQueueScore()
             
             try modelContext.save()
             
@@ -244,7 +312,7 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     
     func recordSpeak(affirmationId: UUID) throws {
         guard let affirmation = try fetchById(affirmationId) else {
-            // Entity not found is expected for deleted/expired content
+            // Entity not found is expected for deleted/expired content - log and return
             AppLogger.entityNotFound("Affirmation", id: affirmationId)
             return
         }
@@ -253,6 +321,9 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
             affirmation.speakCount += 1
             affirmation.lastPracticedAt = Date()
             affirmation.lastInteractedAt = Date()
+            
+            // Recalculate queue score for database-level sorting
+            affirmation.recalculateQueueScore()
             
             try modelContext.save()
             
@@ -263,6 +334,7 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     
     @discardableResult
     func toggleFavorite(affirmationId: UUID) throws -> Bool {
+        // For user-initiated actions, not finding the entity IS an error
         guard let affirmation = try fetchById(affirmationId) else {
             throw AppError.loadFailed(reason: "Affirmation not found")
         }
@@ -272,10 +344,21 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
             affirmation.favoritedAt = affirmation.isFavorited ? Date() : nil
             affirmation.lastInteractedAt = Date()
             
+            // Note: toggleFavorite doesn't affect queueScore (not in formula)
+            // but we update lastInteractedAt for tracking purposes
+            
             try modelContext.save()
+            
+            AppLogger.debug(
+                "Toggled favorite",
+                category: .data,
+                context: ["id": affirmationId.uuidString, "isFavorited": affirmation.isFavorited]
+            )
             
             return affirmation.isFavorited
             
+        } catch let appError as AppError {
+            throw appError
         } catch {
             throw AppError.saveFailed(reason: "Failed to toggle favorite: \(error.localizedDescription)")
         }
@@ -283,7 +366,7 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     
     func recordSkip(affirmationId: UUID) throws {
         guard let affirmation = try fetchById(affirmationId) else {
-            // Entity not found is expected for deleted/expired content
+            // Entity not found is expected for deleted/expired content - log and return
             AppLogger.entityNotFound("Affirmation", id: affirmationId)
             return
         }
@@ -291,6 +374,9 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
         do {
             affirmation.skipCount += 1
             affirmation.lastInteractedAt = Date()
+            
+            // Note: skipCount doesn't affect queueScore (not in formula)
+            // but we track it for analytics purposes
             
             try modelContext.save()
             
@@ -301,7 +387,7 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     
     func recordShare(affirmationId: UUID) throws {
         guard let affirmation = try fetchById(affirmationId) else {
-            // Entity not found is expected for deleted/expired content
+            // Entity not found is expected for deleted/expired content - log and return
             AppLogger.entityNotFound("Affirmation", id: affirmationId)
             return
         }
@@ -309,6 +395,9 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
         do {
             affirmation.shareCount += 1
             affirmation.lastInteractedAt = Date()
+            
+            // Note: shareCount doesn't affect queueScore (not in formula)
+            // but we track it for analytics purposes
             
             try modelContext.save()
             
@@ -319,7 +408,7 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     
     func addResonanceRecord(affirmationId: UUID, record: ResonanceRecord) throws {
         guard let affirmation = try fetchById(affirmationId) else {
-            // Entity not found is expected for deleted/expired content
+            // Entity not found is expected for deleted/expired content - log and return
             AppLogger.entityNotFound("Affirmation", id: affirmationId)
             return
         }
@@ -328,6 +417,9 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
             affirmation.resonanceScores.append(record)
             affirmation.lastPracticedAt = Date()
             affirmation.lastInteractedAt = Date()
+            
+            // Note: resonanceScores doesn't affect queueScore (not in formula)
+            // but we track practice times for analytics purposes
             
             try modelContext.save()
             
@@ -339,10 +431,13 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     // MARK: - Content Management
     
     func insertBatch(_ affirmations: [Affirmation]) throws {
+        // Empty batch is a no-op - not an error
         guard !affirmations.isEmpty else { return }
         
         do {
             for affirmation in affirmations {
+                // Ensure queueScore is calculated for each new affirmation
+                affirmation.recalculateQueueScore()
                 modelContext.insert(affirmation)
             }
             
@@ -401,6 +496,7 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     }
     
     func categoriesNeedingRefresh(from categories: [String]) throws -> [String] {
+        // Empty categories returns empty result - not an error
         guard !categories.isEmpty else { return [] }
         
         let threshold = Constants.ContentRefresh.depletedViewCountThreshold
@@ -431,103 +527,34 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     }
 }
 
-// MARK: - Smart Queue Sorting
+// MARK: - Queue Score Optimization Helpers
 
 private extension AffirmationRepository {
     
-    /// Applies the source-aware smart queue sorting algorithm.
+    /// Shuffles results while keeping same-score items together for variety.
     ///
-    /// ## Priority Order
-    /// 1. Exclude IDs in `excluding` set
-    /// 2. Source priority: generated (0) > backend (1) > seeded (2)
-    /// 3. `hasBeenSeen == false` (unseen first)
-    /// 4. `speakCount` ascending (least spoken for sessions)
-    /// 5. `viewCount` ascending (least viewed)
-    /// 6. `lastPracticedAt` ascending (oldest practiced, nil = never practiced)
-    /// 7. Shuffle within same priority tier for variety
+    /// This provides some randomness within priority tiers without breaking
+    /// the overall priority ordering established by the database sort.
     ///
-    /// - Parameters:
-    ///   - affirmations: Unordered affirmations
-    ///   - excluding: Set of IDs to exclude from results
-    /// - Returns: Sorted affirmations according to smart queue algorithm
-    func applySmartQueueSorting(
-        _ affirmations: [Affirmation],
-        excluding: Set<UUID>
-    ) -> [Affirmation] {
-        // Step 1: Filter out excluded IDs
-        var filtered = affirmations
-        if !excluding.isEmpty {
-            filtered = affirmations.filter { !excluding.contains($0.id) }
+    /// - Parameter affirmations: Sorted affirmations from database query
+    /// - Returns: Affirmations with same-score tiers shuffled for variety
+    func shuffleWithinScoreTiers(_ affirmations: [Affirmation]) -> [Affirmation] {
+        // Early return for small arrays where shuffling has minimal effect
+        guard affirmations.count > 2 else { return affirmations }
+        
+        // Group by score using Dictionary(grouping:) - efficient O(n) operation
+        let grouped = Dictionary(grouping: affirmations) { $0.queueScore }
+        
+        // Shuffle within each group, maintain group order by score
+        var result: [Affirmation] = []
+        result.reserveCapacity(affirmations.count)
+        
+        for score in grouped.keys.sorted() {
+            var tier = grouped[score] ?? []
+            tier.shuffle()
+            result.append(contentsOf: tier)
         }
         
-        // Step 2: Group by source priority
-        var generated: [Affirmation] = []
-        var backend: [Affirmation] = []
-        var seeded: [Affirmation] = []
-        
-        for affirmation in filtered {
-            switch affirmation.source {
-            case .generated:
-                generated.append(affirmation)
-            case .backend:
-                backend.append(affirmation)
-            case .seeded:
-                seeded.append(affirmation)
-            }
-        }
-        
-        // Step 3: Sort each tier by engagement metrics
-        generated = sortByEngagement(generated)
-        backend = sortByEngagement(backend)
-        seeded = sortByEngagement(seeded)
-        
-        // Step 4: Combine in priority order
-        return generated + backend + seeded
-    }
-    
-    /// Sorts affirmations within a tier by engagement metrics.
-    ///
-    /// Priority:
-    /// 1. Unseen first
-    /// 2. Least spoken
-    /// 3. Least viewed
-    /// 4. Oldest practiced
-    /// 5. Shuffle within same metrics for variety
-    func sortByEngagement(_ affirmations: [Affirmation]) -> [Affirmation] {
-        // Group by seen status
-        var unseen: [Affirmation] = []
-        var seen: [Affirmation] = []
-        
-        for affirmation in affirmations {
-            if !affirmation.hasBeenSeen {
-                unseen.append(affirmation)
-            } else {
-                seen.append(affirmation)
-            }
-        }
-        
-        // Shuffle unseen for variety
-        unseen.shuffle()
-        
-        // Sort seen by engagement metrics
-        seen.sort { a, b in
-            // Primary: speakCount ascending (least spoken for session freshness)
-            if a.speakCount != b.speakCount {
-                return a.speakCount < b.speakCount
-            }
-            
-            // Secondary: viewCount ascending (least viewed)
-            if a.viewCount != b.viewCount {
-                return a.viewCount < b.viewCount
-            }
-            
-            // Tertiary: lastPracticedAt ascending (nil = earliest)
-            let aDate = a.lastPracticedAt ?? Date.distantPast
-            let bDate = b.lastPracticedAt ?? Date.distantPast
-            return aDate < bDate
-        }
-        
-        // Combine: unseen first, then seen
-        return unseen + seen
+        return result
     }
 }

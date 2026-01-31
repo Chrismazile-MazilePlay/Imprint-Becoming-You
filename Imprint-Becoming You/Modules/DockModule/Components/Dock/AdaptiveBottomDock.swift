@@ -11,7 +11,7 @@ import SwiftUI
 
 /// The unified morphing bottom dock that adapts its content based on configuration.
 ///
-/// This component is a **pure dock row** – it renders only the dock content and has
+/// This component is a **pure dock row** — it renders only the dock content and has
 /// no knowledge of expanded menus. Menu handling is delegated to `AdaptiveDockContainer`.
 ///
 /// ## Configurations
@@ -24,6 +24,11 @@ import SwiftUI
 ///
 /// ## Button Consistency
 /// Mode and Binaural buttons always show icon + label across all configurations.
+///
+/// ## Animation Optimization (Issue 2.3)
+/// Uses computed animation keys to prevent unnecessary re-renders:
+/// - `configurationAnimationKey`: Only changes when configuration type changes
+/// - `selectorAnimationKey`: Only changes when selector expansion state changes
 ///
 /// ## Usage
 ///
@@ -44,6 +49,30 @@ public struct AdaptiveBottomDock: View {
     
     @State private var isAnimatingSelector = false
     
+    // MARK: - Computed Animation Keys
+    
+    /// Key that changes only when configuration type changes.
+    ///
+    /// Using a String key instead of the full `DockConfiguration` prevents
+    /// animation triggers from internal property changes that don't affect layout.
+    private var configurationAnimationKey: String {
+        switch adapter.configuration {
+        case .home:
+            return "home"
+        case .session:
+            return "session"
+        case .configuration:
+            return "configuration"
+        }
+    }
+    
+    /// Key that changes only when selector expansion state changes.
+    ///
+    /// Combines both selector states into a single key for efficient animation tracking.
+    private var selectorAnimationKey: String {
+        "\(adapter.isModeSelectorExpanded)-\(adapter.isBinauralSelectorExpanded)"
+    }
+    
     // MARK: - Initialization
     
     public init(adapter: any DockAdapterProtocol) {
@@ -57,7 +86,8 @@ public struct AdaptiveBottomDock: View {
             .padding(.horizontal, tokens.spacingLG)
             .padding(.vertical, tokens.spacingMD)
             .background(dockBackground)
-            .animation(tokens.standardAnimation, value: adapter.configuration)
+            // Animate only on meaningful configuration changes
+            .animation(tokens.standardAnimation, value: configurationAnimationKey)
     }
     
     // MARK: - Background

@@ -39,6 +39,13 @@ import SwiftUI
 /// - No animation leakage: Timer only exists in timed mode
 /// - No intermediate states: Fill is computed, not animated between states
 /// - Deterministic: Same inputs always produce same fill values
+///
+/// ## Animation Optimization (Issue 2.3)
+///
+/// Uses `structuralAnimationKey` to animate only on meaningful structural changes:
+/// - Segment count changes (adding/removing segments)
+/// - Current index changes (progress through session)
+/// Progress animation is isolated to individual SegmentBar components.
 public struct DockSegmentsView: View {
     
     // MARK: - Environment
@@ -56,6 +63,16 @@ public struct DockSegmentsView: View {
     // MARK: - Constants
     
     private let barHeight: CGFloat = 3
+    
+    // MARK: - Animation Optimization
+    
+    /// Key that changes only when segment structure or position changes.
+    ///
+    /// This prevents unnecessary animations when other properties change
+    /// (like isAnimating, generation) that don't affect layout.
+    private var structuralAnimationKey: String {
+        "\(segments.totalCount)-\(segments.currentIndex)"
+    }
     
     // MARK: - Timer State (Timed Mode Only)
     
@@ -97,6 +114,8 @@ public struct DockSegmentsView: View {
             }
         }
         .frame(height: barHeight)
+        // Structural animation (adding/removing segments, index changes)
+        .animation(tokens.standardAnimation, value: structuralAnimationKey)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Progress: \(segments.currentIndex + 1) of \(segments.totalCount)")
         .onChange(of: segments.currentIndex) { oldIndex, newIndex in
@@ -315,6 +334,10 @@ public struct DockSegmentsView: View {
 ///
 /// This is a pure presentation component - it just renders
 /// the fill percentage it's given.
+///
+/// ## Animation Optimization (Issue 2.3)
+/// Uses isolated progress animation on fill changes only.
+/// This prevents re-renders from other state changes affecting animation.
 private struct SegmentBar: View {
     let fillPercent: CGFloat
     let accentColor: Color
@@ -335,6 +358,8 @@ private struct SegmentBar: View {
                 }
             }
         }
+        // Only animate progress changes, not every re-render
+        .animation(.linear(duration: 0.1), value: fillPercent)
     }
 }
 

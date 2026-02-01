@@ -62,6 +62,10 @@ struct ProfilePageView: View {
     /// Used to disable vertical scrolling during horizontal paging.
     let isHorizontallyDragging: Bool
     
+    /// Whether this page is currently the active/visible page.
+    /// Used to reset scroll position when navigating to this page.
+    let isActive: Bool
+    
     // MARK: - Navigation State
     
     /// Navigation path owned by this view
@@ -90,6 +94,7 @@ struct ProfilePageView: View {
                     destinationView(for: destination)
                 }
         }
+        .tint(AppColors.accent) // Accent color for all nested back buttons
         .task {
             await loadStats()
         }
@@ -142,33 +147,42 @@ struct ProfilePageView: View {
     // MARK: - Scroll Content
     
     private var scrollContent: some View {
-        ScrollView {
-            VStack(spacing: AppTheme.Spacing.xl) {
-                // Profile header (scrolls under navbar)
-                profileHeader
-                
-                // Stats row
-                statsRow
-                
-                // Progress section
-                progressSection
-                
-                // Favorites section
-                favoritesSection
-                
-                // Saved Sessions section
-                savedSessionsSection
-                
-                // Settings section
-                settingsSection
-                
-                // Bottom padding
-                Spacer()
-                    .frame(height: AppTheme.Spacing.xxl)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: AppTheme.Spacing.xl) {
+                    // Profile header (scrolls under navbar)
+                    profileHeader
+                        .id("profileTop") // Anchor for scroll-to-top
+                    
+                    // Stats row
+                    statsRow
+                    
+                    // Progress section
+                    progressSection
+                    
+                    // Favorites section
+                    favoritesSection
+                    
+                    // Saved Sessions section
+                    savedSessionsSection
+                    
+                    // Settings section
+                    settingsSection
+                    
+                    // Bottom padding
+                    Spacer()
+                        .frame(height: AppTheme.Spacing.xxl)
+                }
+                .padding(.horizontal, AppTheme.Spacing.lg)
             }
-            .padding(.horizontal, AppTheme.Spacing.lg)
+            .scrollDisabled(isHorizontallyDragging)
+            .onChange(of: isActive) { _, nowActive in
+                // Scroll to top when this page becomes active
+                if nowActive {
+                    proxy.scrollTo("profileTop", anchor: .top)
+                }
+            }
         }
-        .scrollDisabled(isHorizontallyDragging)
     }
     
     // MARK: - Navigation Destinations
@@ -703,7 +717,8 @@ struct SettingsRow: View {
                 store: .preview,
                 onNavigateToCenter: {},
                 navigationDepth: $navigationDepth,
-                isHorizontallyDragging: false
+                isHorizontallyDragging: false,
+                isActive: true
             )
             .previewEnvironment()
         }

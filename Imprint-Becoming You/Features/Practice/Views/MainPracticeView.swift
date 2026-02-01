@@ -222,7 +222,8 @@ struct MainPracticeView: View {
                         store: store,
                         onNavigateToCenter: { navigateToPage(.practice) },
                         navigationDepth: $profileNavigationDepth,
-                        isHorizontallyDragging: isHorizontallyDragging
+                        isHorizontallyDragging: isHorizontallyDragging,
+                        isActive: currentPage == .profile
                     )
                 }
                 .ignoresSafeArea()

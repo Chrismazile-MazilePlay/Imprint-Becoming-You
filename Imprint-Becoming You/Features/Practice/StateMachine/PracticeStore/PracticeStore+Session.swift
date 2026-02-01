@@ -96,7 +96,7 @@ extension PracticeStore {
         setSessionPreparationPhase(.waitingForKokoro)
         
         #if DEBUG
-        print("🎵 PracticeStore: Starting session preparation for \(totalCount) affirmations")
+        print("ðŸŽµ PracticeStore: Starting session preparation for \(totalCount) affirmations")
         #endif
         
         // Build lightweight affirmation info for queue
@@ -122,7 +122,7 @@ extension PracticeStore {
                             self.setSessionPreparationPhase(phase)
                             
                             #if DEBUG
-                            print("🎵 PracticeStore: Phase changed to \(phase)")
+                            print("ðŸŽµ PracticeStore: Phase changed to \(phase)")
                             #endif
                             
                             // Handle timeout phase (don't auto-complete)
@@ -146,7 +146,7 @@ extension PracticeStore {
                             
                             #if DEBUG
                             if prepared % 5 == 0 || prepared == total {
-                                print("🎵 PracticeStore: Preparation progress \(prepared)/\(total) (\(Int(progress * 100))%)")
+                                print("ðŸŽµ PracticeStore: Preparation progress \(prepared)/\(total) (\(Int(progress * 100))%)")
                             }
                             #endif
                         }
@@ -164,7 +164,7 @@ extension PracticeStore {
                 
             } catch is CancellationError {
                 #if DEBUG
-                print("🎵 PracticeStore: Preparation task cancelled (user action)")
+                print("ðŸŽµ PracticeStore: Preparation task cancelled (user action)")
                 #endif
                 
             } catch {
@@ -181,13 +181,13 @@ extension PracticeStore {
     func retrySessionPreparation() {
         guard let mode = pendingSessionMode else {
             #if DEBUG
-            print("⚠️ PracticeStore: No pending mode for retry")
+            print("âš ï¸ PracticeStore: No pending mode for retry")
             #endif
             return
         }
         
         #if DEBUG
-        print("🎵 PracticeStore: Retrying session preparation")
+        print("ðŸŽµ PracticeStore: Retrying session preparation")
         #endif
         
         // Reset the force system flag (we're trying Kokoro again)
@@ -215,13 +215,13 @@ extension PracticeStore {
     func continueWithSystemVoice() {
         guard let mode = pendingSessionMode else {
             #if DEBUG
-            print("⚠️ PracticeStore: No pending mode for system voice fallback")
+            print("âš ï¸ PracticeStore: No pending mode for system voice fallback")
             #endif
             return
         }
         
         #if DEBUG
-        print("🎵 PracticeStore: Continuing with System TTS")
+        print("ðŸŽµ PracticeStore: Continuing with System TTS")
         #endif
         
         // Set session-scoped flag to force System TTS
@@ -340,7 +340,7 @@ extension PracticeStore {
     func handleSessionPreparationCompleted() {
         guard let mode = pendingSessionMode else {
             #if DEBUG
-            print("⚠️ PracticeStore: Preparation completed but no pending mode")
+            print("âš ï¸ PracticeStore: Preparation completed but no pending mode")
             #endif
             clearSessionPreparation()
             return
@@ -353,9 +353,9 @@ extension PracticeStore {
         
         #if DEBUG
         if hasRemaining {
-            print("✅ PracticeStore: Early start - starting session with \(preparedCount)/\(totalCount) ready")
+            print("âœ… PracticeStore: Early start - starting session with \(preparedCount)/\(totalCount) ready")
         } else {
-            print("✅ PracticeStore: TTS preparation complete, starting session in \(mode.rawValue) mode")
+            print("âœ… PracticeStore: TTS preparation complete, starting session in \(mode.rawValue) mode")
         }
         #endif
         
@@ -372,7 +372,7 @@ extension PracticeStore {
         // If there are remaining affirmations, continue synthesis in background
         if hasRemaining {
             #if DEBUG
-            print("🎵 PracticeStore: Starting background synthesis for remaining \(totalCount - preparedCount) affirmations")
+            print("ðŸŽµ PracticeStore: Starting background synthesis for remaining \(totalCount - preparedCount) affirmations")
             #endif
             queueService.startBackgroundSynthesis(startingFrom: preparedCount)
         }
@@ -381,7 +381,7 @@ extension PracticeStore {
     /// Handles session preparation failure.
     func handleSessionPreparationFailed(_ error: PracticeError) {
         #if DEBUG
-        print("❌ PracticeStore: TTS preparation failed: \(error)")
+        print("âŒ PracticeStore: TTS preparation failed: \(error)")
         #endif
         
         // Update phase to error
@@ -393,7 +393,7 @@ extension PracticeStore {
     /// Handles user cancellation of session preparation.
     func handleCancelSessionPreparation() {
         #if DEBUG
-        print("🛑 PracticeStore: User cancelled session preparation")
+        print("ðŸ›‘ PracticeStore: User cancelled session preparation")
         #endif
         
         clearSessionPreparation()
@@ -440,28 +440,61 @@ extension PracticeStore {
     }
     
     /// Handles dismissing the summary and returning to home.
+    ///
+    /// ## State Reset Order
+    /// The order of operations is critical to prevent visual glitches:
+    ///
+    /// 1. **Reset display state FIRST** (immediate, no animation)
+    ///    - Sets `flow` to `.home` → `isSessionActive` becomes `false`
+    ///    - Clears `sessionAffirmations` → `store.affirmations` returns browse content
+    ///    - PracticePageView now shows browse content (hidden behind summary)
+    ///
+    /// 2. **Animate summary dismiss**
+    ///    - Summary slides down, revealing the already-prepared browse content
+    ///    - `sessionResults` kept intact during animation (summary still needs it)
+    ///
+    /// 3. **Clean up remaining state** (after animation)
+    ///    - Clear `sessionResults` and session-scoped flags
+    ///
+    /// This prevents the bug where the completed session was briefly visible
+    /// as the summary dismissed, because the underlying PracticePageView
+    /// was still showing session content.
     func handleDismissSummary() {
-        // Start the dismiss animation FIRST (before any state changes)
+        // 1. Reset display-relevant state FIRST (immediate, no animation)
+        //    This makes PracticePageView show browse content BEFORE the summary slides away.
+        //    The summary overlay still covers this, so user sees no change yet.
+        sessionMode = .readOnly
+        setFlow(.home)
+        setSegmentProgress(0)
+        resetLoopConfiguration()
+        clearSavedSessionContext()
+        clearOriginalSessionAffirmationIds()
+        setSessionState(affirmations: [], index: 0)
+        // NOTE: Keep sessionResults - ResultsSummaryView still references store.sessionSummary
+        
+        // Clear TTS audio cache to free memory (~7-15MB per session)
+        // This was previously missing, causing memory to accumulate across sessions
+        dependencies.sessionTTSQueueService.cancelAll()
+        
+        // Close any open menus immediately
+        isModeSelectorExpanded = false
+        isBinauralSelectorExpanded = false
+        
+        // 2. THEN animate the summary dismiss
+        //    PracticePageView is already showing browse content (hidden behind summary)
         withAnimation(.easeInOut(duration: PracticeTiming.summaryDismissDuration)) {
             setShowingSummary(false)
         }
         
-        // Reset state AFTER animation completes (view is no longer visible)
+        // 3. Clean up remaining state AFTER animation completes
         Task { @MainActor [weak self] in
             guard let self = self else { return }
             try? await Task.sleep(for: .milliseconds(Int(PracticeTiming.summaryDismissDuration * 1000) + 50))
             
-            // Now safe to reset state - view is gone
-            self.resetLoopConfiguration()
-            self.clearSavedSessionContext()
-            self.clearOriginalSessionAffirmationIds()
-            self.forceSystemTTSForSession = false
+            // Now safe to clear results and session-scoped flags
             self.setSessionResults([])
-            self.setSessionState(affirmations: [], index: 0)
-            self.sessionMode = .readOnly
-            self.setFlow(.home)
-            self.isModeSelectorExpanded = false
-            self.isBinauralSelectorExpanded = false
+            self.forceSystemTTSForSession = false
+            self.setHasSessionBeenSaved(false)
         }
     }
     

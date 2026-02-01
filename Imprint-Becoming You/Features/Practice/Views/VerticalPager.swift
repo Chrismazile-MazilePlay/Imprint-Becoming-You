@@ -17,11 +17,12 @@ import SwiftUI
 /// - Supports programmatic auto-advance with animation
 /// - High-priority vertical gesture (overrides parent horizontal)
 /// - **Graceful transitions**: Content fades and scales as it moves
+/// - **Background resilience**: Resets animation state when returning from background
 ///
 /// ## Content Transitions
 /// As content moves away from center:
-/// - Opacity fades from 1.0 â†’ 0.3
-/// - Scale reduces from 1.0 â†’ 0.95
+/// - Opacity fades from 1.0 -> 0.3
+/// - Scale reduces from 1.0 -> 0.95
 /// This creates a polished, depth-aware transition that masks any index swap artifacts.
 ///
 /// ## Auto-Advance Architecture
@@ -34,11 +35,11 @@ import SwiftUI
 ///
 /// ## Visual During Auto-Advance (to next):
 /// ```
-/// â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-/// â”‚  Current (moving)   â”‚ offset animates: 0 â†’ -screenHeight
-/// â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
-/// â”‚  Next (FIXED)       â”‚ offset = 0 (always centered!)
-/// â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+/// +------------------------+
+/// |  Current (moving)      |  offset animates: 0 -> -screenHeight
+/// +------------------------+
+/// |  Next (FIXED)          |  offset = 0 (always centered!)
+/// +------------------------+
 /// ```
 struct VerticalPager<Content: View, Background: View>: View {
     
@@ -76,6 +77,10 @@ struct VerticalPager<Content: View, Background: View>: View {
     /// Called after programmatic auto-advance animation completes
     var onAutoAdvanceComplete: (() -> Void)?
     
+    // MARK: - Environment
+    
+    @Environment(\.scenePhase) private var scenePhase
+    
     // MARK: - Configuration
     
     private let navigationThreshold: CGFloat = 0.15
@@ -103,6 +108,11 @@ struct VerticalPager<Content: View, Background: View>: View {
     
     /// Direction of current auto-advance, or nil if not auto-advancing
     @State private var autoAdvanceDirection: NavigationDirection? = nil
+    
+    /// Tracks whether app was backgrounded, for state reset on return.
+    /// ScenePhase transitions: background -> inactive -> active, so we can't
+    /// rely on oldPhase being .background in onChange.
+    @State private var wasBackgrounded: Bool = false
     
     /// Whether an auto-advance animation is in progress
     private var isAutoAdvancing: Bool {
@@ -169,6 +179,63 @@ struct VerticalPager<Content: View, Background: View>: View {
                 performAutoAdvance(direction: direction)
             }
         }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            handleScenePhaseChange(from: oldPhase, to: newPhase)
+        }
+    }
+    
+    // MARK: - Scene Phase Handling
+    
+    /// Handles app lifecycle transitions to prevent stale animation state.
+    ///
+    /// When the app goes to background mid-animation, SwiftUI's animation state
+    /// can get stuck at intermediate values. This causes content to be offset
+    /// when returning from background.
+    ///
+    /// Example: If `autoAdvanceProgress` is stuck at 0.3 when returning,
+    /// content would be offset by `screenHeight * 0.3` (~240pt on iPhone).
+    private func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
+        switch newPhase {
+        case .background:
+            // Mark that we went to background
+            wasBackgrounded = true
+            
+        case .active:
+            // Only reset if we're returning FROM background
+            // ScenePhase transitions: background -> inactive -> active
+            // So we use our own tracking flag
+            if wasBackgrounded {
+                wasBackgrounded = false
+                resetAnimationState()
+            }
+            
+        case .inactive:
+            // No action needed for inactive state
+            break
+            
+        @unknown default:
+            break
+        }
+    }
+    
+    /// Resets all animation state to default values.
+    ///
+    /// Called when returning from background to ensure content is properly centered.
+    /// This clears any stale state from interrupted animations.
+    private func resetAnimationState() {
+        // Reset auto-advance state
+        autoAdvanceDirection = nil
+        autoAdvanceProgress = 0
+        
+        // Clear pending advance to prevent double-animation
+        if pendingAdvance != nil {
+            pendingAdvance = nil
+        }
+        
+        // Reset drag state
+        dragOffset = 0
+        isVerticalDrag = false
+        gestureDirectionLocked = false
     }
     
     // MARK: - Auto-Advance Content Layers
@@ -192,7 +259,7 @@ struct VerticalPager<Content: View, Background: View>: View {
                     content(incomingIndex)
                         .offset(y: 0) // Always at center!
                         .modifier(ContentTransitionModifier(
-                            progress: progress, // 0 â†’ 1 (fades in)
+                            progress: progress, // 0 -> 1 (fades in)
                             minOpacity: minContentOpacity,
                             minScale: minContentScale
                         ))
@@ -201,7 +268,7 @@ struct VerticalPager<Content: View, Background: View>: View {
                     content(outgoingIndex)
                         .offset(y: direction == .next ? -screenHeight * progress : screenHeight * progress)
                         .modifier(ContentTransitionModifier(
-                            progress: 1 - progress, // 1 â†’ 0 (fades out)
+                            progress: 1 - progress, // 1 -> 0 (fades out)
                             minOpacity: minContentOpacity,
                             minScale: minContentScale,
                             isCurrent: true

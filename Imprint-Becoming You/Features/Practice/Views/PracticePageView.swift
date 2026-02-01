@@ -30,8 +30,8 @@ import SwiftData
 /// ## Color Morphing
 /// Background colors use true RGB interpolation (not opacity crossfade) for smooth
 /// transitions. The system has two modes:
-/// - **Active navigation** (progress ≠ 0): Uses `interpolatedBackground` for real-time color blending
-/// - **At rest** (progress ≈ 0): Uses `staticBackground` with `displayedBackgroundCategory`
+/// - **Active navigation** (progress â‰  0): Uses `interpolatedBackground` for real-time color blending
+/// - **At rest** (progress â‰ˆ 0): Uses `staticBackground` with `displayedBackgroundCategory`
 ///
 /// When navigation completes, `displayedBackgroundCategory` is immediately updated
 /// to match the new index, ensuring seamless handoff between modes.
@@ -73,7 +73,7 @@ struct PracticePageView: View {
     
     @State private var showCategories = false
     
-    /// Tracks the background category to display when at rest (progress ≈ 0).
+    /// Tracks the background category to display when at rest (progress â‰ˆ 0).
     /// Updated immediately (no animation) when index changes, because the
     /// progress-based interpolation already handles the visual transition.
     @State private var displayedBackgroundCategory: GoalCategory?
@@ -191,6 +191,10 @@ struct PracticePageView: View {
         guard !dockAdapter.isModeSelectorExpanded else { return false }
         guard !dockAdapter.isBinauralSelectorExpanded else { return false }
         
+        // Block if timeout alert is showing to prevent race conditions
+        // that could cause double-skip behavior
+        guard !store.isShowingTimeoutAlert else { return false }
+        
         // Allow navigation even during active phases - swipe will interrupt
         // The navigate() method handles cancelling current activity
         return true
@@ -215,7 +219,7 @@ struct PracticePageView: View {
     ///
     /// Uses two rendering modes:
     /// - **At rest** (|progress| < 0.01): Shows static gradient for `displayedBackgroundCategory`
-    /// - **During navigation** (|progress| ≥ 0.01): Interpolates between current and target colors
+    /// - **During navigation** (|progress| â‰¥ 0.01): Interpolates between current and target colors
     ///
     /// The handoff between modes is seamless because `displayedBackgroundCategory`
     /// is updated immediately when the index changes.

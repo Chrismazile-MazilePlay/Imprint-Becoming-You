@@ -17,7 +17,7 @@ import SwiftUI
 /// ## Performance Benefits
 /// - Extracts RGBA values once at initialization (not per frame)
 /// - Caches common blend values (0, 0.5, 1.0) for fast lookup
-/// - Eliminates 540 UIColor allocations/second (60fps × 9 bars)
+/// - Eliminates 540 UIColor allocations/second (60fps Ã— 9 bars)
 ///
 /// ## Usage
 /// ```swift
@@ -152,7 +152,7 @@ public struct ClassicBarsWaveformStyle: DockWaveformStyle {
 ///
 /// Color interpolation uses pre-computed RGBA values via `ColorCache` to avoid
 /// creating `UIColor` bridge objects on every animation frame. This eliminates
-/// ~540 allocations/second (60fps × 9 bars).
+/// ~540 allocations/second (60fps Ã— 9 bars).
 struct ClassicBarsWaveformView: View {
     
     // MARK: - Properties
@@ -285,15 +285,23 @@ struct ClassicBarsWaveformView: View {
     private func performPlayingToPreparingTransition() {
         isInChoreographedTransition = true
         
+        // Phase 1: Scale down (still orange)
         withAnimation(.easeIn(duration: scaleDownDuration)) {
             config = .transitionScaledDown
         }
         
+        // Phase 2: Color morph (keep transition flag true to suppress audio level jumps)
         DispatchQueue.main.asyncAfter(deadline: .now() + scaleDownDuration) {
-            self.isInChoreographedTransition = false
             withAnimation(.easeInOut(duration: self.colorMorphDuration)) {
                 self.config = .preparingToListen
             }
+        }
+        
+        // Release transition flag AFTER both animations complete
+        // This prevents visual hesitation from audioLevel jumping mid-transition
+        let totalDuration = scaleDownDuration + colorMorphDuration
+        DispatchQueue.main.asyncAfter(deadline: .now() + totalDuration) {
+            self.isInChoreographedTransition = false
         }
     }
     

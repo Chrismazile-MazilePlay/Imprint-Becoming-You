@@ -277,15 +277,23 @@ struct LayeredWavesWaveformView: View {
     private func performPlayingToPreparingTransition() {
         isInChoreographedTransition = true
         
+        // Phase 1: Scale down (still orange)
         withAnimation(.easeIn(duration: scaleDownDuration)) {
             config = .transitionScaledDown
         }
         
+        // Phase 2: Color morph (keep transition flag true to suppress audio level jumps)
         DispatchQueue.main.asyncAfter(deadline: .now() + scaleDownDuration) {
-            self.isInChoreographedTransition = false
             withAnimation(.easeInOut(duration: self.colorMorphDuration)) {
                 self.config = .preparingToListen
             }
+        }
+        
+        // Release transition flag AFTER both animations complete
+        // This prevents visual hesitation from audioLevel jumping mid-transition
+        let totalDuration = scaleDownDuration + colorMorphDuration
+        DispatchQueue.main.asyncAfter(deadline: .now() + totalDuration) {
+            self.isInChoreographedTransition = false
         }
     }
     
@@ -378,8 +386,9 @@ private struct WaveLayer: View {
                 lineJoin: .round
             )
         )
-        .animation(.easeInOut(duration: 0.15), value: audioLevel)
-        .animation(.easeInOut(duration: 0.3), value: config)
+        // Note: Implicit .animation() modifiers removed to prevent conflicts
+        // with choreographed withAnimation blocks in state transitions.
+        // Amplitude changes are smoothed by WaveShape.animatableData instead.
     }
     
     // MARK: - Layer Properties
@@ -431,16 +440,16 @@ private struct WaveLayer: View {
 private struct WaveShape: Shape {
     let width: CGFloat
     let height: CGFloat
-    var phase: CGFloat
+    let phase: CGFloat
     var amplitude: CGFloat
     let frequency: CGFloat
     
-    var animatableData: AnimatablePair<CGFloat, CGFloat> {
-        get { AnimatablePair(phase, amplitude) }
-        set {
-            phase = newValue.first
-            amplitude = newValue.second
-        }
+    /// Only amplitude is animatable - phase is driven by TimelineView
+    /// and should never be interpolated by SwiftUI animations.
+    /// Animating phase causes horizontal "snap back" during state transitions.
+    var animatableData: CGFloat {
+        get { amplitude }
+        set { amplitude = newValue }
     }
     
     func path(in rect: CGRect) -> Path {
@@ -526,14 +535,14 @@ private struct LayeredWavesConfiguration: Equatable {
         intensity: 0.05,
         colorBlend: 0,
         audioReactivity: 0,
-        breathingAmplitude: 0
+        breathingAmplitude: 0.20
     )
     
     static let transitionColorMorphed = LayeredWavesConfiguration(
         intensity: 0.05,
         colorBlend: 1.0,
         audioReactivity: 0,
-        breathingAmplitude: 0
+        breathingAmplitude: 0.20
     )
 }
 

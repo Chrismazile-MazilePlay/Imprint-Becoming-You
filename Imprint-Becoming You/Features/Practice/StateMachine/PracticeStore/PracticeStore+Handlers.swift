@@ -135,6 +135,12 @@ extension PracticeStore {
     func handleUserNavigated(_ direction: NavigationDirection) {
         cancelCurrentActivity()
         
+        // Dismiss timeout alert if showing - user has navigated away
+        if isShowingTimeoutAlert {
+            setShowingTimeoutAlert(false)
+            timedOutAffirmationId = nil
+        }
+        
         if isSessionActive {
             recordEngagement(.view)
             startFlowForCurrentAffirmation()
@@ -228,8 +234,9 @@ extension PracticeStore {
         dependencies.sessionTTSQueueService.cancelAll()
         clearSessionPreparation()
         
-        // 3. Dismiss any alerts
+        // 3. Dismiss any alerts and clear timeout tracking
         setShowingTimeoutAlert(false)
+        timedOutAffirmationId = nil
         setPermissionAlert(showing: false)
         
         // 4. CRITICAL: Set mode and flow to home FIRST
@@ -284,8 +291,9 @@ extension PracticeStore {
             setShowingSummary(false)
         }
         
-        // Dismiss any alerts
+        // Dismiss any alerts and clear timeout tracking
         setShowingTimeoutAlert(false)
+        timedOutAffirmationId = nil
         setPermissionAlert(showing: false)
         
         // Reset loop configuration
@@ -520,6 +528,9 @@ extension PracticeStore {
     func handleListeningTimedOut() {
         cancelCurrentActivity()
         
+        // Track which affirmation timed out to prevent double-skip
+        timedOutAffirmationId = currentAffirmation?.id
+        
         withAnimation(AppTheme.Animation.standard) {
             setShowingTimeoutAlert(true)
         }
@@ -527,6 +538,7 @@ extension PracticeStore {
     
     func handleRetryListening() {
         setShowingTimeoutAlert(false)
+        timedOutAffirmationId = nil
         listeningStartTime = nil
         startFlowForCurrentAffirmation()
     }
@@ -535,16 +547,30 @@ extension PracticeStore {
         setShowingTimeoutAlert(false)
         listeningStartTime = nil
         
-        if let affirmation = currentAffirmation {
-            if !sessionResults.contains(where: { $0.affirmationId == affirmation.id }) {
-                let skippedResult = SessionAffirmationResult(
-                    affirmation: affirmation,
-                    isFromScoringMode: sessionMode.producesResonanceScore
-                )
-                appendSessionResult(skippedResult)
-            }
-            affirmation.skipCount += 1
+        // Guard against double-skip: if user navigated away before tapping Skip,
+        // the current affirmation won't match the one that timed out
+        guard let affirmation = currentAffirmation else {
+            timedOutAffirmationId = nil
+            return
         }
+        
+        // If we have a tracked timed-out affirmation, verify we're still on it
+        if let timedOutId = timedOutAffirmationId, timedOutId != affirmation.id {
+            // User already navigated away via swipe - don't double-skip
+            timedOutAffirmationId = nil
+            return
+        }
+        
+        timedOutAffirmationId = nil
+        
+        if !sessionResults.contains(where: { $0.affirmationId == affirmation.id }) {
+            let skippedResult = SessionAffirmationResult(
+                affirmation: affirmation,
+                isFromScoringMode: sessionMode.producesResonanceScore
+            )
+            appendSessionResult(skippedResult)
+        }
+        affirmation.skipCount += 1
         
         if canGoNext {
             if isSessionActive {

@@ -258,6 +258,10 @@ final class PracticeStore {
     /// Whether the timeout alert is showing
     private(set) var isShowingTimeoutAlert: Bool = false
     
+    /// ID of the affirmation that triggered the timeout alert.
+    /// Used to prevent double-skip when user navigates away before tapping Skip.
+    var timedOutAffirmationId: UUID?
+    
     /// Whether the permission denied alert is showing
     private(set) var isShowingPermissionAlert: Bool = false
     

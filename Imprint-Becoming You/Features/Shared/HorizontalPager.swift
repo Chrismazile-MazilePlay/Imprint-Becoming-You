@@ -80,10 +80,20 @@ struct HorizontalPager<Content: View>: View {
     /// Tracks drag offset during gesture, resets to 0 when gesture ends
     @GestureState private var dragOffset: CGFloat = 0
     
+    /// Whether the gesture direction has been determined and locked
+    @State private var isGestureDirectionLocked: Bool = false
+    
+    /// Whether the current gesture is horizontal (vs vertical)
+    /// Only valid when `isGestureDirectionLocked` is true
+    @State private var isHorizontalGesture: Bool = false
+    
     // MARK: - Constants
     
     /// Minimum drag distance to trigger page change
     private let dragThreshold: CGFloat = 50
+    
+    /// Minimum movement to lock gesture direction
+    private let directionLockThreshold: CGFloat = 15
     
     /// Animation for page transitions
     private var pageAnimation: Animation {
@@ -121,7 +131,12 @@ struct HorizontalPager<Content: View>: View {
     
     /// Creates the drag gesture for horizontal paging.
     ///
-    /// Exclusion zones:
+    /// ## Direction Locking
+    /// Gesture direction is determined on first significant movement (>15pt)
+    /// and locked for the entire gesture. This prevents gesture interruption
+    /// when dragging back and forth across the screen.
+    ///
+    /// ## Exclusion Zones
     /// - Bottom area for dock interaction (Practice page only)
     ///
     /// When `isGestureEnabled` is false (Profile has navigation depth),
@@ -129,9 +144,23 @@ struct HorizontalPager<Content: View>: View {
     private func dragGesture(pageWidth: CGFloat, pageHeight: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 10)
             .updating($dragOffset) { value, state, _ in
-                // Only respond to primarily horizontal drags
-                let isHorizontal = abs(value.translation.width) > abs(value.translation.height)
-                guard isHorizontal else { return }
+                let horizontal = abs(value.translation.width)
+                let vertical = abs(value.translation.height)
+                
+                // Lock gesture direction on first significant movement
+                if !isGestureDirectionLocked {
+                    if horizontal > directionLockThreshold || vertical > directionLockThreshold {
+                        DispatchQueue.main.async {
+                            isHorizontalGesture = horizontal > vertical
+                            isGestureDirectionLocked = true
+                        }
+                    }
+                    // Don't update offset until direction is determined
+                    return
+                }
+                
+                // Only respond if this is a horizontal gesture
+                guard isHorizontalGesture else { return }
                 
                 // Exclude bottom area ONLY on Practice page (has dock)
                 let startY = value.startLocation.y
@@ -159,18 +188,22 @@ struct HorizontalPager<Content: View>: View {
                 }
             }
             .onEnded { value in
-                // Clear drag state
+                // Capture locked state before resetting
+                let wasHorizontal = isHorizontalGesture
+                
+                // Reset gesture direction lock for next gesture
+                isGestureDirectionLocked = false
+                isHorizontalGesture = false
                 isHorizontallyDragging = false
+                
+                // Only process if this was a horizontal gesture
+                guard wasHorizontal else { return }
                 
                 // Exclude bottom area ONLY on Practice page (has dock)
                 let startY = value.startLocation.y
                 if currentPage == practicePageIndex {
                     guard startY < pageHeight - bottomExclusionHeight else { return }
                 }
-                
-                // Only respond to horizontal drags
-                let isHorizontal = abs(value.translation.width) > abs(value.translation.height)
-                guard isHorizontal else { return }
                 
                 let translation = value.translation.width
                 let velocity = value.predictedEndTranslation.width - translation

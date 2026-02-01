@@ -83,6 +83,10 @@ struct MainPracticeView: View {
     /// Used to disable pager gestures when Profile has pushed views.
     @State private var profileNavigationDepth: Int = 0
     
+    /// Whether the horizontal pager is actively being dragged.
+    /// Communicated to child pages to disable their ScrollViews.
+    @State private var isHorizontallyDragging: Bool = false
+    
     // MARK: - Computed Properties
     
     /// Whether the horizontal pager gesture should be enabled.
@@ -196,11 +200,14 @@ struct MainPracticeView: View {
                     currentPage: currentPageIndex,
                     pageCount: AppPage.allCases.count,
                     isGestureEnabled: isPagerGestureEnabled,
-                    bottomExclusionHeight: 120 // Dock area exclusion
+                    bottomExclusionHeight: 120, // Dock area exclusion (Practice page only)
+                    practicePageIndex: AppPage.practice.rawValue,
+                    isHorizontallyDragging: $isHorizontallyDragging
                 ) {
                     // Page 0: Prompts (Left)
                     PromptsPageView(
-                        onNavigateToCenter: { navigateToPage(.practice) }
+                        onNavigateToCenter: { navigateToPage(.practice) },
+                        isHorizontallyDragging: isHorizontallyDragging
                     )
                     
                     // Page 1: Practice (Center - Main)
@@ -214,7 +221,8 @@ struct MainPracticeView: View {
                     ProfilePageView(
                         store: store,
                         onNavigateToCenter: { navigateToPage(.practice) },
-                        navigationDepth: $profileNavigationDepth
+                        navigationDepth: $profileNavigationDepth,
+                        isHorizontallyDragging: isHorizontallyDragging
                     )
                 }
                 .ignoresSafeArea()

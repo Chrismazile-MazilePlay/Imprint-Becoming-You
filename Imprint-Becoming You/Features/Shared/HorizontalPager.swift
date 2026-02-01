@@ -22,10 +22,14 @@ import SwiftUI
 /// ## Gesture Priority
 /// When `isGestureEnabled` is `false`, the pager's drag gesture is removed
 /// entirely (`nil`), allowing `NavigationStack` edge swipes to work uncontested.
+/// This is controlled by the parent based on navigation depth.
 ///
 /// ## Exclusion Zones
-/// - **Left edge (20pt)**: Reserved for NavigationStack's back gesture
-/// - **Bottom area**: Reserved for dock interaction, configurable via `bottomExclusionHeight`
+/// - **Bottom area**: Reserved for dock interaction on Practice page only
+///
+/// ## Drag State Communication
+/// The `isHorizontallyDragging` binding communicates active drag state to child
+/// pages, allowing them to disable their ScrollViews during horizontal paging.
 ///
 /// ## Usage
 /// ```swift
@@ -33,14 +37,13 @@ import SwiftUI
 ///     currentPage: $pageIndex,
 ///     pageCount: 3,
 ///     isGestureEnabled: profileNavigationDepth == 0,
-///     bottomExclusionHeight: 120
+///     bottomExclusionHeight: 120,
+///     practicePageIndex: 1,
+///     isHorizontallyDragging: $isDragging
 /// ) {
 ///     PromptsPageView()
-///         .frame(maxWidth: .infinity, maxHeight: .infinity)
 ///     PracticePageView()
-///         .frame(maxWidth: .infinity, maxHeight: .infinity)
 ///     ProfilePageView()
-///         .frame(maxWidth: .infinity, maxHeight: .infinity)
 /// }
 /// ```
 struct HorizontalPager<Content: View>: View {
@@ -58,8 +61,16 @@ struct HorizontalPager<Content: View>: View {
     let isGestureEnabled: Bool
     
     /// Bottom exclusion zone height (for dock area).
-    /// Drags starting in this zone won't trigger page changes.
+    /// Only applied on `practicePageIndex` page.
     let bottomExclusionHeight: CGFloat
+    
+    /// Index of the Practice page that has the dock (typically 1).
+    /// Bottom exclusion only applies to this page.
+    let practicePageIndex: Int
+    
+    /// Binding to communicate horizontal drag state to child pages.
+    /// Child pages can use this to disable their ScrollViews during horizontal paging.
+    @Binding var isHorizontallyDragging: Bool
     
     /// The pages to display
     @ViewBuilder let content: () -> Content
@@ -73,9 +84,6 @@ struct HorizontalPager<Content: View>: View {
     
     /// Minimum drag distance to trigger page change
     private let dragThreshold: CGFloat = 50
-    
-    /// Left edge exclusion zone for NavigationStack gesture
-    private let edgeExclusionWidth: CGFloat = 20
     
     /// Animation for page transitions
     private var pageAnimation: Animation {
@@ -113,9 +121,11 @@ struct HorizontalPager<Content: View>: View {
     
     /// Creates the drag gesture for horizontal paging.
     ///
-    /// Excludes:
-    /// - Left edge (20pt) for NavigationStack compatibility
-    /// - Bottom area for dock interaction
+    /// Exclusion zones:
+    /// - Bottom area for dock interaction (Practice page only)
+    ///
+    /// When `isGestureEnabled` is false (Profile has navigation depth),
+    /// the entire gesture is disabled, allowing NavigationStack full control.
     private func dragGesture(pageWidth: CGFloat, pageHeight: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 10)
             .updating($dragOffset) { value, state, _ in
@@ -123,13 +133,18 @@ struct HorizontalPager<Content: View>: View {
                 let isHorizontal = abs(value.translation.width) > abs(value.translation.height)
                 guard isHorizontal else { return }
                 
-                // Exclude left edge for NavigationStack compatibility
-                let startX = value.startLocation.x
-                guard startX > edgeExclusionWidth else { return }
-                
-                // Exclude bottom area for dock interaction
+                // Exclude bottom area ONLY on Practice page (has dock)
                 let startY = value.startLocation.y
-                guard startY < pageHeight - bottomExclusionHeight else { return }
+                if currentPage == practicePageIndex {
+                    guard startY < pageHeight - bottomExclusionHeight else { return }
+                }
+                
+                // Update drag state for child pages
+                DispatchQueue.main.async {
+                    if !isHorizontallyDragging {
+                        isHorizontallyDragging = true
+                    }
+                }
                 
                 // Apply resistance at page boundaries
                 let translation = value.translation.width
@@ -144,12 +159,14 @@ struct HorizontalPager<Content: View>: View {
                 }
             }
             .onEnded { value in
-                // Check if drag started in exclusion zones
-                let startX = value.startLocation.x
-                guard startX > edgeExclusionWidth else { return }
+                // Clear drag state
+                isHorizontallyDragging = false
                 
+                // Exclude bottom area ONLY on Practice page (has dock)
                 let startY = value.startLocation.y
-                guard startY < pageHeight - bottomExclusionHeight else { return }
+                if currentPage == practicePageIndex {
+                    guard startY < pageHeight - bottomExclusionHeight else { return }
+                }
                 
                 // Only respond to horizontal drags
                 let isHorizontal = abs(value.translation.width) > abs(value.translation.height)
@@ -183,6 +200,7 @@ struct HorizontalPager<Content: View>: View {
     struct PreviewWrapper: View {
         @State private var currentPage = 1
         @State private var gesturesEnabled = true
+        @State private var isDragging = false
         
         var body: some View {
             VStack {
@@ -198,6 +216,7 @@ struct HorizontalPager<Content: View>: View {
                     .padding(.horizontal)
                 
                 Text("Current Page: \(currentPage)")
+                Text("Is Dragging: \(isDragging ? "Yes" : "No")")
                     .padding(.bottom)
                 
                 // Pager
@@ -205,7 +224,9 @@ struct HorizontalPager<Content: View>: View {
                     currentPage: $currentPage,
                     pageCount: 3,
                     isGestureEnabled: gesturesEnabled,
-                    bottomExclusionHeight: 120
+                    bottomExclusionHeight: 120,
+                    practicePageIndex: 1,
+                    isHorizontallyDragging: $isDragging
                 ) {
                     Color.red.opacity(0.3)
                         .overlay(Text("Page 0 (Prompts)").font(.title))
@@ -226,13 +247,16 @@ struct HorizontalPager<Content: View>: View {
 #Preview("Horizontal Pager - Dark") {
     struct PreviewWrapper: View {
         @State private var currentPage = 1
+        @State private var isDragging = false
         
         var body: some View {
             HorizontalPager(
                 currentPage: $currentPage,
                 pageCount: 3,
                 isGestureEnabled: true,
-                bottomExclusionHeight: 120
+                bottomExclusionHeight: 120,
+                practicePageIndex: 1,
+                isHorizontallyDragging: $isDragging
             ) {
                 ZStack {
                     AppColors.backgroundPrimary

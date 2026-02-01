@@ -58,6 +58,10 @@ struct ProfilePageView: View {
     /// Parent uses this to disable pager gestures when depth > 0.
     @Binding var navigationDepth: Int
     
+    /// Whether the horizontal pager is actively being dragged.
+    /// Used to disable vertical scrolling during horizontal paging.
+    let isHorizontallyDragging: Bool
+    
     // MARK: - Navigation State
     
     /// Navigation path owned by this view
@@ -164,6 +168,7 @@ struct ProfilePageView: View {
             }
             .padding(.horizontal, AppTheme.Spacing.lg)
         }
+        .scrollDisabled(isHorizontallyDragging)
     }
     
     // MARK: - Navigation Destinations
@@ -697,7 +702,8 @@ struct SettingsRow: View {
             ProfilePageView(
                 store: .preview,
                 onNavigateToCenter: {},
-                navigationDepth: $navigationDepth
+                navigationDepth: $navigationDepth,
+                isHorizontallyDragging: false
             )
             .previewEnvironment()
         }

@@ -29,6 +29,11 @@ struct PromptsPageView: View {
     /// Callback to navigate to center (Practice) page
     let onNavigateToCenter: () -> Void
     
+    /// Whether the horizontal pager is actively being dragged.
+    /// Used to disable vertical scrolling during horizontal paging.
+    /// (Reserved for future use when ScrollView is added)
+    let isHorizontallyDragging: Bool
+    
     // MARK: - Body
     
     var body: some View {
@@ -112,10 +117,16 @@ struct PromptsPageView: View {
 // MARK: - Previews
 
 #Preview("Prompts Page") {
-    PromptsPageView(onNavigateToCenter: {})
+    PromptsPageView(
+        onNavigateToCenter: {},
+        isHorizontallyDragging: false
+    )
 }
 
 #Preview("Prompts Page - Dark") {
-    PromptsPageView(onNavigateToCenter: {})
-        .preferredColorScheme(.dark)
+    PromptsPageView(
+        onNavigateToCenter: {},
+        isHorizontallyDragging: false
+    )
+    .preferredColorScheme(.dark)
 }

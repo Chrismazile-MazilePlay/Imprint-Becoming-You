@@ -22,6 +22,15 @@ import SwiftData
 /// This class is `@MainActor` isolated because SwiftData's `ModelContext`
 /// must be accessed from the main thread. All operations are synchronous.
 ///
+/// ## Base Repository Conformance
+/// This repository conforms to `BaseRepositoryProtocol`, inheriting:
+/// - `insert(_:)` - Inserts a single session (prefer `save(_:)` for relationship setup)
+/// - `delete(_:)` - Deletes a single session (prefer domain `delete(_:)` for cleanup)
+/// - `save()` - Saves pending changes
+///
+/// Note: `fetchAll()` is overridden to provide specific sort ordering.
+/// Note: `count()` is available from the protocol for basic counting needs.
+///
 /// ## Error Handling Strategy
 ///
 /// This repository follows a consistent error handling contract:
@@ -44,12 +53,18 @@ import SwiftData
 /// the referenced affirmations. This enables `Affirmation.isProtected`
 /// to return true, preventing deletion of those affirmations.
 @MainActor
-final class SavedSessionRepository: SavedSessionRepositoryProtocol {
+final class SavedSessionRepository: BaseRepositoryProtocol, SavedSessionRepositoryProtocol {
     
-    // MARK: - Properties
+    // MARK: - BaseRepositoryProtocol Conformance
     
-    /// The SwiftData model context
-    private let modelContext: ModelContext
+    /// The model type this repository manages.
+    typealias Model = SavedSession
+    
+    /// The SwiftData model context for database operations.
+    ///
+    /// Exposed as `let` (not `private`) to satisfy `BaseRepositoryProtocol` requirements,
+    /// enabling default implementations for common CRUD operations.
+    let modelContext: ModelContext
     
     // MARK: - Initialization
     
@@ -62,6 +77,13 @@ final class SavedSessionRepository: SavedSessionRepositoryProtocol {
     
     // MARK: - Fetching
     
+    /// Fetches all saved sessions ordered by sort order.
+    ///
+    /// - Returns: Array of saved sessions, sorted by `sortOrder` ascending
+    /// - Throws: `AppError.loadFailed` if fetch fails
+    ///
+    /// - Note: This overrides the `BaseRepositoryProtocol` default to provide
+    ///   specific sort ordering required for the saved sessions list.
     func fetchAll() throws -> [SavedSession] {
         do {
             let descriptor = FetchDescriptor<SavedSession>(
@@ -73,6 +95,14 @@ final class SavedSessionRepository: SavedSessionRepositoryProtocol {
         }
     }
     
+    /// Fetches a saved session by its unique identifier.
+    ///
+    /// - Parameter id: The UUID of the session to fetch
+    /// - Returns: The session if found, `nil` otherwise
+    /// - Throws: `AppError.loadFailed` if the fetch operation fails
+    ///
+    /// - Note: This method is required by `BaseRepositoryProtocol` but cannot use
+    ///   a default implementation due to Swift macro limitations with generic predicates.
     func fetchById(_ id: UUID) throws -> SavedSession? {
         do {
             let descriptor = FetchDescriptor<SavedSession>(
@@ -113,6 +143,13 @@ final class SavedSessionRepository: SavedSessionRepositoryProtocol {
     
     // MARK: - Counting
     
+    /// Counts total saved sessions.
+    ///
+    /// - Returns: Total count of saved sessions
+    /// - Throws: `AppError.loadFailed` if count fails
+    ///
+    /// - Note: This overrides the `BaseRepositoryProtocol` default to provide
+    ///   consistent error messaging.
     func count() throws -> Int {
         do {
             let descriptor = FetchDescriptor<SavedSession>()
@@ -189,6 +226,13 @@ final class SavedSessionRepository: SavedSessionRepositoryProtocol {
         }
     }
     
+    /// Deletes a saved session with proper cleanup.
+    ///
+    /// - Parameter session: The session to delete
+    /// - Throws: `AppError.saveFailed` if delete fails
+    ///
+    /// - Note: This overrides the `BaseRepositoryProtocol` default to provide
+    ///   proper relationship cleanup before deletion.
     func delete(_ session: SavedSession) throws {
         do {
             let sessionName = session.name

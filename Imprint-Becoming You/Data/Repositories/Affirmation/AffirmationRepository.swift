@@ -23,6 +23,14 @@ import SwiftData
 /// This class is `@MainActor` isolated because SwiftData's `ModelContext`
 /// must be accessed from the main thread. All operations are synchronous.
 ///
+/// ## Base Repository Conformance
+/// This repository conforms to `BaseRepositoryProtocol`, inheriting:
+/// - `fetchAll()` - Fetches all affirmations (rarely used, prefer queue methods)
+/// - `count()` - Counts all affirmations (use `countTotal()` for explicit naming)
+/// - `insert(_:)` - Inserts a single affirmation (use `insertBatch` for multiple)
+/// - `delete(_:)` - Deletes a single affirmation
+/// - `save()` - Saves pending changes
+///
 /// ## Smart Queue Algorithm
 /// The queue uses a pre-computed `queueScore` field for database-level sorting,
 /// enabling efficient queries with `fetchLimit` instead of loading all records.
@@ -64,12 +72,18 @@ import SwiftData
 ///   `recordSkip`, `recordShare`, `addResonanceRecord`) log and return gracefully when
 ///   entity is not found. These are non-critical analytics that shouldn't block user flow.
 @MainActor
-final class AffirmationRepository: AffirmationRepositoryProtocol {
+final class AffirmationRepository: BaseRepositoryProtocol, AffirmationRepositoryProtocol {
     
-    // MARK: - Properties
+    // MARK: - BaseRepositoryProtocol Conformance
     
-    /// The SwiftData model context
-    private let modelContext: ModelContext
+    /// The model type this repository manages.
+    typealias Model = Affirmation
+    
+    /// The SwiftData model context for database operations.
+    ///
+    /// Exposed as `let` (not `private`) to satisfy `BaseRepositoryProtocol` requirements,
+    /// enabling default implementations for common CRUD operations.
+    let modelContext: ModelContext
     
     // MARK: - Initialization
     
@@ -218,6 +232,14 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
         }
     }
     
+    /// Fetches a single affirmation by its unique identifier.
+    ///
+    /// - Parameter id: The UUID of the affirmation to fetch
+    /// - Returns: The affirmation if found, `nil` otherwise
+    /// - Throws: `AppError.loadFailed` if the fetch operation fails
+    ///
+    /// - Note: This method is required by `BaseRepositoryProtocol` but cannot use
+    ///   a default implementation due to Swift macro limitations with generic predicates.
     func fetchById(_ id: UUID) throws -> Affirmation? {
         do {
             let descriptor = FetchDescriptor<Affirmation>(
@@ -264,14 +286,10 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     
     func countBySource(_ source: AffirmationSource) throws -> Int {
         do {
-            // SwiftData predicate requires raw value comparison for enums
             let sourceRawValue = source.rawValue
             let descriptor = FetchDescriptor<Affirmation>(
-                predicate: #Predicate<Affirmation> { affirmation in
-                    affirmation.source.rawValue == sourceRawValue
-                }
+                predicate: #Predicate<Affirmation> { $0.source.rawValue == sourceRawValue }
             )
-            
             return try modelContext.fetchCount(descriptor)
             
         } catch {
@@ -281,9 +299,11 @@ final class AffirmationRepository: AffirmationRepositoryProtocol {
     
     // MARK: - Engagement Tracking
     //
-    // These are "best effort" operations - they track analytics but shouldn't
-    // block user flow if the entity is not found. Entity not found is expected
-    // for deleted/expired content.
+    // These methods are "best effort" operations that log and return gracefully
+    // when the entity is not found. This is expected behavior for:
+    // 1. Deleted/expired affirmations
+    // 2. Non-critical analytics that shouldn't block user flow
+    // 3. Operations where the user action has already completed successfully
     //
     // IMPORTANT: All engagement tracking methods must call recalculateQueueScore()
     // after updating engagement metrics to keep database-level sorting accurate.

@@ -8,6 +8,7 @@
 import AVFoundation
 import Speech
 import Combine
+import os.signpost
 
 // MARK: - SpeechCaptureService
 
@@ -23,6 +24,11 @@ import Combine
 /// - **Format Agnostic**: Adapts to hardware sample rate changes
 /// - **Real-time Transcription**: Provides live transcription updates
 /// - **Audio Level Monitoring**: Exposes RMS levels for UI visualization
+///
+/// ## Performance Profiling
+/// Key operations are instrumented with os_signpost for Instruments profiling:
+/// - `Speech Capture`: Active capture duration
+/// - `Speech Recognition Init`: Audio engine and recognizer setup time
 ///
 /// ## Usage
 /// ```swift
@@ -114,6 +120,9 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
     private var smoothedLevel: Float = 0
     private let smoothingFactor: Float = 0.3
     
+    /// Signpost ID for current capture session (for proper begin/end pairing)
+    nonisolated(unsafe) private var captureSignpostID: OSSignpostID?
+    
     // MARK: - Initialization
     
     override init() {
@@ -143,6 +152,11 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         }
         
         streamContinuation?.finish()
+        
+        // End capture signpost if still active
+        if let signpostID = captureSignpostID {
+            AppLogger.endInterval(AppLogger.SignpostName.speechCapture, id: signpostID, category: .speech)
+        }
     }
     
     // MARK: - Stream Access
@@ -225,18 +239,27 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         print("[LOG] SpeechCaptureService: Starting capture...")
         #endif
         
+        // Begin signpost interval for capture
+        captureSignpostID = AppLogger.makeSignpostID(for: .speech)
+        if let signpostID = captureSignpostID {
+            AppLogger.beginInterval(AppLogger.SignpostName.speechCapture, id: signpostID, category: .speech)
+        }
+        
         // Check permissions
         guard hasMicrophonePermission else {
+            endCaptureSignpost()
             emit(.error(.microphonePermissionDenied))
             throw CaptureError.microphonePermissionDenied
         }
         
         guard hasSpeechRecognitionPermission else {
+            endCaptureSignpost()
             emit(.error(.speechRecognitionPermissionDenied))
             throw CaptureError.speechRecognitionPermissionDenied
         }
         
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
+            endCaptureSignpost()
             emit(.error(.speechRecognizerUnavailable))
             throw CaptureError.speechRecognizerUnavailable
         }
@@ -293,6 +316,9 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         
         isCapturing = false
         
+        // End signpost interval
+        endCaptureSignpost()
+        
         emit(.stopped)
         
         #if DEBUG
@@ -325,10 +351,21 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         isCapturing = false
         currentTranscription = ""
         
+        // End signpost interval
+        endCaptureSignpost()
+        
         emit(.stopped)
     }
     
     // MARK: - Private Methods
+    
+    /// Ends the capture signpost interval if one is active
+    private func endCaptureSignpost() {
+        if let signpostID = captureSignpostID {
+            AppLogger.endInterval(AppLogger.SignpostName.speechCapture, id: signpostID, category: .speech)
+            captureSignpostID = nil
+        }
+    }
     
     /// Configures the audio session for recording
     private func configureAudioSession() async throws {

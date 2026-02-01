@@ -5,13 +5,6 @@
 //  Created by Christopher Mazile on 12/19/25.
 //
 
-//
-//  Imprint_Becoming_YouApp.swift
-//  Imprint-Becoming You
-//
-//  Created by Christopher Mazile on 12/19/25.
-//
-
 import SwiftUI
 import SwiftData
 

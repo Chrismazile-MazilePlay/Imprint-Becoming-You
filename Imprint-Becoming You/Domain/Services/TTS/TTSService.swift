@@ -34,6 +34,12 @@ import iOS_TTS
 /// to avoid blocking the main thread. This reduces UI jank during TTS playback
 /// initialization from ~50-200ms to near-zero latency.
 ///
+/// ## Performance Profiling
+/// Key operations are instrumented with os_signpost for Instruments profiling:
+/// - `TTS Warmup`: ML model loading time
+/// - `TTS Synthesis`: Per-affirmation synthesis duration
+/// - `Audio Session Config`: Audio session setup latency
+///
 /// ## Architecture
 /// ```
 /// TTSService
@@ -127,6 +133,14 @@ final class TTSService: TTSServiceProtocol {
     }
     
     func warmUp() async {
+        // Measure total warm-up time with signpost
+        await AppLogger.measureAsync(AppLogger.SignpostName.ttsWarmup, category: .tts) {
+            await performWarmUp()
+        }
+    }
+    
+    /// Internal warm-up implementation (separated for signpost measurement).
+    private func performWarmUp() async {
         #if DEBUG
         print("🎤 TTSService: Warming up Kokoro engine...")
         #endif
@@ -182,6 +196,14 @@ final class TTSService: TTSServiceProtocol {
     }
     
     func synthesize(text: String, voiceId: String?) async throws -> Data {
+        // Measure synthesis time with signpost
+        return try await AppLogger.measureAsync(AppLogger.SignpostName.ttsSynthesis, category: .tts) {
+            try await performSynthesize(text: text, voiceId: voiceId)
+        }
+    }
+    
+    /// Internal synthesis implementation (separated for signpost measurement).
+    private func performSynthesize(text: String, voiceId: String?) async throws -> Data {
         #if DEBUG
         print("🎤 TTSService.synthesize: voiceId = \(voiceId ?? "nil")")
         #endif
@@ -330,6 +352,14 @@ final class TTSService: TTSServiceProtocol {
             return
         }
         
+        // Measure audio session configuration with signpost
+        await AppLogger.measureAsync(AppLogger.SignpostName.audioSessionConfig, category: .audio) {
+            await performAudioSessionConfiguration()
+        }
+    }
+    
+    /// Internal audio session configuration (separated for signpost measurement).
+    private func performAudioSessionConfiguration() async {
         #if DEBUG
         print("🎤 TTSService: Pre-configuring audio session on background queue...")
         #endif
@@ -522,6 +552,14 @@ final class TTSService: TTSServiceProtocol {
     /// Since the session was pre-configured during `warmUp()`, this typically
     /// only needs to call `setActive()` which is much faster (~1-5ms vs 50-200ms).
     private func playAudioData(_ data: Data) async throws {
+        // Measure playback with signpost
+        let signpostID = AppLogger.makeSignpostID(for: .tts)
+        AppLogger.beginInterval(AppLogger.SignpostName.ttsPlayback, id: signpostID, category: .tts)
+        
+        defer {
+            AppLogger.endInterval(AppLogger.SignpostName.ttsPlayback, id: signpostID, category: .tts)
+        }
+        
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             do {
                 let player = try AVAudioPlayer(data: data)

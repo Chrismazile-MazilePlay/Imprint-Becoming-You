@@ -36,6 +36,14 @@ extension PracticeStore {
     func executeCurrentFlow(generation: Int) async {
         guard shouldContinueFlow(generation: generation) else { return }
         
+        // Measure flow execution with signpost
+        let signpostID = AppLogger.makeSignpostID(for: .practice)
+        AppLogger.beginInterval(AppLogger.SignpostName.flowExecution, id: signpostID, category: .practice)
+        
+        defer {
+            AppLogger.endInterval(AppLogger.SignpostName.flowExecution, id: signpostID, category: .practice)
+        }
+        
         try? await Task.sleep(for: PracticeTiming.flowStartDelay)
         
         guard shouldContinueFlow(generation: generation) else { return }
@@ -357,6 +365,14 @@ extension PracticeStore {
     /// 4. Process audio and transcription
     /// 5. Complete with result
     func executeListeningPhase(generation: Int, affirmationText: String, mode: ListeningMode) async {
+        // Measure listening phase with signpost
+        let signpostID = AppLogger.makeSignpostID(for: .speech)
+        AppLogger.beginInterval(AppLogger.SignpostName.listeningPhase, id: signpostID, category: .speech)
+        
+        defer {
+            AppLogger.endInterval(AppLogger.SignpostName.listeningPhase, id: signpostID, category: .speech)
+        }
+        
         AppLogger.debug(
             "Listening phase started",
             category: .speech,
@@ -386,7 +402,19 @@ extension PracticeStore {
             // PHASE: Initialize capture (while still in .preparingToListen state)
             // The UI shows green breathing animation during this
             do {
-                try await captureService.startCapture()
+                // Measure speech recognition initialization with signpost
+                let initSignpostID = AppLogger.makeSignpostID(for: .speech)
+                AppLogger.beginInterval(AppLogger.SignpostName.speechRecognitionInit, id: initSignpostID, category: .speech)
+                
+                do {
+                    try await captureService.startCapture()
+                } catch {
+                    AppLogger.endInterval(AppLogger.SignpostName.speechRecognitionInit, id: initSignpostID, category: .speech)
+                    throw error
+                }
+                
+                AppLogger.endInterval(AppLogger.SignpostName.speechRecognitionInit, id: initSignpostID, category: .speech)
+                
             } catch {
                 guard generation == self.flowGeneration else { return }
                 
@@ -422,6 +450,14 @@ extension PracticeStore {
             hasStarted = true
             
             // PHASE: Active listening loop
+            // Measure active speech capture with signpost
+            let captureSignpostID = AppLogger.makeSignpostID(for: .speech)
+            AppLogger.beginInterval(AppLogger.SignpostName.speechCapture, id: captureSignpostID, category: .speech)
+            
+            defer {
+                AppLogger.endInterval(AppLogger.SignpostName.speechCapture, id: captureSignpostID, category: .speech)
+            }
+            
             captureLoop: for await update in stream {
                 guard !Task.isCancelled else { break captureLoop }
                 guard generation == self.flowGeneration else { break captureLoop }

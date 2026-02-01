@@ -23,6 +23,10 @@ private let speechLog = Logger(subsystem: "com.imprint.audio", category: "Speech
 /// - **OCP**: Works with any AudioPermissionProviding implementation
 /// - **DIP**: Depends on protocols, not concrete implementations
 ///
+/// ## Performance Profiling
+/// Key operations are instrumented with os_signpost for Instruments profiling:
+/// - `Speech Analysis`: Total analysis duration per affirmation
+///
 /// Integrates:
 /// - `AudioInputManager` for microphone capture
 /// - `SpeechRecognitionService` for transcription
@@ -62,6 +66,9 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol {
     
     /// Whether analysis is currently active
     private(set) var isAnalyzing: Bool = false
+    
+    /// Signpost ID for current analysis session (for proper begin/end pairing)
+    private var analysisSignpostID: OSSignpostID?
     
     // MARK: - Stream Continuations
     
@@ -166,13 +173,21 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol {
         
         speechLog.info("🎬 Starting analysis for: \"\(affirmationText.prefix(30))...\"")
         
+        // Begin signpost interval for analysis
+        analysisSignpostID = AppLogger.makeSignpostID(for: .speech)
+        if let signpostID = analysisSignpostID {
+            AppLogger.beginInterval(AppLogger.SignpostName.speechAnalysis, id: signpostID, category: .speech)
+        }
+        
         // Check permissions
         guard hasMicrophonePermission else {
+            endAnalysisSignpost()
             speechLog.error("❌ Microphone permission denied")
             throw AppError.microphoneAccessDenied
         }
         
         guard hasSpeechRecognitionPermission else {
+            endAnalysisSignpost()
             speechLog.error("❌ Speech recognition permission denied")
             throw AppError.speechRecognitionDenied
         }
@@ -240,6 +255,9 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol {
         isAnalyzing = false
         scoreCalculator = nil
         
+        // End signpost interval
+        endAnalysisSignpost()
+        
         // Finish streams
         scoreContinuation?.finish()
         textContinuation?.finish()
@@ -266,6 +284,9 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol {
         isAnalyzing = false
         scoreCalculator = nil
         
+        // End signpost interval
+        endAnalysisSignpost()
+        
         scoreContinuation?.finish()
         textContinuation?.finish()
         silenceContinuation?.finish()
@@ -286,6 +307,14 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol {
     }
     
     // MARK: - Private Methods
+    
+    /// Ends the analysis signpost interval if one is active
+    private func endAnalysisSignpost() {
+        if let signpostID = analysisSignpostID {
+            AppLogger.endInterval(AppLogger.SignpostName.speechAnalysis, id: signpostID, category: .speech)
+            analysisSignpostID = nil
+        }
+    }
     
     /// Main analysis loop
     private func runAnalysisLoop() async {
@@ -389,7 +418,7 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol {
         // Emit recognized text
         emitText(result.text)
         
-        speechLog.debug("📝 Transcription (\(result.isFinal ? "final" : "partial")): \"\(result.text.prefix(50))...\"")
+        speechLog.debug("🔍 Transcription (\(result.isFinal ? "final" : "partial")): \"\(result.text.prefix(50))...\"")
         
         // Update text accuracy in real-time (partial)
         // Uses TextAccuracyCalculator from ResonanceScoreCalculator.swift

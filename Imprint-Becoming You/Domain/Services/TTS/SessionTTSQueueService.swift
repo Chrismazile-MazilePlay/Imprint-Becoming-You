@@ -32,6 +32,10 @@ import AVFoundation
 /// `clearQueue()` is specifically for background memory release without
 /// fully resetting the service state.
 ///
+/// ## Performance Profiling
+/// Session preparation is instrumented with os_signpost for Instruments profiling:
+/// - `Session Preparation`: Total preparation time (Kokoro wait + synthesis)
+///
 /// ## Preparation Phases
 /// ```
 /// 1. WaitingForKokoro - Wait for TTS engine (uses existing app warm-up)
@@ -152,6 +156,14 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         onPhaseChange: @escaping @Sendable (SessionPreparationPhase) -> Void,
         onProgress: @escaping @Sendable (Int, Int) -> Void
     ) async throws {
+        // Measure total session preparation time with signpost
+        let signpostID = AppLogger.makeSignpostID(for: .tts)
+        AppLogger.beginInterval(AppLogger.SignpostName.sessionPreparation, id: signpostID, category: .tts)
+        
+        defer {
+            AppLogger.endInterval(AppLogger.SignpostName.sessionPreparation, id: signpostID, category: .tts)
+        }
+        
         #if DEBUG
         print("🎵 SessionTTSQueue: Preparing session with \(affirmations.count) affirmations, voice: \(voiceId ?? "default"), forceSystemTTS: \(forceSystemTTS)")
         #endif

@@ -7,6 +7,7 @@
 
 import Foundation
 import os.log
+import os.signpost
 
 // MARK: - Log Level
 
@@ -107,6 +108,7 @@ enum LogCategory: String, Sendable {
 /// - Category-based filtering for Console.app
 /// - Consistent formatting across the app
 /// - Thread-safe (uses os.log under the hood)
+/// - **Performance signposts for Instruments profiling**
 ///
 /// ## Log Levels
 /// - `.debug` / `.info`: Only logged in DEBUG builds
@@ -123,12 +125,27 @@ enum LogCategory: String, Sendable {
 ///
 /// // Errors
 /// AppLogger.error("Save failed", category: .data, error: error)
+///
+/// // Performance measurement
+/// let id = AppLogger.makeSignpostID(for: .tts)
+/// AppLogger.beginInterval(.ttsSynthesis, id: id, category: .tts)
+/// // ... operation
+/// AppLogger.endInterval(.ttsSynthesis, id: id, category: .tts)
+///
+/// // Or use convenience wrapper
+/// try await AppLogger.measureAsync(.ttsSynthesis, category: .tts) {
+///     try await synthesizeAudio()
+/// }
 /// ```
 ///
 /// ## Viewing Logs
 /// Use Console.app and filter by:
 /// - Subsystem: `com.imprint.app`
 /// - Category: `Audio`, `Data`, `TTS`, etc.
+///
+/// ## Viewing Signposts
+/// Use Instruments with the "Points of Interest" or "os_signpost" instrument.
+/// Filter by subsystem `com.imprint.app` and category `Performance.*`.
 enum AppLogger {
     
     // MARK: - Minimum Log Level
@@ -329,5 +346,204 @@ extension AppLogger {
         category: LogCategory
     ) {
         debug("Best-effort operation: \(operation)", category: category)
+    }
+}
+
+// MARK: - Performance Signpost Support
+
+extension AppLogger {
+    
+    // MARK: - Signpost Names
+    
+    /// Predefined signpost names for consistent Instruments display.
+    ///
+    /// Using `StaticString` is required by os_signpost API for performance.
+    /// These names appear in Instruments' Points of Interest track.
+    enum SignpostName {
+        /// TTS engine warm-up (loading ML models)
+        static let ttsWarmup: StaticString = "TTS Warmup"
+        
+        /// Individual TTS synthesis operation
+        static let ttsSynthesis: StaticString = "TTS Synthesis"
+        
+        /// TTS audio playback
+        static let ttsPlayback: StaticString = "TTS Playback"
+        
+        /// Speech recognition initialization
+        static let speechRecognitionInit: StaticString = "Speech Recognition Init"
+        
+        /// Active speech capture duration
+        static let speechCapture: StaticString = "Speech Capture"
+        
+        /// Speech analysis processing
+        static let speechAnalysis: StaticString = "Speech Analysis"
+        
+        /// Full session preparation (Kokoro wait + synthesis)
+        static let sessionPreparation: StaticString = "Session Preparation"
+        
+        /// Audio session configuration
+        static let audioSessionConfig: StaticString = "Audio Session Config"
+        
+        /// SwiftData fetch operation
+        static let swiftDataFetch: StaticString = "SwiftData Fetch"
+        
+        /// Practice flow execution
+        static let flowExecution: StaticString = "Flow Execution"
+        
+        /// Listening phase (preparing + active listening)
+        static let listeningPhase: StaticString = "Listening Phase"
+    }
+    
+    // MARK: - Signpost Log
+    
+    /// Returns the signpost log for a given category.
+    ///
+    /// Uses `Performance.<Category>` naming for organization in Instruments.
+    private static func signpostLog(for category: LogCategory) -> OSLog {
+        OSLog(subsystem: "com.imprint.app", category: "Performance.\(category.rawValue)")
+    }
+    
+    // MARK: - Signpost ID Management
+    
+    /// Creates a unique signpost ID for tracking async operations.
+    ///
+    /// Use when multiple instances of the same operation may overlap.
+    /// The ID correlates begin/end pairs in Instruments.
+    ///
+    /// ## Example
+    /// ```swift
+    /// let id = AppLogger.makeSignpostID(for: .tts)
+    /// AppLogger.beginInterval(.ttsSynthesis, id: id, category: .tts)
+    /// // ... async work
+    /// AppLogger.endInterval(.ttsSynthesis, id: id, category: .tts)
+    /// ```
+    ///
+    /// - Parameter category: Log category for the signpost
+    /// - Returns: Unique signpost ID
+    static func makeSignpostID(for category: LogCategory) -> OSSignpostID {
+        OSSignpostID(log: signpostLog(for: category))
+    }
+    
+    // MARK: - Interval Tracking
+    
+    /// Begins a signpost interval for performance measurement.
+    ///
+    /// Call `endInterval` with the same name and ID to complete measurement.
+    /// Visible in Instruments > Points of Interest track.
+    ///
+    /// - Parameters:
+    ///   - name: Static string name for the interval (use `SignpostName` constants)
+    ///   - id: Unique identifier for this interval instance (use `.exclusive` for non-overlapping)
+    ///   - category: Log category for organization
+    ///
+    /// ## Example
+    /// ```swift
+    /// let signpostID = AppLogger.makeSignpostID(for: .tts)
+    /// AppLogger.beginInterval(.ttsSynthesis, id: signpostID, category: .tts)
+    /// defer { AppLogger.endInterval(.ttsSynthesis, id: signpostID, category: .tts) }
+    /// ```
+    static func beginInterval(
+        _ name: StaticString,
+        id: OSSignpostID = .exclusive,
+        category: LogCategory
+    ) {
+        #if DEBUG
+        let log = signpostLog(for: category)
+        os_signpost(.begin, log: log, name: name, signpostID: id)
+        #endif
+    }
+    
+    /// Ends a signpost interval.
+    ///
+    /// - Parameters:
+    ///   - name: Must match the name used in `beginInterval`
+    ///   - id: Must match the ID used in `beginInterval`
+    ///   - category: Must match the category used in `beginInterval`
+    static func endInterval(
+        _ name: StaticString,
+        id: OSSignpostID = .exclusive,
+        category: LogCategory
+    ) {
+        #if DEBUG
+        let log = signpostLog(for: category)
+        os_signpost(.end, log: log, name: name, signpostID: id)
+        #endif
+    }
+    
+    /// Emits a single signpost event (not an interval).
+    ///
+    /// Use for instantaneous events like button taps or state changes.
+    ///
+    /// - Parameters:
+    ///   - name: Event name
+    ///   - category: Log category
+    ///   - message: Optional descriptive message
+    static func event(
+        _ name: StaticString,
+        category: LogCategory,
+        message: String = ""
+    ) {
+        #if DEBUG
+        let log = signpostLog(for: category)
+        os_signpost(.event, log: log, name: name, "%{public}s", message)
+        #endif
+    }
+    
+    // MARK: - Convenience Measurement Methods
+    
+    /// Measures the duration of a synchronous closure.
+    ///
+    /// Automatically emits begin/end signposts around the closure.
+    ///
+    /// - Parameters:
+    ///   - name: Interval name (use `SignpostName` constants)
+    ///   - category: Log category
+    ///   - operation: Closure to measure
+    /// - Returns: Result of the closure
+    ///
+    /// ## Example
+    /// ```swift
+    /// let result = AppLogger.measure(.swiftDataFetch, category: .data) {
+    ///     try context.fetch(descriptor)
+    /// }
+    /// ```
+    @discardableResult
+    static func measure<T>(
+        _ name: StaticString,
+        category: LogCategory,
+        operation: () throws -> T
+    ) rethrows -> T {
+        let id = makeSignpostID(for: category)
+        beginInterval(name, id: id, category: category)
+        defer { endInterval(name, id: id, category: category) }
+        return try operation()
+    }
+    
+    /// Measures the duration of an async closure.
+    ///
+    /// Automatically emits begin/end signposts around the closure.
+    ///
+    /// - Parameters:
+    ///   - name: Interval name (use `SignpostName` constants)
+    ///   - category: Log category
+    ///   - operation: Async closure to measure
+    /// - Returns: Result of the closure
+    ///
+    /// ## Example
+    /// ```swift
+    /// let audioData = try await AppLogger.measureAsync(.ttsSynthesis, category: .tts) {
+    ///     try await kokoroEngine.synthesizeToData(text: text, voiceStyle: style)
+    /// }
+    /// ```
+    @discardableResult
+    static func measureAsync<T>(
+        _ name: StaticString,
+        category: LogCategory,
+        operation: () async throws -> T
+    ) async rethrows -> T {
+        let id = makeSignpostID(for: category)
+        beginInterval(name, id: id, category: category)
+        defer { endInterval(name, id: id, category: category) }
+        return try await operation()
     }
 }

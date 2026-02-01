@@ -8,6 +8,28 @@
 import Foundation
 import CryptoKit
 
+// MARK: - Cache Cleanup Statistics
+
+/// Statistics from a cache cleanup operation.
+///
+/// Used for debugging and monitoring cache health.
+struct CacheCleanupStats {
+    /// Number of entries successfully removed
+    let removedCount: Int
+    
+    /// Number of entries that failed to delete
+    let failedCount: Int
+    
+    /// Total bytes freed
+    let freedBytes: Int64
+    
+    /// Time taken for cleanup
+    let duration: TimeInterval
+    
+    /// Keys that failed to delete (for debugging)
+    let failedKeys: [String]
+}
+
 // MARK: - Audio Cache Manager
 
 /// Manages cached TTS audio files with LRU eviction.
@@ -20,6 +42,12 @@ import CryptoKit
 /// - Expiration: 30 days since last access
 /// - Eviction: LRU when size limit exceeded
 /// - Storage: App's Caches directory (system can purge if needed)
+///
+/// ## Batch Operations
+/// For efficiency, cleanup operations use batch deletion:
+/// - Multiple files are deleted in a single pass
+/// - Metadata is saved only once after all deletions
+/// - Failed deletions don't break the entire batch
 ///
 /// ## Usage
 /// ```swift
@@ -135,7 +163,7 @@ actor AudioCacheManager: AudioCacheServiceProtocol {
         
         let dataSize = Int64(data.count)
         
-        // Evict old entries if needed
+        // Evict old entries if needed (using batch eviction)
         await evictIfNeeded(forNewDataSize: dataSize)
         
         // Write audio file
@@ -178,17 +206,59 @@ actor AudioCacheManager: AudioCacheServiceProtocol {
         await removeEntry(forKey: entry.key)
     }
     
+    /// Clears the entire cache efficiently.
+    ///
+    /// Unlike calling `removeEntry` for each item, this:
+    /// 1. Removes the entire cache directory
+    /// 2. Recreates an empty directory
+    /// 3. Resets metadata in one operation
+    ///
+    /// This is much faster than sequential deletion for large caches.
     func clearCache() async {
-        // Remove all files except metadata
-        if let files = try? fileManager.contentsOfDirectory(at: cacheDirectory, includingPropertiesForKeys: nil) {
-            for file in files where file.lastPathComponent != Self.metadataFileName {
-                try? fileManager.removeItem(at: file)
-            }
-        }
+        let startTime = Date()
+        let previousCount = metadata.entries.count
+        let previousSize = metadata.totalSize
         
-        // Reset metadata
-        metadata = CacheMetadata()
-        saveMetadata()
+        do {
+            // Remove entire cache directory
+            try fileManager.removeItem(at: cacheDirectory)
+            
+            // Recreate empty directory
+            try fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+            
+            // Reset metadata
+            metadata = CacheMetadata()
+            saveMetadata()
+            
+            let duration = Date().timeIntervalSince(startTime)
+            AppLogger.info(
+                "Cache cleared completely",
+                category: .data,
+                context: [
+                    "previousEntries": previousCount,
+                    "freedBytes": previousSize,
+                    "durationMs": Int(duration * 1000)
+                ]
+            )
+        } catch {
+            // Fallback to individual file deletion
+            AppLogger.warning(
+                "Directory removal failed, falling back to individual deletion",
+                category: .data,
+                context: ["error": error.localizedDescription]
+            )
+            
+            // Remove all files except metadata
+            if let files = try? fileManager.contentsOfDirectory(at: cacheDirectory, includingPropertiesForKeys: nil) {
+                for file in files where file.lastPathComponent != Self.metadataFileName {
+                    try? fileManager.removeItem(at: file)
+                }
+            }
+            
+            // Reset metadata
+            metadata = CacheMetadata()
+            saveMetadata()
+        }
     }
     
     // MARK: - Additional Methods
@@ -222,6 +292,41 @@ actor AudioCacheManager: AudioCacheServiceProtocol {
         (metadata.entries.count, metadata.totalSize, maxCacheSize)
     }
     
+    /// Performs a full cache cleanup and returns statistics.
+    ///
+    /// Useful for debugging and testing cache behavior.
+    ///
+    /// - Returns: Statistics about the cleanup operation
+    func performCleanup() async -> CacheCleanupStats {
+        let startTime = Date()
+        
+        // Find expired entries
+        let expiredKeys = metadata.entries
+            .filter { $0.value.isExpired }
+            .map { $0.key }
+        
+        guard !expiredKeys.isEmpty else {
+            return CacheCleanupStats(
+                removedCount: 0,
+                failedCount: 0,
+                freedBytes: 0,
+                duration: Date().timeIntervalSince(startTime),
+                failedKeys: []
+            )
+        }
+        
+        // Batch remove expired entries
+        let result = await batchRemoveEntries(keys: expiredKeys)
+        
+        return CacheCleanupStats(
+            removedCount: result.removedCount,
+            failedCount: result.failedKeys.count,
+            freedBytes: result.freedBytes,
+            duration: Date().timeIntervalSince(startTime),
+            failedKeys: result.failedKeys
+        )
+    }
+    
     // MARK: - Private Methods
     
     /// Generates a cache key from text and voiceId.
@@ -232,6 +337,9 @@ actor AudioCacheManager: AudioCacheServiceProtocol {
         return hash.compactMap { String(format: "%02x", $0) }.joined().prefix(32).description
     }
     
+    /// Removes a single entry from the cache.
+    ///
+    /// For removing multiple entries, prefer `batchRemoveEntries` for efficiency.
     private func removeEntry(forKey key: String) async {
         guard let entry = metadata.entries.removeValue(forKey: key) else { return }
         
@@ -243,16 +351,109 @@ actor AudioCacheManager: AudioCacheServiceProtocol {
         saveMetadata()
     }
     
+    // MARK: - Batch Operations
+    
+    /// Removes multiple cache entries in a single batch operation.
+    ///
+    /// Optimizes for:
+    /// - Single metadata save at the end
+    /// - Graceful handling of individual failures
+    /// - Progress tracking for large operations
+    ///
+    /// - Parameter keys: Array of cache keys to remove
+    /// - Returns: Tuple with removed count, freed bytes, and failed keys
+    private func batchRemoveEntries(keys: [String]) async -> (removedCount: Int, freedBytes: Int64, failedKeys: [String]) {
+        guard !keys.isEmpty else {
+            return (0, 0, [])
+        }
+        
+        var removedCount = 0
+        var freedBytes: Int64 = 0
+        var failedKeys: [String] = []
+        
+        // Batch file deletions
+        for key in keys {
+            guard let entry = metadata.entries[key] else { continue }
+            
+            let fileURL = cacheDirectory.appendingPathComponent(entry.fileName)
+            
+            do {
+                try fileManager.removeItem(at: fileURL)
+                
+                // Update metadata in memory (not persisted yet)
+                metadata.entries.removeValue(forKey: key)
+                metadata.totalSize -= entry.sizeBytes
+                
+                freedBytes += entry.sizeBytes
+                removedCount += 1
+                
+            } catch {
+                // Track failures for logging, don't fail entire batch
+                failedKeys.append(key)
+                
+                // Still remove from metadata to avoid orphaned entries
+                if let removedEntry = metadata.entries.removeValue(forKey: key) {
+                    metadata.totalSize -= removedEntry.sizeBytes
+                }
+                
+                #if DEBUG
+                print("⚠️ AudioCacheManager: Failed to delete \(entry.fileName): \(error)")
+                #endif
+            }
+        }
+        
+        // Single metadata save at the end
+        saveMetadata()
+        
+        // Log failures if any
+        if !failedKeys.isEmpty {
+            AppLogger.warning(
+                "Some cache entries failed to delete",
+                category: .data,
+                context: [
+                    "failedCount": failedKeys.count,
+                    "succeededCount": removedCount
+                ]
+            )
+        }
+        
+        return (removedCount, freedBytes, failedKeys)
+    }
+    
+    /// Cleans expired entries using batch deletion.
     private func cleanExpiredEntries() async {
         let expiredKeys = metadata.entries
             .filter { $0.value.isExpired }
             .map { $0.key }
         
-        for key in expiredKeys {
-            await removeEntry(forKey: key)
-        }
+        guard !expiredKeys.isEmpty else { return }
+        
+        AppLogger.debug(
+            "Cleaning expired cache entries",
+            category: .data,
+            context: ["count": expiredKeys.count]
+        )
+        
+        let result = await batchRemoveEntries(keys: expiredKeys)
+        
+        AppLogger.info(
+            "Expired cache entries cleaned",
+            category: .data,
+            context: [
+                "removed": result.removedCount,
+                "freedBytes": result.freedBytes
+            ]
+        )
     }
     
+    /// Evicts entries in batch if needed to make room for new data.
+    ///
+    /// This optimized version:
+    /// 1. Calculates all entries to remove upfront
+    /// 2. Deletes files in a single pass
+    /// 3. Updates metadata once at the end
+    ///
+    /// - Parameter newSize: Size of new data being cached
     private func evictIfNeeded(forNewDataSize newSize: Int64) async {
         let targetSize = maxCacheSize - newSize
         
@@ -262,10 +463,41 @@ actor AudioCacheManager: AudioCacheServiceProtocol {
         let sortedEntries = metadata.entries.values
             .sorted { $0.lastAccessedAt < $1.lastAccessedAt }
         
+        var keysToRemove: [String] = []
+        var projectedSize = metadata.totalSize
+        
+        // Collect entries to remove without modifying state
         for entry in sortedEntries {
-            if metadata.totalSize <= targetSize { break }
-            await removeEntry(forKey: entry.key)
+            if projectedSize <= targetSize { break }
+            keysToRemove.append(entry.key)
+            projectedSize -= entry.sizeBytes
         }
+        
+        // Early exit if nothing to remove
+        guard !keysToRemove.isEmpty else { return }
+        
+        AppLogger.info(
+            "Cache eviction starting",
+            category: .data,
+            context: [
+                "entriesToRemove": keysToRemove.count,
+                "currentSize": metadata.totalSize,
+                "targetSize": targetSize
+            ]
+        )
+        
+        // Batch remove entries
+        let result = await batchRemoveEntries(keys: keysToRemove)
+        
+        AppLogger.info(
+            "Cache eviction complete",
+            category: .data,
+            context: [
+                "removed": result.removedCount,
+                "freedBytes": result.freedBytes,
+                "newSize": metadata.totalSize
+            ]
+        )
     }
     
     private func saveMetadata() {

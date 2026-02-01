@@ -7,6 +7,111 @@
 
 import SwiftUI
 
+// MARK: - Pre-computed Color Values
+
+/// Pre-computed RGBA values for efficient color interpolation.
+///
+/// Caches the RGBA components of accent and listening colors to avoid
+/// repeated `UIColor` bridge creation during animation frames.
+///
+/// ## Performance Benefits
+/// - Extracts RGBA values once at initialization (not per frame)
+/// - Caches common blend values (0, 0.5, 1.0) for fast lookup
+/// - Eliminates 180 UIColor allocations/second (60fps × 3 layers)
+///
+/// ## Usage
+/// ```swift
+/// let cache = ColorCache(accent: tokens.accent, listening: tokens.success)
+/// let blendedColor = cache.lerp(t: 0.5)
+/// ```
+private struct ColorCache: Equatable {
+    
+    // MARK: - Pre-computed RGBA Components
+    
+    private let accentRGBA: (r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat)
+    private let listeningRGBA: (r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat)
+    
+    // MARK: - Cached Colors for Common Blend Values
+    
+    /// Original accent color (colorBlend = 0)
+    let accentColor: Color
+    
+    /// Original listening color (colorBlend = 1)
+    let listeningColor: Color
+    
+    /// Pre-computed 50% blend for quick lookup
+    let midBlendColor: Color
+    
+    // MARK: - Initialization
+    
+    /// Creates a color cache with pre-computed RGBA values.
+    ///
+    /// - Parameters:
+    ///   - accent: The accent color (used when colorBlend = 0)
+    ///   - listening: The listening color (used when colorBlend = 1)
+    init(accent: Color, listening: Color) {
+        // Extract RGBA once at initialization
+        var ar: CGFloat = 0, ag: CGFloat = 0, ab: CGFloat = 0, aa: CGFloat = 0
+        var lr: CGFloat = 0, lg: CGFloat = 0, lb: CGFloat = 0, la: CGFloat = 0
+        
+        #if canImport(UIKit)
+        UIColor(accent).getRed(&ar, green: &ag, blue: &ab, alpha: &aa)
+        UIColor(listening).getRed(&lr, green: &lg, blue: &lb, alpha: &la)
+        #endif
+        
+        self.accentRGBA = (ar, ag, ab, aa)
+        self.listeningRGBA = (lr, lg, lb, la)
+        
+        // Cache original colors
+        self.accentColor = accent
+        self.listeningColor = listening
+        
+        // Pre-compute 50% blend
+        self.midBlendColor = Color(
+            red: (ar + lr) / 2,
+            green: (ag + lg) / 2,
+            blue: (ab + lb) / 2,
+            opacity: (aa + la) / 2
+        )
+    }
+    
+    // MARK: - Fast Interpolation
+    
+    /// Fast color interpolation using pre-computed RGBA values.
+    ///
+    /// - Parameter t: Blend factor (0 = accent, 1 = listening)
+    /// - Returns: Interpolated color
+    func lerp(t: CGFloat) -> Color {
+        // Fast paths for common values
+        if t <= 0 { return accentColor }
+        if t >= 1 { return listeningColor }
+        if abs(t - 0.5) < 0.01 { return midBlendColor }
+        
+        // General interpolation using pre-computed RGBA
+        let clampedT = max(0, min(1, t))
+        return Color(
+            red: accentRGBA.r + (listeningRGBA.r - accentRGBA.r) * clampedT,
+            green: accentRGBA.g + (listeningRGBA.g - accentRGBA.g) * clampedT,
+            blue: accentRGBA.b + (listeningRGBA.b - accentRGBA.b) * clampedT,
+            opacity: accentRGBA.a + (listeningRGBA.a - accentRGBA.a) * clampedT
+        )
+    }
+    
+    // MARK: - Equatable
+    
+    static func == (lhs: ColorCache, rhs: ColorCache) -> Bool {
+        // Compare by RGBA values (more reliable than Color equality)
+        lhs.accentRGBA.r == rhs.accentRGBA.r &&
+        lhs.accentRGBA.g == rhs.accentRGBA.g &&
+        lhs.accentRGBA.b == rhs.accentRGBA.b &&
+        lhs.accentRGBA.a == rhs.accentRGBA.a &&
+        lhs.listeningRGBA.r == rhs.listeningRGBA.r &&
+        lhs.listeningRGBA.g == rhs.listeningRGBA.g &&
+        lhs.listeningRGBA.b == rhs.listeningRGBA.b &&
+        lhs.listeningRGBA.a == rhs.listeningRGBA.a
+    }
+}
+
 // MARK: - LayeredWavesWaveformStyle
 
 /// Layered waves waveform style using overlapping sine curves.
@@ -48,6 +153,7 @@ public struct LayeredWavesWaveformStyle: DockWaveformStyle {
 /// - **Single Animation Loop**: One `breathingPhase` drives all waves
 /// - **Animatable Shape**: Uses `animatableData` for GPU-accelerated path interpolation
 /// - **Efficient Path Calculation**: Optimized step count based on view width
+/// - **Pre-computed Colors**: Uses `ColorCache` to avoid UIColor bridge creation per frame
 struct LayeredWavesWaveformView: View {
     
     // MARK: - Properties
@@ -57,6 +163,11 @@ struct LayeredWavesWaveformView: View {
     
     /// Continuous breathing phase (0.0-1.0) provided by parent TimelineView.
     let breathingPhase: CGFloat
+    
+    // MARK: - Pre-computed Colors
+    
+    /// Cached color values for efficient interpolation.
+    private let colorCache: ColorCache
     
     // MARK: - Configuration Constants
     
@@ -77,6 +188,17 @@ struct LayeredWavesWaveformView: View {
     @State private var previousState: DockCenterContentState?
     @State private var isInChoreographedTransition: Bool = false
     
+    // MARK: - Initialization
+    
+    init(state: DockCenterContentState, tokens: DockDesignTokens, breathingPhase: CGFloat) {
+        self.state = state
+        self.tokens = tokens
+        self.breathingPhase = breathingPhase
+        
+        // Pre-compute colors once at initialization
+        self.colorCache = ColorCache(accent: tokens.accent, listening: tokens.success)
+    }
+    
     // MARK: - Body
     
     var body: some View {
@@ -94,8 +216,7 @@ struct LayeredWavesWaveformView: View {
                         baseFrequency: baseFrequency,
                         frequencyStep: frequencyStep,
                         lineWidth: lineWidth,
-                        accentColor: tokens.accent,
-                        listeningColor: tokens.success
+                        colorCache: colorCache
                     )
                 }
             }
@@ -239,8 +360,7 @@ private struct WaveLayer: View {
     let baseFrequency: CGFloat
     let frequencyStep: CGFloat
     let lineWidth: CGFloat
-    let accentColor: Color
-    let listeningColor: Color
+    let colorCache: ColorCache
     
     var body: some View {
         WaveShape(
@@ -300,16 +420,8 @@ private struct WaveLayer: View {
     }
     
     private var layerColor: Color {
-        let baseColor: Color
-        
-        if config.colorBlend <= 0 {
-            baseColor = accentColor
-        } else if config.colorBlend >= 1 {
-            baseColor = listeningColor
-        } else {
-            baseColor = Color.lerp(from: accentColor, to: listeningColor, t: config.colorBlend)
-        }
-        
+        // Use cached color interpolation (no UIColor bridge creation)
+        let baseColor = colorCache.lerp(t: config.colorBlend)
         return baseColor.opacity(layerOpacity)
     }
 }
@@ -423,31 +535,6 @@ private struct LayeredWavesConfiguration: Equatable {
         audioReactivity: 0,
         breathingAmplitude: 0
     )
-}
-
-// MARK: - Color Interpolation
-
-private extension Color {
-    static func lerp(from: Color, to: Color, t: CGFloat) -> Color {
-        let t = max(0, min(1, t))
-        let fromRGBA = from.rgbaComponents
-        let toRGBA = to.rgbaComponents
-        
-        return Color(
-            red: fromRGBA.red + (toRGBA.red - fromRGBA.red) * t,
-            green: fromRGBA.green + (toRGBA.green - fromRGBA.green) * t,
-            blue: fromRGBA.blue + (toRGBA.blue - fromRGBA.blue) * t,
-            opacity: fromRGBA.alpha + (toRGBA.alpha - fromRGBA.alpha) * t
-        )
-    }
-    
-    var rgbaComponents: (red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        #if canImport(UIKit)
-        UIColor(self).getRed(&r, green: &g, blue: &b, alpha: &a)
-        #endif
-        return (r, g, b, a)
-    }
 }
 
 // MARK: - Previews

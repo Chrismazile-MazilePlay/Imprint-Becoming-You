@@ -83,15 +83,11 @@ struct FloatingHUDLayer: View {
         }
     }
     
-    /// Top padding varies by mode:
-    /// - Home mode: TabView handles safe area, so use minimal padding
-    /// - Active mode: No TabView, so we must add safe area inset ourselves
+    /// Top padding accounts for safe area (notch/Dynamic Island) plus spacing.
+    /// Always uses safe area inset since parent view (HorizontalPager) ignores
+    /// safe areas for full-screen content.
     private var topPadding: CGFloat {
-        if isActiveMode {
-            return topSafeAreaInset + AppTheme.Spacing.xs
-        } else {
-            return 8
-        }
+        topSafeAreaInset + AppTheme.Spacing.xs
     }
     
     // MARK: - Chip Dimensions

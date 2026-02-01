@@ -82,9 +82,6 @@
     "%lld" : {
 
     },
-    "%lld affirmations" : {
-
-    },
     "%lld affirmations practiced" : {
 
     },
@@ -130,6 +127,15 @@
 
     },
     "Aa" : {
+
+    },
+    "Account" : {
+
+    },
+    "Account details will appear here" : {
+
+    },
+    "Account management coming soon" : {
 
     },
     "Account, %@" : {
@@ -183,9 +189,6 @@
     "Cancel delete" : {
 
     },
-    "Cancel editing" : {
-
-    },
     "Cancel session preparation" : {
 
     },
@@ -198,13 +201,16 @@
     "Categories included with faith-based content:" : {
 
     },
+    "Category Breakdown chart. Coming soon" : {
+
+    },
     "Category: %@" : {
 
     },
-    "Change the waveform visualization style" : {
+    "Change your preferred voice for affirmations" : {
 
     },
-    "Change your voice settings" : {
+    "Change your waveform visualization style" : {
 
     },
     "Check Kokoro engine status again" : {
@@ -274,6 +280,9 @@
 
     },
     "Copy to Clipboard" : {
+
+    },
+    "Create an account to sync your progress across devices" : {
 
     },
     "Create custom prompts to generate\npersonalized affirmations." : {
@@ -387,9 +396,6 @@
     "Expanded" : {
 
     },
-    "Faith Content, %@" : {
-
-    },
     "Faith-Based Content" : {
 
     },
@@ -421,7 +427,22 @@
     "Get Started" : {
 
     },
+    "Get unlimited access to all features" : {
+
+    },
     "Go to Practice" : {
+
+    },
+    "Goal customization coming soon" : {
+
+    },
+    "Goals" : {
+
+    },
+    "Goals Settings" : {
+
+    },
+    "Goals, %@" : {
 
     },
     "If you continue, the app will work but your data won't be saved when you close it." : {
@@ -490,7 +511,7 @@
     "Microphone listening" : {
 
     },
-    "My Goals, %@" : {
+    "MOST POPULAR" : {
 
     },
     "Neural voice ready" : {
@@ -502,6 +523,9 @@
     "No favorites yet. Tap the heart on any affirmation to save it here." : {
 
     },
+    "No goals selected" : {
+
+    },
     "No Saved Sessions" : {
 
     },
@@ -509,6 +533,9 @@
 
     },
     "Not selected" : {
+
+    },
+    "Not Signed In" : {
 
     },
     "OK" : {
@@ -540,6 +567,9 @@
 
     },
     "Premium" : {
+
+    },
+    "PREMIUM FEATURES" : {
 
     },
     "Preparation Failed" : {
@@ -612,16 +642,13 @@
     "Resonance score: %lld percent" : {
 
     },
-    "Resonance Trends. Track your vocal improvement. Coming soon" : {
+    "Restore Purchases" : {
 
     },
     "Retry" : {
 
     },
     "Retry speaking the affirmation" : {
-
-    },
-    "Return to profile" : {
 
     },
     "Return to the practice screen" : {
@@ -660,7 +687,7 @@
     "Saved Affirmations" : {
 
     },
-    "Saved Affirmations, %lld affirmations" : {
+    "Saved Affirmations, %lld favorites" : {
 
     },
     "Saved Sessions" : {
@@ -735,6 +762,15 @@
     "Shuffle enabled" : {
 
     },
+    "Sign In" : {
+
+    },
+    "Sign Out" : {
+
+    },
+    "Signed In" : {
+
+    },
     "Skip" : {
 
     },
@@ -802,6 +838,12 @@
     "Stop voice calibration" : {
 
     },
+    "Subscriptions coming soon" : {
+
+    },
+    "Subscriptions will be charged to your Apple ID. Subscription automatically renews unless cancelled at least 24 hours before the end of the current period." : {
+
+    },
     "Success checkmark" : {
 
     },
@@ -812,6 +854,9 @@
 
     },
     "Tap the heart on any affirmation to save it here." : {
+
+    },
+    "Tap to select" : {
 
     },
     "Tap to select and preview" : {
@@ -838,9 +883,6 @@
     "This will delete all your affirmations, progress, saved sessions, and settings. This action cannot be undone." : {
 
     },
-    "Toggle faith-based affirmation content" : {
-
-    },
     "Track your journey" : {
 
     },
@@ -862,6 +904,12 @@
     "Unable to Load Data" : {
 
     },
+    "Unlock Your Full Potential" : {
+
+    },
+    "Update your affirmation goals" : {
+
+    },
     "Upgrade to Premium" : {
 
     },
@@ -877,13 +925,10 @@
     "Using system voice" : {
 
     },
-    "View and change your goal categories" : {
-
-    },
     "View and manage your favorite affirmations" : {
 
     },
-    "View and manage your saved practice sessions" : {
+    "View and play your saved sessions" : {
 
     },
     "View premium features and pricing" : {
@@ -922,7 +967,7 @@
     "We didn't detect speech matching the affirmation. Would you like to try again?" : {
 
     },
-    "Weekly Practice. View your practice history. Coming soon" : {
+    "Weekly Activity chart. Coming soon" : {
 
     },
     "What matters to you?" : {
@@ -938,6 +983,9 @@
 
     },
     "You've reached the free tier limit of %lld saved sessions." : {
+
+    },
+    "Your current goals:" : {
 
     },
     "Your Focus Areas" : {

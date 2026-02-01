@@ -1,49 +1,38 @@
 //
-//  WaveformSelectionSheet.swift
+//  WaveformSelectionView.swift
 //  Imprint-Becoming You
 //
-//  Created by Christopher Mazile on 1/21/26.
+//  Created by Christopher Mazile on 2/1/26.
 //
-/*
+
 import SwiftUI
 
-// MARK: - WaveformSelectionSheet
+// MARK: - WaveformSelectionView
 
-/// A sheet for selecting the preferred waveform visualization style.
+/// View for selecting the preferred waveform visualization style.
 ///
 /// Displays all available waveform styles with live previews,
 /// allowing users to see each style in action before selecting.
 ///
-/// ## Usage
+/// ## Behavior
+/// - Tap to select: Immediately saves selection
+/// - Live preview: Each option shows animated waveform
+/// - Back navigation: Standard navigation bar back button
 ///
-/// ```swift
-/// .sheet(isPresented: $showWaveformSelection) {
-///     WaveformSelectionSheet(
-///         selectedType: $selectedType,
-///         onSave: { newType in
-///             userProfile.waveformType = newType
-///         }
-///     )
-/// }
-/// ```
-struct WaveformSelectionSheet: View {
+/// ## Navigation
+/// This view is pushed onto the Profile navigation stack.
+struct WaveformSelectionView: View {
     
     // MARK: - Environment
     
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     
     // MARK: - Bindings
     
-    /// The currently selected waveform type
+    /// The currently selected waveform type (bound to UserProfile)
     @Binding var selectedType: DockWaveformType
     
-    /// Callback when user confirms selection
-    var onSave: (DockWaveformType) -> Void
-    
     // MARK: - State
-    
-    /// Local selection state for preview before committing
-    @State private var localSelection: DockWaveformType
     
     /// Animation state for previews
     @State private var previewState: DockCenterContentState = .playing(audioLevel: 0.6)
@@ -51,65 +40,31 @@ struct WaveformSelectionSheet: View {
     /// Timer for cycling preview states
     @State private var previewTimer: Timer?
     
-    // MARK: - Initialization
-    
-    init(
-        selectedType: Binding<DockWaveformType>,
-        onSave: @escaping (DockWaveformType) -> Void
-    ) {
-        self._selectedType = selectedType
-        self._localSelection = State(initialValue: selectedType.wrappedValue)
-        self.onSave = onSave
-    }
-    
     // MARK: - Body
     
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: AppTheme.Spacing.lg) {
-                    // Header description
-                    headerSection
-                    
-                    // Waveform options
-                    ForEach(DockWaveformType.allCases) { type in
-                        WaveformOptionCard(
-                            type: type,
-                            isSelected: localSelection == type,
-                            previewState: previewState
-                        ) {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                localSelection = type
-                            }
-                            HapticFeedback.selection()
-                        }
-                    }
-                }
-                .padding(.horizontal, AppTheme.Spacing.lg)
-                .padding(.vertical, AppTheme.Spacing.md)
-            }
-            .background(AppColors.backgroundPrimary)
-            .navigationTitle("Waveform Style")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                    .foregroundStyle(AppColors.textSecondary)
-                }
+        ScrollView {
+            VStack(spacing: AppTheme.Spacing.lg) {
+                // Header description
+                headerSection
                 
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        selectedType = localSelection
-                        onSave(localSelection)
-                        dismiss()
+                // Waveform options
+                ForEach(DockWaveformType.allCases) { type in
+                    WaveformOptionCard(
+                        type: type,
+                        isSelected: selectedType == type,
+                        previewState: previewState
+                    ) {
+                        selectWaveform(type)
                     }
-                    .fontWeight(.semibold)
-                    .foregroundStyle(AppColors.accent)
                 }
             }
+            .padding(.horizontal, AppTheme.Spacing.lg)
+            .padding(.vertical, AppTheme.Spacing.md)
         }
+        .background(AppColors.backgroundPrimary)
+        .navigationTitle("Waveform Style")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             startPreviewAnimation()
         }
@@ -126,8 +81,32 @@ struct WaveformSelectionSheet: View {
                 .font(AppTypography.body)
                 .foregroundStyle(AppColors.textSecondary)
                 .multilineTextAlignment(.center)
+            
+            Text("Tap to select")
+                .font(AppTypography.caption1)
+                .foregroundStyle(AppColors.textTertiary)
         }
         .padding(.vertical, AppTheme.Spacing.sm)
+    }
+    
+    // MARK: - Selection
+    
+    private func selectWaveform(_ type: DockWaveformType) {
+        guard selectedType != type else { return }
+        
+        withAnimation(.easeInOut(duration: 0.2)) {
+            selectedType = type
+        }
+        
+        // Save to persistence
+        try? modelContext.save()
+        
+        // Haptic feedback
+        HapticFeedback.selection()
+        
+        #if DEBUG
+        print("🌊 WaveformSelectionView: Selected \(type.displayName)")
+        #endif
     }
     
     // MARK: - Preview Animation
@@ -194,6 +173,9 @@ private struct WaveformOptionCard: View {
             .overlay(selectionBorder)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(type.displayName). \(type.description)")
+        .accessibilityHint(isSelected ? "Currently selected" : "Tap to select")
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
     
     // MARK: - Preview Container
@@ -265,15 +247,14 @@ private struct WaveformOptionCard: View {
 
 // MARK: - Previews
 
-#Preview("Waveform Selection Sheet") {
+#Preview("Waveform Selection View") {
     struct PreviewWrapper: View {
         @State private var selectedType: DockWaveformType = .layeredWaves
         
         var body: some View {
-            WaveformSelectionSheet(
-                selectedType: $selectedType,
-                onSave: { _ in }
-            )
+            NavigationStack {
+                WaveformSelectionView(selectedType: $selectedType)
+            }
         }
     }
     
@@ -307,4 +288,3 @@ private struct WaveformOptionCard: View {
         .padding()
     }
 }
-*/

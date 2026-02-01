@@ -11,18 +11,24 @@ import SwiftData
 // MARK: - SavedSessionsFullListView
 
 /// Full list of saved sessions with selection-based playback.
+///
+/// ## Navigation
+/// This view is pushed onto the Profile navigation stack.
+/// When starting a session, it pops back to Profile root
+/// then triggers navigation to Practice page.
 struct SavedSessionsFullListView: View {
     
     // MARK: - Environment
     
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var dependencies
     
     // MARK: - Properties
     
     @Bindable var store: PracticeStore
-    let onNavigateToCenter: () -> Void
+    
+    /// Called when user starts a session - should pop to root and navigate to Practice
+    let onStartSession: () -> Void
     
     // MARK: - Queries
     
@@ -67,10 +73,10 @@ struct SavedSessionsFullListView: View {
     
     init(
         store: PracticeStore,
-        onNavigateToCenter: @escaping () -> Void
+        onStartSession: @escaping () -> Void
     ) {
         self.store = store
-        self.onNavigateToCenter = onNavigateToCenter
+        self.onStartSession = onStartSession
         
         self._dockAdapter = State(initialValue: ConfigurationDockAdapter(
             labelText: "",
@@ -106,24 +112,7 @@ struct SavedSessionsFullListView: View {
         .navigationTitle("Saved Sessions")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                if isAnyCardEditing {
-                    Button("Cancel") {
-                        cancelEditing()
-                    }
-                    .foregroundStyle(AppColors.accent)
-                    .accessibilityLabel("Cancel editing")
-                } else {
-                    Button("Close") {
-                        dismiss()
-                    }
-                    .foregroundStyle(AppColors.accent)
-                    .accessibilityLabel("Close")
-                    .accessibilityHint("Return to profile")
-                }
-            }
-            
-            ToolbarItem(placement: .confirmationAction) {
+            ToolbarItem(placement: .topBarTrailing) {
                 if isAnyCardEditing {
                     Button("Done") {
                         saveAndExitEditing()
@@ -135,7 +124,7 @@ struct SavedSessionsFullListView: View {
             }
         }
         .sheet(item: $sessionForInfo) { session in
-            SavedSessionInfoSheetSimplified(
+            SavedSessionInfoSheet(
                 session: session,
                 affirmations: infoSheetAffirmations
             )
@@ -327,8 +316,9 @@ struct SavedSessionsFullListView: View {
         store.setLoopConfiguration(config)
         session.setDefaultMode(mode)
         store.send(.startSavedSession(session))
-        dismiss()
-        onNavigateToCenter()
+        
+        // Pop to root and navigate to Practice
+        onStartSession()
     }
     
     private func renameSession(_ session: SavedSession, to newName: String) {
@@ -362,9 +352,10 @@ struct SavedSessionsFullListView: View {
     }
 }
 
-// MARK: - SavedSessionInfoSheetSimplified
+// MARK: - SavedSessionInfoSheet
 
-struct SavedSessionInfoSheetSimplified: View {
+/// Sheet displaying the affirmations in a saved session.
+struct SavedSessionInfoSheet: View {
     
     @Environment(\.dismiss) private var dismiss
     
@@ -420,7 +411,7 @@ struct SavedSessionInfoSheetSimplified: View {
     NavigationStack {
         SavedSessionsFullListView(
             store: .preview,
-            onNavigateToCenter: {}
+            onStartSession: {}
         )
     }
     .previewEnvironment()

@@ -11,18 +11,24 @@ import SwiftData
 // MARK: - FavoritesFullListView
 
 /// Full list of favorites accessible from Profile page.
+///
+/// ## Navigation
+/// This view is pushed onto the Profile navigation stack.
+/// When starting a session, it pops back to Profile root
+/// then triggers navigation to Practice page.
 struct FavoritesFullListView: View {
     
     // MARK: - Environment
     
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.dismiss) private var dismiss
     
     // MARK: - Properties
     
     @Bindable var store: PracticeStore
     let dependencies: DependencyContainer
-    let onNavigateToCenter: () -> Void
+    
+    /// Called when user starts a session - should pop to root and navigate to Practice
+    let onStartSession: () -> Void
     
     // MARK: - State
     
@@ -38,11 +44,11 @@ struct FavoritesFullListView: View {
     init(
         store: PracticeStore,
         dependencies: DependencyContainer,
-        onNavigateToCenter: @escaping () -> Void
+        onStartSession: @escaping () -> Void
     ) {
         self.store = store
         self.dependencies = dependencies
-        self.onNavigateToCenter = onNavigateToCenter
+        self.onStartSession = onStartSession
         
         self._dockAdapter = State(initialValue: ConfigurationDockAdapter(
             labelText: "Loading...",
@@ -77,16 +83,6 @@ struct FavoritesFullListView: View {
         }
         .navigationTitle("Favorites")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Close") {
-                    dismiss()
-                }
-                .foregroundStyle(AppColors.accent)
-                .accessibilityLabel("Close")
-                .accessibilityHint("Return to profile")
-            }
-        }
         .task {
             await loadFavorites()
         }
@@ -193,8 +189,8 @@ struct FavoritesFullListView: View {
                 mode: mode,
                 shuffle: shuffle
             )
-            dismiss()
-            onNavigateToCenter()
+            // Pop to root and navigate to Practice
+            onStartSession()
         }
     }
     
@@ -214,7 +210,7 @@ struct FavoritesFullListView: View {
         FavoritesFullListView(
             store: .preview,
             dependencies: .preview,
-            onNavigateToCenter: {}
+            onStartSession: {}
         )
     }
     .previewEnvironment()

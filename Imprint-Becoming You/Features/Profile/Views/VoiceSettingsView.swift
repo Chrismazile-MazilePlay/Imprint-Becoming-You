@@ -11,19 +11,21 @@ import AVFoundation
 
 // MARK: - Voice Settings View
 
-/// Full-screen voice selection for Profile settings.
+/// Voice selection view pushed from Profile settings.
 ///
 /// Features:
-/// - Tap to select and preview voice
+/// - Tap to select and preview voice (auto-saves)
 /// - Shows engine status (Kokoro ready / System fallback)
-/// - Auto-saves selection to UserProfile
 /// - Groups voices by accent and gender
 /// - Uses cached previews for instant playback
+///
+/// ## Navigation
+/// This view is pushed onto the Profile navigation stack.
+/// Uses standard back navigation via the navigation bar.
 struct VoiceSettingsView: View {
     
     // MARK: - Environment
     
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dependencies) private var dependencies
     @Environment(\.appState) private var appState
@@ -48,37 +50,27 @@ struct VoiceSettingsView: View {
     // MARK: - Body
     
     var body: some View {
-        NavigationStack {
-            ZStack {
-                AppColors.backgroundPrimary
-                    .ignoresSafeArea()
+        ZStack {
+            AppColors.backgroundPrimary
+                .ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                // Engine status
+                engineStatusBanner
                 
-                VStack(spacing: 0) {
-                    // Engine status
-                    engineStatusBanner
-                    
-                    // Current voice display
-                    currentVoiceHeader
-                    
-                    // Voice list
-                    ScrollView {
-                        voiceListContent
-                            .padding(.horizontal, AppTheme.Spacing.lg)
-                            .padding(.bottom, AppTheme.Spacing.xl)
-                    }
-                }
-            }
-            .navigationTitle("Voice Settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                    .foregroundStyle(AppColors.accent)
+                // Current voice display
+                currentVoiceHeader
+                
+                // Voice list
+                ScrollView {
+                    voiceListContent
+                        .padding(.horizontal, AppTheme.Spacing.lg)
+                        .padding(.bottom, AppTheme.Spacing.xl)
                 }
             }
         }
+        .navigationTitle("Voice Settings")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             loadCurrentVoice()
             checkEngineStatus()
@@ -356,6 +348,8 @@ struct VoiceSettingsView: View {
 // MARK: - Previews
 
 #Preview("Voice Settings") {
-    VoiceSettingsView()
-        .previewEnvironment()
+    NavigationStack {
+        VoiceSettingsView()
+    }
+    .previewEnvironment()
 }

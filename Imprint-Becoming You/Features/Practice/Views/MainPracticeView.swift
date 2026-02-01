@@ -76,12 +76,37 @@ struct MainPracticeView: View {
     /// Current count of saved sessions (for limit display)
     @State private var savedSessionCount: Int = 0
     
-    /// Refresh token for TabView to fix gesture recognizer issues after session ends.
-    /// SwiftUI's TabView can have stale gesture recognizers when conditionally rendered.
-    @State private var tabViewRefreshId = UUID()
-    
     /// Timestamp when app entered background (for timeout calculation)
     @State private var backgroundedAt: Date?
+    
+    /// Profile page's navigation depth, communicated via binding.
+    /// Used to disable pager gestures when Profile has pushed views.
+    @State private var profileNavigationDepth: Int = 0
+    
+    // MARK: - Computed Properties
+    
+    /// Whether the horizontal pager gesture should be enabled.
+    ///
+    /// Disabled when:
+    /// - Active session is running (user focused on practice)
+    /// - Profile has navigation depth > 0 (let NavigationStack handle back gesture)
+    private var isPagerGestureEnabled: Bool {
+        // Disable during active sessions
+        guard !store.isSessionActive else { return false }
+        
+        // Disable when Profile has navigation depth (NavigationStack needs the gesture)
+        guard profileNavigationDepth == 0 else { return false }
+        
+        return true
+    }
+    
+    /// Binding to convert AppPage to Int for HorizontalPager
+    private var currentPageIndex: Binding<Int> {
+        Binding(
+            get: { currentPage.rawValue },
+            set: { currentPage = AppPage(rawValue: $0) ?? .practice }
+        )
+    }
     
     // MARK: - Body
     
@@ -104,11 +129,8 @@ struct MainPracticeView: View {
         }
         .onChange(of: store.isSessionActive) { wasActive, isActive in
             // When exiting active mode, ensure we're on practice page
-            // and refresh TabView to fix gesture recognizers
             if wasActive && !isActive {
                 currentPage = .practice
-                // Generate new id to force TabView recreation with fresh gesture recognizers
-                tabViewRefreshId = UUID()
             }
         }
         .onChange(of: appState.userProfile?.selectedVoiceId) { _, newVoiceId in
@@ -117,6 +139,19 @@ struct MainPracticeView: View {
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             handleScenePhaseChange(from: oldPhase, to: newPhase)
+        }
+        .onChange(of: profileNavigationDepth) { oldDepth, newDepth in
+            #if DEBUG
+            print("🟡 [MainPracticeView] profileNavigationDepth CHANGED: \(oldDepth) → \(newDepth)")
+            print("   - currentPage is: \(currentPage)")
+            print("   - isPagerGestureEnabled: \(isPagerGestureEnabled)")
+            #endif
+        }
+        .onChange(of: currentPage) { oldPage, newPage in
+            #if DEBUG
+            print("🟢 [MainPracticeView] currentPage CHANGED: \(oldPage) → \(newPage)")
+            print("   - profileNavigationDepth is: \(profileNavigationDepth)")
+            #endif
         }
         .alert(
             "Error",
@@ -144,8 +179,8 @@ struct MainPracticeView: View {
         ZStack {
             // Base content layer
             if store.isSessionActive && !store.isShowingSummary {
-                // ACTIVE MODE: No TabView, no horizontal swiping possible
-                // Just show PracticePageView directly
+                // ACTIVE SESSION MODE: Show only PracticePageView
+                // No pager, no navigation - user is focused on practice
                 PracticePageView(
                     store: store,
                     onNavigateToProfile: { }, // Disabled in active mode
@@ -154,13 +189,19 @@ struct MainPracticeView: View {
                 .ignoresSafeArea()
                 .transition(.opacity)
             } else if !store.isShowingSummary {
-                // HOME MODE: Full TabView with horizontal navigation
-                TabView(selection: $currentPage) {
+                // HOME MODE: HorizontalPager with three pages
+                // Gesture is disabled when Profile has navigation depth,
+                // allowing NavigationStack's back gesture to work.
+                HorizontalPager(
+                    currentPage: currentPageIndex,
+                    pageCount: AppPage.allCases.count,
+                    isGestureEnabled: isPagerGestureEnabled,
+                    bottomExclusionHeight: 120 // Dock area exclusion
+                ) {
                     // Page 0: Prompts (Left)
                     PromptsPageView(
                         onNavigateToCenter: { navigateToPage(.practice) }
                     )
-                    .tag(AppPage.prompts)
                     
                     // Page 1: Practice (Center - Main)
                     PracticePageView(
@@ -168,20 +209,16 @@ struct MainPracticeView: View {
                         onNavigateToProfile: { navigateToPage(.profile) },
                         onNavigateToPrompts: { navigateToPage(.prompts) }
                     )
-                    .tag(AppPage.practice)
                     
                     // Page 2: Profile (Right)
                     ProfilePageView(
                         store: store,
-                        onNavigateToCenter: { navigateToPage(.practice) }
+                        onNavigateToCenter: { navigateToPage(.practice) },
+                        navigationDepth: $profileNavigationDepth
                     )
-                    .tag(AppPage.profile)
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
                 .ignoresSafeArea()
                 .transition(.opacity)
-                // Force fresh gesture recognizers when session ends
-                .id(tabViewRefreshId)
             }
             
             // Results Summary overlay with slide-down dismissal
@@ -508,7 +545,7 @@ struct MainPracticeView: View {
         store.selectedVoiceId = ttsVoiceId
         
         #if DEBUG
-        print("🎤 MainPracticeView: Set voice to \(ttsVoiceId ?? "default")")
+        print("ðŸŽ¤ MainPracticeView: Set voice to \(ttsVoiceId ?? "default")")
         #endif
     }
     

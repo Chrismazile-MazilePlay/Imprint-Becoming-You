@@ -8,6 +8,21 @@
 import SwiftUI
 import SwiftData
 
+// MARK: - ProfileDestination
+
+/// Navigation destinations for the Profile flow.
+///
+/// Used with NavigationStack's type-safe navigation path.
+enum ProfileDestination: Hashable {
+    case favorites
+    case savedSessions
+    case voiceSettings
+    case waveformStyle
+    case goals
+    case account
+    case premium
+}
+
 // MARK: - ProfilePageView
 
 /// Full-screen profile page accessible by sliding right from Practice.
@@ -22,10 +37,10 @@ import SwiftData
 ///
 /// Navigation: This page is on the RIGHT. Back navigation goes LEFT to Practice.
 ///
-/// ## Note on Navigation
-/// Since this view is inside a TabView (not a NavigationStack), we use
-/// `.fullScreenCover` for the Favorites detail view instead of
-/// `.navigationDestination` which requires NavigationStack.
+/// ## Navigation Architecture
+/// Uses a single NavigationStack with type-safe navigation path.
+/// All sub-pages push onto the stack and use standard back navigation.
+/// The profile header scrolls under the navbar as standard iOS behavior.
 struct ProfilePageView: View {
     
     // MARK: - Environment
@@ -39,106 +54,172 @@ struct ProfilePageView: View {
     @Bindable var store: PracticeStore
     let onNavigateToCenter: () -> Void
     
-    // MARK: - State
+    /// Binding to communicate navigation depth to parent.
+    /// Parent uses this to disable pager gestures when depth > 0.
+    @Binding var navigationDepth: Int
+    
+    // MARK: - Navigation State
+    
+    /// Navigation path owned by this view
+    @State private var navigationPath = NavigationPath()
+    
+    // MARK: - Stats State
     
     @State private var favoriteCount: Int = 0
     @State private var streak: Int = 0
     @State private var totalPracticed: Int = 0
-    @State private var showFavorites = false
-    @State private var showSavedSessions = false
     @State private var savedSessionCount: Int = 0
-    @State private var showWaveformSelection = false
-    @State private var showVoiceSettings = false
     
     // MARK: - Body
     
     var body: some View {
-        ZStack {
-            AppColors.backgroundPrimary
-                .ignoresSafeArea()
-            
-            ScrollView {
-                VStack(spacing: AppTheme.Spacing.xl) {
-                    // Navigation header (back goes LEFT to Practice)
-                    navigationHeader
-                    
-                    // Profile header
-                    profileHeader
-                    
-                    // Stats row
-                    statsRow
-                    
-                    // Progress section
-                    progressSection
-                    
-                    // Favorites section
-                    favoritesSection
-                    
-                    // Saved Sessions section
-                    savedSessionsSection
-                    
-                    // Settings section
-                    settingsSection
-                    
-                    // Bottom padding
-                    Spacer()
-                        .frame(height: AppTheme.Spacing.xxl)
+        NavigationStack(path: $navigationPath) {
+            scrollContent
+                .background(AppColors.backgroundPrimary)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        backToPracticeButton
+                    }
                 }
-                .padding(.horizontal, AppTheme.Spacing.lg)
-            }
+                .navigationDestination(for: ProfileDestination.self) { destination in
+                    destinationView(for: destination)
+                }
         }
         .task {
             await loadStats()
         }
-        .onChange(of: showSavedSessions) { _, isShowing in
-            // Reload stats when returning from saved sessions view
-            // in case sessions were deleted
-            if !isShowing {
+        .onChange(of: navigationPath) { oldPath, newPath in
+            // Publish depth to parent for gesture control
+            navigationDepth = newPath.count
+            
+            #if DEBUG
+            print("🔵 [ProfilePageView] navigationPath changed: \(oldPath.count) → \(newPath.count)")
+            print("🔵 [ProfilePageView] Published navigationDepth: \(navigationDepth)")
+            #endif
+            
+            // Reload stats when returning to root (path becomes empty)
+            if newPath.isEmpty {
                 Task { await loadStats() }
             }
         }
-        .onChange(of: showFavorites) { _, isShowing in
-            // Reload stats when returning from favorites view
-            if !isShowing {
-                Task { await loadStats() }
+        .onAppear {
+            // Sync depth on appear
+            navigationDepth = navigationPath.count
+            #if DEBUG
+            print("🔵 [ProfilePageView] onAppear - navigationPath.count: \(navigationPath.count)")
+            #endif
+        }
+        .onDisappear {
+            #if DEBUG
+            print("🔵 [ProfilePageView] onDisappear - navigationPath.count: \(navigationPath.count)")
+            #endif
+        }
+    }
+    
+    // MARK: - Back Button
+    
+    private var backToPracticeButton: some View {
+        Button {
+            onNavigateToCenter()
+        } label: {
+            HStack(spacing: AppTheme.Spacing.xs) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .semibold))
+                Text("Practice")
+                    .font(AppTypography.body)
             }
+            .foregroundStyle(AppColors.accent)
         }
-        .fullScreenCover(isPresented: $showFavorites) {
-            // Wrap in NavigationStack so FavoritesFullListView's
-            // .navigationTitle and toolbar work correctly
-            NavigationStack {
-                FavoritesFullListView(
-                    store: store,
-                    dependencies: dependencies,
-                    onNavigateToCenter: onNavigateToCenter
-                )
+        .accessibilityLabel("Back to Practice")
+        .accessibilityHint("Return to the practice screen")
+    }
+    
+    // MARK: - Scroll Content
+    
+    private var scrollContent: some View {
+        ScrollView {
+            VStack(spacing: AppTheme.Spacing.xl) {
+                // Profile header (scrolls under navbar)
+                profileHeader
+                
+                // Stats row
+                statsRow
+                
+                // Progress section
+                progressSection
+                
+                // Favorites section
+                favoritesSection
+                
+                // Saved Sessions section
+                savedSessionsSection
+                
+                // Settings section
+                settingsSection
+                
+                // Bottom padding
+                Spacer()
+                    .frame(height: AppTheme.Spacing.xxl)
             }
+            .padding(.horizontal, AppTheme.Spacing.lg)
         }
-        .fullScreenCover(isPresented: $showSavedSessions) {
-            // Wrap in NavigationStack for proper navigation bar
-            NavigationStack {
-                SavedSessionsFullListView(
-                    store: store,
-                    onNavigateToCenter: onNavigateToCenter
-                )
-            }
-        }
-        .fullScreenCover(isPresented: $showVoiceSettings) {
-            VoiceSettingsView()
-        }
-        .sheet(isPresented: $showWaveformSelection) {
-            WaveformSelectionSheet(
-                selectedType: waveformTypeBinding,
-                onSave: { newType in
-                    // Save is handled via binding
+    }
+    
+    // MARK: - Navigation Destinations
+    
+    @ViewBuilder
+    private func destinationView(for destination: ProfileDestination) -> some View {
+        switch destination {
+        case .favorites:
+            FavoritesFullListView(
+                store: store,
+                dependencies: dependencies,
+                onStartSession: {
+                    popToRootAndNavigateToCenter()
                 }
             )
+            
+        case .savedSessions:
+            SavedSessionsFullListView(
+                store: store,
+                onStartSession: {
+                    popToRootAndNavigateToCenter()
+                }
+            )
+            
+        case .voiceSettings:
+            VoiceSettingsView()
+            
+        case .waveformStyle:
+            WaveformSelectionView(selectedType: waveformTypeBinding)
+            
+        case .goals:
+            GoalsSettingsView()
+            
+        case .account:
+            AccountSettingsView()
+            
+        case .premium:
+            PremiumView()
+        }
+    }
+    
+    /// Pops navigation stack to root and navigates to Practice page.
+    ///
+    /// Used when starting a session from Favorites or Saved Sessions.
+    /// Ensures clean navigation state before transitioning.
+    private func popToRootAndNavigateToCenter() {
+        navigationPath = NavigationPath()
+        // Small delay to allow stack to clear before page transition
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            onNavigateToCenter()
         }
     }
     
     // MARK: - Waveform Type Binding
     
-    /// Binding to UserProfile's waveformType for the selection sheet
+    /// Binding to UserProfile's waveformType for the selection view
     private var waveformTypeBinding: Binding<DockWaveformType> {
         Binding(
             get: { appState.userProfile?.waveformType ?? .layeredWaves },
@@ -146,30 +227,6 @@ struct ProfilePageView: View {
                 appState.userProfile?.waveformType = newType
             }
         )
-    }
-    
-    // MARK: - Navigation Header
-    
-    private var navigationHeader: some View {
-        HStack {
-            // Back to Practice (goes LEFT)
-            Button {
-                onNavigateToCenter()
-            } label: {
-                HStack(spacing: AppTheme.Spacing.xs) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .semibold))
-                    Text("Practice")
-                        .font(AppTypography.body)
-                }
-                .foregroundStyle(AppColors.accent)
-            }
-            .accessibilityLabel("Back to Practice")
-            .accessibilityHint("Return to the practice screen")
-            
-            Spacer()
-        }
-        .padding(.top, AppTheme.Spacing.xl)
     }
     
     // MARK: - Profile Header
@@ -240,24 +297,19 @@ struct ProfilePageView: View {
             ProfileSectionHeader(title: "PROGRESS")
                 .accessibilityAddTraits(.isHeader)
             
-            // Placeholder for progress charts
-            VStack(spacing: AppTheme.Spacing.md) {
-                ProgressPlaceholderCard(
-                    title: "Weekly Practice",
-                    subtitle: "View your practice history",
-                    icon: "chart.bar.fill"
-                )
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Weekly Practice. View your practice history. Coming soon")
-                
-                ProgressPlaceholderCard(
-                    title: "Resonance Trends",
-                    subtitle: "Track your vocal improvement",
-                    icon: "waveform.path.ecg"
-                )
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Resonance Trends. Track your vocal improvement. Coming soon")
-            }
+            ProgressPlaceholderCard(
+                title: "Weekly Activity",
+                subtitle: "Coming soon",
+                icon: "chart.bar.fill"
+            )
+            .accessibilityLabel("Weekly Activity chart. Coming soon")
+            
+            ProgressPlaceholderCard(
+                title: "Category Breakdown",
+                subtitle: "Coming soon",
+                icon: "chart.pie.fill"
+            )
+            .accessibilityLabel("Category Breakdown chart. Coming soon")
         }
     }
     
@@ -269,7 +321,7 @@ struct ProfilePageView: View {
                 .accessibilityAddTraits(.isHeader)
             
             Button {
-                showFavorites = true
+                navigateTo(.favorites)
             } label: {
                 HStack(spacing: AppTheme.Spacing.md) {
                     Image(systemName: "heart.fill")
@@ -282,7 +334,7 @@ struct ProfilePageView: View {
                             .font(AppTypography.headline)
                             .foregroundStyle(AppColors.textPrimary)
                         
-                        Text("\(favoriteCount) affirmations")
+                        Text("\(favoriteCount) favorites")
                             .font(AppTypography.caption1)
                             .foregroundStyle(AppColors.textSecondary)
                     }
@@ -298,7 +350,7 @@ struct ProfilePageView: View {
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Saved Affirmations, \(favoriteCount) affirmations")
+            .accessibilityLabel("Saved Affirmations, \(favoriteCount) favorites")
             .accessibilityHint("View and manage your favorite affirmations")
         }
     }
@@ -311,7 +363,7 @@ struct ProfilePageView: View {
                 .accessibilityAddTraits(.isHeader)
             
             Button {
-                showSavedSessions = true
+                navigateTo(.savedSessions)
             } label: {
                 HStack(spacing: AppTheme.Spacing.md) {
                     Image(systemName: "bookmark.fill")
@@ -341,25 +393,8 @@ struct ProfilePageView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Saved Sessions, \(savedSessionCount) sessions")
-            .accessibilityHint("View and manage your saved practice sessions")
+            .accessibilityHint("View and play your saved sessions")
         }
-    }
-    
-    /// Starts playback of a saved session with the specified loop configuration
-    func playSavedSession(_ session: SavedSession, loopCount: Int, shuffleEnabled: Bool) {
-        // Set loop configuration from the card controls
-        let config = LoopConfiguration(
-            loopCount: loopCount,
-            isShuffleEnabled: shuffleEnabled,
-            currentLoopIteration: 1
-        )
-        store.setLoopConfiguration(config)
-        
-        // Start the saved session
-        store.send(.startSavedSession(session))
-        
-        // Navigate back to practice page
-        onNavigateToCenter()
     }
     
     // MARK: - Settings Section
@@ -373,50 +408,38 @@ struct ProfilePageView: View {
                 // Voice Profile
                 SettingsRow(
                     icon: "waveform",
-                    iconColor: AppColors.accentSecondary,
+                    iconColor: AppColors.accent,
                     title: "Voice Profile",
                     subtitle: voiceProfileSubtitle
                 ) {
-                    showVoiceSettings = true
+                    navigateTo(.voiceSettings)
                 }
                 .accessibilityLabel("Voice Profile, \(voiceProfileSubtitle)")
-                .accessibilityHint("Change your voice settings")
+                .accessibilityHint("Change your preferred voice for affirmations")
                 
                 // Waveform Style
                 SettingsRow(
-                    icon: "waveform.path",
+                    icon: "waveform.path.ecg",
                     iconColor: AppColors.success,
                     title: "Waveform Style",
                     subtitle: appState.userProfile?.waveformType.displayName ?? "Layered Waves"
                 ) {
-                    showWaveformSelection = true
+                    navigateTo(.waveformStyle)
                 }
                 .accessibilityLabel("Waveform Style, \(appState.userProfile?.waveformType.displayName ?? "Layered Waves")")
-                .accessibilityHint("Change the waveform visualization style")
+                .accessibilityHint("Change your waveform visualization style")
                 
                 // Goals
                 SettingsRow(
                     icon: "target",
-                    iconColor: AppColors.accent,
-                    title: "My Goals",
+                    iconColor: AppColors.accentSecondary,
+                    title: "Goals",
                     subtitle: goalsSubtitle
                 ) {
-                    // TODO: Navigate to goals selection
+                    navigateTo(.goals)
                 }
-                .accessibilityLabel("My Goals, \(goalsSubtitle)")
-                .accessibilityHint("View and change your goal categories")
-                
-                // Faith Content
-                SettingsRow(
-                    icon: "sparkles",
-                    iconColor: .purple,
-                    title: "Faith Content",
-                    subtitle: appState.userProfile?.includeFaithContent == true ? "Enabled" : "Disabled"
-                ) {
-                    // TODO: Toggle faith content
-                }
-                .accessibilityLabel("Faith Content, \(appState.userProfile?.includeFaithContent == true ? "Enabled" : "Disabled")")
-                .accessibilityHint("Toggle faith-based affirmation content")
+                .accessibilityLabel("Goals, \(goalsSubtitle)")
+                .accessibilityHint("Update your affirmation goals")
                 
                 // Account
                 SettingsRow(
@@ -425,7 +448,7 @@ struct ProfilePageView: View {
                     title: "Account",
                     subtitle: appState.isAuthenticated ? "Signed in" : "Not signed in"
                 ) {
-                    // TODO: Navigate to account
+                    navigateTo(.account)
                 }
                 .accessibilityLabel("Account, \(appState.isAuthenticated ? "Signed in" : "Not signed in")")
                 .accessibilityHint("Manage your account settings")
@@ -438,7 +461,7 @@ struct ProfilePageView: View {
                         title: "Upgrade to Premium",
                         subtitle: "Unlock all features"
                     ) {
-                        // TODO: Show premium upsell
+                        navigateTo(.premium)
                     }
                     .accessibilityLabel("Upgrade to Premium")
                     .accessibilityHint("View premium features and pricing")
@@ -465,6 +488,24 @@ struct ProfilePageView: View {
         let voice = Voice.voice(forId: selectedId)
         return voice.displayNameWithDefault
     }
+    
+    // MARK: - Navigation Helper
+    
+    /// Navigates to a destination with debug logging.
+    private func navigateTo(_ destination: ProfileDestination) {
+        #if DEBUG
+        print("🔷 [ProfilePageView] navigateTo(\(destination)) called")
+        print("   - navigationPath.count BEFORE: \(navigationPath.count)")
+        #endif
+        
+        navigationPath.append(destination)
+        
+        #if DEBUG
+        print("   - navigationPath.count AFTER: \(navigationPath.count)")
+        #endif
+    }
+    
+    // MARK: - Data Loading
     
     private func loadStats() async {
         // Load favorites count
@@ -649,11 +690,19 @@ struct SettingsRow: View {
 // MARK: - Previews
 
 #Preview("Profile Page") {
-    ProfilePageView(
-        store: .preview,
-        onNavigateToCenter: {}
-    )
-    .previewEnvironment()
+    struct PreviewWrapper: View {
+        @State private var navigationDepth = 0
+        
+        var body: some View {
+            ProfilePageView(
+                store: .preview,
+                onNavigateToCenter: {},
+                navigationDepth: $navigationDepth
+            )
+            .previewEnvironment()
+        }
+    }
+    return PreviewWrapper()
 }
 
 #Preview("Profile Stat Card") {

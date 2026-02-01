@@ -21,6 +21,9 @@ import UIKit
 /// // Announce a score
 /// AccessibilityAnnouncement.announce("Score: 85 percent. Great job!")
 ///
+/// // Announce with delay
+/// AccessibilityAnnouncement.announce("Processing complete", delay: 0.3)
+///
 /// // Notify screen layout changed
 /// AccessibilityAnnouncement.screenChanged()
 ///
@@ -44,6 +47,24 @@ public enum AccessibilityAnnouncement {
     /// - Parameter message: The message to announce
     public static func announce(_ message: String) {
         Task { @MainActor in
+            UIAccessibility.post(
+                notification: .announcement,
+                argument: message
+            )
+        }
+    }
+    
+    /// Announces a message to VoiceOver users after a delay.
+    ///
+    /// Use when you need to wait for other VoiceOver speech to complete
+    /// before making an announcement, such as after a screen transition.
+    ///
+    /// - Parameters:
+    ///   - message: The message to announce
+    ///   - delay: Time interval to wait before announcing (default: 0.1)
+    public static func announce(_ message: String, delay: TimeInterval) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(delay))
             UIAccessibility.post(
                 notification: .announcement,
                 argument: message
@@ -103,6 +124,15 @@ public extension AccessibilityAnnouncement {
         announce("Affirmation \(current) of \(total)")
     }
     
+    /// Announces navigation within a session using 0-based index.
+    ///
+    /// - Parameters:
+    ///   - currentIndex: Current affirmation index (0-based)
+    ///   - totalCount: Total affirmations in session
+    static func announceNavigation(currentIndex: Int, totalCount: Int) {
+        announce("Affirmation \(currentIndex + 1) of \(totalCount)")
+    }
+    
     /// Announces a resonance score with descriptive feedback.
     ///
     /// - Parameter score: The score percentage (0-100)
@@ -125,6 +155,35 @@ public extension AccessibilityAnnouncement {
     static func announceSessionComplete() {
         announce("Session complete. Showing results.")
         screenChanged()
+    }
+    
+    /// Announces session completion with summary.
+    ///
+    /// - Parameters:
+    ///   - affirmationCount: Number of affirmations practiced
+    ///   - averageScore: Optional average resonance score
+    static func announceSessionComplete(
+        affirmationCount: Int,
+        averageScore: Int?
+    ) {
+        var message = "Session complete. You practiced \(affirmationCount) affirmation"
+        if affirmationCount != 1 {
+            message += "s"
+        }
+        
+        if let avg = averageScore {
+            message += " with an average score of \(avg) percent"
+        }
+        
+        message += "."
+        
+        announce(message, delay: 0.3)
+        
+        // Post screen change after announcement
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(0.5))
+            screenChanged()
+        }
     }
     
     /// Announces that listening has started.
@@ -163,5 +222,19 @@ public extension AccessibilityAnnouncement {
     /// - Parameter enabled: Whether shuffle is now enabled
     static func announceShuffleToggled(enabled: Bool) {
         announce(enabled ? "Shuffle enabled" : "Shuffle disabled")
+    }
+    
+    /// Announces binaural beat preset change.
+    ///
+    /// - Parameter preset: The new preset name
+    static func announceBinauralChanged(to preset: String) {
+        announce("Binaural preset: \(preset)")
+    }
+    
+    /// Announces an error condition.
+    ///
+    /// - Parameter message: The error message to announce
+    static func announceError(_ message: String) {
+        announce("Error: \(message)")
     }
 }

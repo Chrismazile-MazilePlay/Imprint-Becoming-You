@@ -8,6 +8,92 @@
 import SwiftUI
 import SwiftData
 
+// MARK: - Repository Cache
+
+/// Cache for repository instances keyed by ModelContext identity.
+///
+/// Uses `NSMapTable` with weak keys to automatically release repositories
+/// when their ModelContext is deallocated. This prevents memory leaks
+/// while still enabling instance reuse.
+///
+/// ## Why NSMapTable?
+/// - Supports weak references to keys (ModelContext)
+/// - Automatically removes entries when key is deallocated
+/// - Thread-safe when accessed from MainActor
+///
+/// ## Benefits of Caching
+/// - Reduces memory allocation overhead
+/// - Enables potential internal caching within repositories
+/// - Reduces object churn for frequently accessed data
+private final class RepositoryCache {
+    
+    /// Weak key -> strong value map for affirmation repositories
+    private var affirmationRepositories = NSMapTable<AnyObject, AnyObject>.weakToStrongObjects()
+    
+    /// Weak key -> strong value map for saved session repositories
+    private var savedSessionRepositories = NSMapTable<AnyObject, AnyObject>.weakToStrongObjects()
+    
+    /// Weak key -> strong value map for voice repositories
+    private var voiceRepositories = NSMapTable<AnyObject, AnyObject>.weakToStrongObjects()
+    
+    // MARK: - Affirmation Repository
+    
+    /// Retrieves a cached affirmation repository for the given context.
+    func getAffirmationRepository(for context: ModelContext) -> (any AffirmationRepositoryProtocol)? {
+        affirmationRepositories.object(forKey: context) as? any AffirmationRepositoryProtocol
+    }
+    
+    /// Caches an affirmation repository for the given context.
+    func setAffirmationRepository(_ repo: any AffirmationRepositoryProtocol, for context: ModelContext) {
+        affirmationRepositories.setObject(repo as AnyObject, forKey: context)
+    }
+    
+    // MARK: - Saved Session Repository
+    
+    /// Retrieves a cached saved session repository for the given context.
+    func getSavedSessionRepository(for context: ModelContext) -> (any SavedSessionRepositoryProtocol)? {
+        savedSessionRepositories.object(forKey: context) as? any SavedSessionRepositoryProtocol
+    }
+    
+    /// Caches a saved session repository for the given context.
+    func setSavedSessionRepository(_ repo: any SavedSessionRepositoryProtocol, for context: ModelContext) {
+        savedSessionRepositories.setObject(repo as AnyObject, forKey: context)
+    }
+    
+    // MARK: - Voice Repository
+    
+    /// Retrieves a cached voice repository for the given context.
+    func getVoiceRepository(for context: ModelContext) -> (any VoiceRepositoryProtocol)? {
+        voiceRepositories.object(forKey: context) as? any VoiceRepositoryProtocol
+    }
+    
+    /// Caches a voice repository for the given context.
+    func setVoiceRepository(_ repo: any VoiceRepositoryProtocol, for context: ModelContext) {
+        voiceRepositories.setObject(repo as AnyObject, forKey: context)
+    }
+    
+    // MARK: - Cleanup
+    
+    /// Clears all cached repositories.
+    ///
+    /// Call when app enters background or receives memory warning.
+    func clearAll() {
+        affirmationRepositories.removeAllObjects()
+        savedSessionRepositories.removeAllObjects()
+        voiceRepositories.removeAllObjects()
+    }
+    
+    /// Returns the number of cached repositories for debugging.
+    var debugDescription: String {
+        """
+        RepositoryCache:
+          - Affirmation: \(affirmationRepositories.count)
+          - SavedSession: \(savedSessionRepositories.count)
+          - Voice: \(voiceRepositories.count)
+        """
+    }
+}
+
 // MARK: - Dependency Container
 
 /// Central dependency injection container for the Imprint app.
@@ -40,6 +126,12 @@ import SwiftData
 /// let repository = dependencies.makeAffirmationRepository(modelContext: modelContext)
 /// let voiceRepo = dependencies.makeVoiceRepository(modelContext: modelContext)
 /// ```
+///
+/// ## Repository Caching
+/// Repository instances are cached per ModelContext using weak-keyed maps.
+/// This reduces allocation overhead while automatically cleaning up when
+/// the ModelContext is deallocated. Cache can be cleared manually via
+/// `clearRepositoryCache()` for memory management.
 @MainActor
 final class DependencyContainer: Sendable {
     
@@ -55,6 +147,9 @@ final class DependencyContainer: Sendable {
     
     /// Whether this container is for previews
     let isPreview: Bool
+    
+    /// Cache for repository instances
+    private let repositoryCache = RepositoryCache()
     
     // MARK: - Services (Lazy Initialization with Safe Unwrapping)
     
@@ -203,26 +298,52 @@ final class DependencyContainer: Sendable {
         self.isPreview = isPreview
     }
     
-    // MARK: - Repository Factory Methods
+    // MARK: - Repository Factory Methods (Cached)
     
-    /// Creates an affirmation repository for the given model context.
+    /// Creates or retrieves a cached affirmation repository for the given model context.
+    ///
+    /// Repositories are cached per ModelContext to reduce allocation overhead
+    /// and enable potential internal caching within the repository.
     ///
     /// For production, returns a real `AffirmationRepository`.
-    /// For previews, returns a `MockAffirmationRepository`.
+    /// For previews, returns a `MockAffirmationRepository` (not cached).
     ///
     /// - Parameter modelContext: SwiftData model context
     /// - Returns: Repository conforming to `AffirmationRepositoryProtocol`
     func makeAffirmationRepository(modelContext: ModelContext) -> any AffirmationRepositoryProtocol {
         if isPreview {
+            // Don't cache mocks - they're stateless
             return MockAffirmationRepository()
         }
-        return AffirmationRepository(modelContext: modelContext)
+        
+        // Check cache first
+        if let cached = repositoryCache.getAffirmationRepository(for: modelContext) {
+            AppLogger.debug(
+                "AffirmationRepository cache hit",
+                category: .data
+            )
+            return cached
+        }
+        
+        // Create and cache new instance
+        let repo = AffirmationRepository(modelContext: modelContext)
+        repositoryCache.setAffirmationRepository(repo, for: modelContext)
+        
+        AppLogger.debug(
+            "Created new AffirmationRepository (cached)",
+            category: .data
+        )
+        
+        return repo
     }
     
-    /// Creates a saved session repository for the given model context.
+    /// Creates or retrieves a cached saved session repository for the given model context.
+    ///
+    /// Repositories are cached per ModelContext to reduce allocation overhead
+    /// and enable potential internal caching within the repository.
     ///
     /// For production, returns a real `SavedSessionRepository`.
-    /// For previews, returns a `MockSavedSessionRepository`.
+    /// For previews, returns a `MockSavedSessionRepository` (not cached).
     ///
     /// - Parameter modelContext: SwiftData model context
     /// - Returns: Repository conforming to `SavedSessionRepositoryProtocol`
@@ -230,13 +351,35 @@ final class DependencyContainer: Sendable {
         if isPreview {
             return MockSavedSessionRepository()
         }
-        return SavedSessionRepository(modelContext: modelContext)
+        
+        // Check cache first
+        if let cached = repositoryCache.getSavedSessionRepository(for: modelContext) {
+            AppLogger.debug(
+                "SavedSessionRepository cache hit",
+                category: .data
+            )
+            return cached
+        }
+        
+        // Create and cache new instance
+        let repo = SavedSessionRepository(modelContext: modelContext)
+        repositoryCache.setSavedSessionRepository(repo, for: modelContext)
+        
+        AppLogger.debug(
+            "Created new SavedSessionRepository (cached)",
+            category: .data
+        )
+        
+        return repo
     }
     
-    /// Creates a voice repository for the given model context.
+    /// Creates or retrieves a cached voice repository for the given model context.
+    ///
+    /// Repositories are cached per ModelContext to reduce allocation overhead
+    /// and enable potential internal caching within the repository.
     ///
     /// For production, returns a real `VoiceRepository`.
-    /// For previews, returns a `MockVoiceRepository`.
+    /// For previews, returns a `MockVoiceRepository` (not cached).
     ///
     /// - Parameter modelContext: SwiftData model context
     /// - Returns: Repository conforming to `VoiceRepositoryProtocol`
@@ -244,7 +387,26 @@ final class DependencyContainer: Sendable {
         if isPreview {
             return MockVoiceRepository()
         }
-        return VoiceRepository(modelContext: modelContext)
+        
+        // Check cache first
+        if let cached = repositoryCache.getVoiceRepository(for: modelContext) {
+            AppLogger.debug(
+                "VoiceRepository cache hit",
+                category: .data
+            )
+            return cached
+        }
+        
+        // Create and cache new instance
+        let repo = VoiceRepository(modelContext: modelContext)
+        repositoryCache.setVoiceRepository(repo, for: modelContext)
+        
+        AppLogger.debug(
+            "Created new VoiceRepository (cached)",
+            category: .data
+        )
+        
+        return repo
     }
     
     /// Creates an offline content loader.
@@ -256,6 +418,30 @@ final class DependencyContainer: Sendable {
     func makeOfflineContentLoader() -> OfflineContentLoader {
         OfflineContentLoader()
     }
+    
+    // MARK: - Repository Cache Management
+    
+    /// Clears all cached repository instances.
+    ///
+    /// Call when:
+    /// - App enters background for extended period
+    /// - Memory warning received
+    /// - User logs out
+    ///
+    /// Cached repositories will be recreated on next access.
+    func clearRepositoryCache() {
+        repositoryCache.clearAll()
+        AppLogger.info("Repository cache cleared", category: .data)
+    }
+    
+    #if DEBUG
+    /// Debug description of repository cache state.
+    ///
+    /// Shows the number of cached repositories per type.
+    var repositoryCacheDebugDescription: String {
+        repositoryCache.debugDescription
+    }
+    #endif
     
     // MARK: - Service Registration (for testing)
     

@@ -26,6 +26,7 @@ import UIKit
 /// 2. Clears voice preview memory cache (~5MB)
 /// 3. Clears pre-synthesis queues
 /// 4. Releases audio engines not in use
+/// 5. Clears repository instance cache
 ///
 /// ## Periodic Background Monitoring
 /// Instead of using a single long `Task.sleep` (which can drift and doesn't
@@ -291,6 +292,7 @@ final class MemoryManager {
     /// - Kokoro TTS ML pipelines (~500MB-1GB)
     /// - Voice preview memory cache
     /// - Pre-synthesis queue
+    /// - Repository instance cache
     func releaseForBackground() async {
         guard !hasReleasedForBackground else {
             AppLogger.debug("Already released for background", category: .memory)
@@ -317,6 +319,10 @@ final class MemoryManager {
             sessionQueue.clearQueue()
             AppLogger.info("  ✅ Cleared session TTS queue", category: .memory)
         }
+        
+        // 4. Clear repository instance cache to free references
+        DependencyContainer.shared.clearRepositoryCache()
+        AppLogger.info("  ✅ Cleared repository cache", category: .memory)
         
         hasReleasedForBackground = true
         
@@ -351,6 +357,7 @@ final class MemoryManager {
         
         // Voice preview cache will reload on-demand from disk
         // Session TTS queue will be rebuilt when session starts
+        // Repository cache will be rebuilt on-demand when repositories are requested
         
         hasReleasedForBackground = false
         

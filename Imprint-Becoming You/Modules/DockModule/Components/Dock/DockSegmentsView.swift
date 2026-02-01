@@ -171,6 +171,9 @@ public struct DockSegmentsView: View {
     /// In timed mode, `timerProgress` is only used if `timerSegmentIndex == currentIndex`.
     /// This prevents stale progress from a previous segment showing on a new segment
     /// during rapid navigation (when SwiftUI re-renders before onChange fires).
+    ///
+    /// Additionally, `showCurrentAsComplete` is checked first during forward navigation
+    /// to ensure the current segment shows 100% before the index change propagates.
     private func computeFill(for index: Int) -> CGFloat {
         // Past segments: always complete
         if index < segments.currentIndex {
@@ -185,6 +188,13 @@ public struct DockSegmentsView: View {
         // Current segment (index == currentIndex):
         if segments.usesTimedProgress {
             // Timed mode: animated fill controlled by timer
+            
+            // Check for forced completion during forward navigation.
+            // This ensures smooth visual transition when user skips forward.
+            if segments.showCurrentAsComplete {
+                return 1.0
+            }
+            
             // CRITICAL: Only use timerProgress if it belongs to THIS segment
             // This prevents stale progress from previous segments during rapid skip
             if segments.isAnimating && timerSegmentIndex == segments.currentIndex {

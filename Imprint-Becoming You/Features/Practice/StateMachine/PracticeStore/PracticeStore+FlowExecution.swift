@@ -644,6 +644,9 @@ extension PracticeStore {
         
         pendingAutoAdvance = nil
         
+        // Clear forward navigation flag if set (navigation was interrupted)
+        setForwardNavigationPending(false)
+        
         // Stop TTS playback
         stopTTSPlayback()
         

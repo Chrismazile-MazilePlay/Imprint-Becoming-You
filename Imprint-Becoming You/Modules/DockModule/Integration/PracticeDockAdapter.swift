@@ -112,12 +112,17 @@ final class PracticeDockAdapter: DockAdapterProtocol {
         // Read & Speak and Speak Only use toggle mode (score completion triggers auto-advance)
         let usesTimedProgress = store.sessionMode == .readAloud
         
+        // Signal dock to show current segment as 100% during forward navigation transition.
+        // This prevents the visual glitch where segment resets to 0% before filling.
+        let showCurrentAsComplete = store.isForwardNavigationPending
+        
         return DockSessionSegments(
             configs: configs,
             currentIndex: store.displayCurrentIndex,
             isAnimating: isAnimating,
             usesTimedProgress: usesTimedProgress,
-            generation: store.segmentGeneration
+            generation: store.segmentGeneration,
+            showCurrentAsComplete: showCurrentAsComplete
         )
     }
     

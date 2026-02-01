@@ -69,6 +69,16 @@ final class PracticeStore {
     /// Pending auto-advance direction (triggers VerticalPager animation)
     var pendingAutoAdvance: NavigationDirection? = nil
     
+    /// Signals that a forward navigation animation is in progress.
+    ///
+    /// Used by the dock to show the current segment as 100% complete during
+    /// the transition animation. This prevents the visual glitch where the
+    /// segment briefly resets to 0% due to SwiftUI state propagation timing.
+    ///
+    /// - Set `true` in `handleNavigateViaButton(.next)` before animation starts
+    /// - Set `false` in `handleAutoAdvanceCompleted()` after transition completes
+    private(set) var isForwardNavigationPending: Bool = false
+    
     /// Whether navigation is temporarily locked (during score display)
     private(set) var isNavigationLocked: Bool = false
     
@@ -437,6 +447,13 @@ final class PracticeStore {
     /// Updates navigation lock
     func setNavigationLocked(_ locked: Bool) {
         isNavigationLocked = locked
+    }
+    
+    /// Updates forward navigation pending state.
+    ///
+    /// Used to signal the dock to show current segment as complete during forward navigation.
+    func setForwardNavigationPending(_ pending: Bool) {
+        isForwardNavigationPending = pending
     }
     
     /// Updates browse queue state

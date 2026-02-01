@@ -167,6 +167,9 @@ extension PracticeStore {
         switch direction {
         case .next:
             setSegmentProgress(1.0)
+            // Signal dock to show current segment as complete during transition animation.
+            // This prevents visual glitch where segment resets to 0% before filling.
+            setForwardNavigationPending(true)
         case .previous:
             setSegmentProgress(0)
         }
@@ -185,6 +188,9 @@ extension PracticeStore {
     
     func handleAutoAdvanceCompleted() {
         pendingAutoAdvance = nil
+        
+        // Clear forward navigation flag - transition is complete
+        setForwardNavigationPending(false)
         
         // Reset segment progress for the new segment (starts at 0%)
         setSegmentProgress(0)

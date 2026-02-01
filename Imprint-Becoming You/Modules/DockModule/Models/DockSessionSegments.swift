@@ -108,6 +108,19 @@ public struct DockSessionSegments: Equatable, Sendable {
     /// needing to understand business logic.
     public let generation: Int
     
+    /// Signals that the current segment should display as complete (100%) immediately.
+    ///
+    /// Used during forward navigation to create seamless visual transitions:
+    /// - When user taps skip button, set `true` before animation starts
+    /// - Current segment shows 100% while transition animates
+    /// - After index changes and transition completes, set `false`
+    ///
+    /// This prevents the visual glitch where the current segment resets to 0%
+    /// before filling to 100% due to SwiftUI state propagation timing.
+    ///
+    /// Only affects timed mode (`usesTimedProgress = true`).
+    public let showCurrentAsComplete: Bool
+    
     // MARK: - Initialization
     
     /// Creates a new session segments state.
@@ -118,18 +131,21 @@ public struct DockSessionSegments: Equatable, Sendable {
     ///   - isAnimating: Whether the current segment is active
     ///   - usesTimedProgress: Whether to use timer-driven or event-driven progression
     ///   - generation: Reset generation counter (increment to force timer restart)
+    ///   - showCurrentAsComplete: Whether to force current segment to show as 100% complete
     public init(
         configs: [DockSegmentConfig],
         currentIndex: Int,
         isAnimating: Bool,
         usesTimedProgress: Bool = true,
-        generation: Int = 0
+        generation: Int = 0,
+        showCurrentAsComplete: Bool = false
     ) {
         self.configs = configs
         self.currentIndex = currentIndex
         self.isAnimating = isAnimating
         self.usesTimedProgress = usesTimedProgress
         self.generation = generation
+        self.showCurrentAsComplete = showCurrentAsComplete
     }
 }
 
@@ -179,18 +195,21 @@ public extension DockSessionSegments {
     ///   - configs: Configuration for each segment
     ///   - usesTimedProgress: Whether to use timer-driven progression
     ///   - generation: Reset generation counter
+    ///   - showCurrentAsComplete: Whether to force current segment to show as 100% complete
     /// - Returns: Segments at index 0, not animating
     static func start(
         configs: [DockSegmentConfig],
         usesTimedProgress: Bool = true,
-        generation: Int = 0
+        generation: Int = 0,
+        showCurrentAsComplete: Bool = false
     ) -> DockSessionSegments {
         DockSessionSegments(
             configs: configs,
             currentIndex: 0,
             isAnimating: false,
             usesTimedProgress: usesTimedProgress,
-            generation: generation
+            generation: generation,
+            showCurrentAsComplete: showCurrentAsComplete
         )
     }
     
@@ -201,12 +220,14 @@ public extension DockSessionSegments {
     ///   - duration: Duration for each segment (default: 8 seconds)
     ///   - usesTimedProgress: Whether to use timer-driven progression
     ///   - generation: Reset generation counter
+    ///   - showCurrentAsComplete: Whether to force current segment to show as 100% complete
     /// - Returns: Segments with uniform configuration
     static func uniform(
         count: Int,
         duration: TimeInterval = 8,
         usesTimedProgress: Bool = true,
-        generation: Int = 0
+        generation: Int = 0,
+        showCurrentAsComplete: Bool = false
     ) -> DockSessionSegments {
         let configs = Array(repeating: DockSegmentConfig(animationDuration: duration), count: count)
         return DockSessionSegments(
@@ -214,7 +235,8 @@ public extension DockSessionSegments {
             currentIndex: 0,
             isAnimating: false,
             usesTimedProgress: usesTimedProgress,
-            generation: generation
+            generation: generation,
+            showCurrentAsComplete: showCurrentAsComplete
         )
     }
 }

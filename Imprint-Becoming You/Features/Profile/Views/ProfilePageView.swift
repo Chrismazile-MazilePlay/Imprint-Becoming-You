@@ -103,8 +103,8 @@ struct ProfilePageView: View {
             navigationDepth = newPath.count
             
             #if DEBUG
-            print("🔵 [ProfilePageView] navigationPath changed: \(oldPath.count) → \(newPath.count)")
-            print("🔵 [ProfilePageView] Published navigationDepth: \(navigationDepth)")
+            print("ðŸ”µ [ProfilePageView] navigationPath changed: \(oldPath.count) â†’ \(newPath.count)")
+            print("ðŸ”µ [ProfilePageView] Published navigationDepth: \(navigationDepth)")
             #endif
             
             // Reload stats when returning to root (path becomes empty)
@@ -116,12 +116,12 @@ struct ProfilePageView: View {
             // Sync depth on appear
             navigationDepth = navigationPath.count
             #if DEBUG
-            print("🔵 [ProfilePageView] onAppear - navigationPath.count: \(navigationPath.count)")
+            print("ðŸ”µ [ProfilePageView] onAppear - navigationPath.count: \(navigationPath.count)")
             #endif
         }
         .onDisappear {
             #if DEBUG
-            print("🔵 [ProfilePageView] onDisappear - navigationPath.count: \(navigationPath.count)")
+            print("ðŸ”µ [ProfilePageView] onDisappear - navigationPath.count: \(navigationPath.count)")
             #endif
         }
     }
@@ -214,7 +214,7 @@ struct ProfilePageView: View {
             WaveformSelectionView(selectedType: waveformTypeBinding)
             
         case .goals:
-            GoalsSettingsView()
+            GoalsSettingsView(store: store)
             
         case .account:
             AccountSettingsView()
@@ -513,7 +513,7 @@ struct ProfilePageView: View {
     /// Navigates to a destination with debug logging.
     private func navigateTo(_ destination: ProfileDestination) {
         #if DEBUG
-        print("🔷 [ProfilePageView] navigateTo(\(destination)) called")
+        print("ðŸ”· [ProfilePageView] navigateTo(\(destination)) called")
         print("   - navigationPath.count BEFORE: \(navigationPath.count)")
         #endif
         

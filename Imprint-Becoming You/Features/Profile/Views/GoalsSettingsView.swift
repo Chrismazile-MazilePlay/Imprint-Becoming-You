@@ -6,15 +6,17 @@
 //
 
 import SwiftUI
+import SwiftData
 
 // MARK: - GoalsSettingsView
 
-/// Placeholder view for editing user goals.
+/// View for editing user goals with the same Save button pattern as other settings.
 ///
-/// This view will be expanded to allow users to:
-/// - View their current selected goals
-/// - Add or remove goal categories
-/// - Reorder goals by priority
+/// Features:
+/// - Uses the reusable GoalPickerView component
+/// - Changes are pending until Save is tapped
+/// - Save button only appears when selection differs from saved goals
+/// - Reloads affirmations when saved
 ///
 /// ## Navigation
 /// This view is pushed onto the Profile navigation stack.
@@ -22,7 +24,38 @@ struct GoalsSettingsView: View {
     
     // MARK: - Environment
     
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.appState) private var appState
+    @Environment(\.dependencies) private var dependencies
+    
+    // MARK: - Properties
+    
+    /// PracticeStore for reloading affirmations after save
+    @Bindable var store: PracticeStore
+    
+    // MARK: - State
+    
+    /// The goals that were saved when the view appeared
+    @State private var originalGoals: Set<GoalCategory> = []
+    
+    /// The currently selected (pending) goals
+    @State private var selectedGoals: Set<GoalCategory> = []
+    
+    // MARK: - Constants
+    
+    private let maxSelections = 5
+    
+    // MARK: - Computed Properties
+    
+    /// Whether the user has made changes that differ from the saved goals
+    private var hasUnsavedChanges: Bool {
+        selectedGoals != originalGoals
+    }
+    
+    /// Whether faith-based categories should be excluded
+    private var excludeFaithCategories: Bool {
+        appState.userProfile?.includeFaithContent == false
+    }
     
     // MARK: - Body
     
@@ -31,72 +64,92 @@ struct GoalsSettingsView: View {
             AppColors.backgroundPrimary
                 .ignoresSafeArea()
             
-            VStack(spacing: AppTheme.Spacing.xl) {
-                Spacer()
+            VStack(spacing: 0) {
+                // Header
+                headerSection
                 
-                // Icon
-                Image(systemName: "target")
-                    .font(.system(size: 64))
-                    .foregroundStyle(AppColors.accentSecondary.opacity(0.6))
-                    .accessibilityHidden(true)
-                
-                // Title
-                Text("Goals Settings")
-                    .font(AppTypography.title2)
-                    .foregroundStyle(AppColors.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-                
-                // Current goals summary
-                currentGoalsSummary
-                
-                // Coming soon
-                Text("Goal customization coming soon")
-                    .font(AppTypography.body)
-                    .foregroundStyle(AppColors.textTertiary)
-                
-                Spacer()
+                // Goal picker (reusable component)
+                GoalPickerView(
+                    selectedGoals: $selectedGoals,
+                    maxSelections: maxSelections,
+                    showCounter: true,
+                    excludeFaithCategories: excludeFaithCategories
+                )
             }
-            .padding(AppTheme.Spacing.xl)
         }
         .navigationTitle("Goals")
         .navigationBarTitleDisplayMode(.inline)
-    }
-    
-    // MARK: - Current Goals Summary
-    
-    private var currentGoalsSummary: some View {
-        VStack(spacing: AppTheme.Spacing.md) {
-            let goals = appState.userProfile?.selectedGoals ?? []
-            
-            if goals.isEmpty {
-                Text("No goals selected")
-                    .font(AppTypography.body)
-                    .foregroundStyle(AppColors.textSecondary)
-            } else {
-                Text("Your current goals:")
-                    .font(AppTypography.caption1)
-                    .foregroundStyle(AppColors.textSecondary)
-                
-                FlowLayout(spacing: AppTheme.Spacing.sm) {
-                    ForEach(goals, id: \.self) { goal in
-                        goalChip(goal)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                if hasUnsavedChanges {
+                    Button("Save") {
+                        saveGoals()
                     }
+                    .foregroundStyle(AppColors.accent)
+                    .disabled(selectedGoals.isEmpty)
+                    .accessibilityLabel("Save goals")
+                    .accessibilityHint("Saves your goal selections and updates affirmations")
                 }
             }
         }
-        .padding(AppTheme.Spacing.lg)
-        .background(AppColors.surfaceSecondary)
-        .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium))
+        .onAppear {
+            loadCurrentGoals()
+        }
     }
     
-    private func goalChip(_ goal: String) -> some View {
-        Text(goal)
-            .font(AppTypography.caption1)
-            .foregroundStyle(AppColors.textPrimary)
-            .padding(.horizontal, AppTheme.Spacing.md)
-            .padding(.vertical, AppTheme.Spacing.sm)
-            .background(AppColors.accentSecondary.opacity(0.15))
-            .clipShape(Capsule())
+    // MARK: - Header Section
+    
+    private var headerSection: some View {
+        VStack(spacing: AppTheme.Spacing.sm) {
+            Text("Choose your focus areas")
+                .font(AppTypography.headline)
+                .foregroundStyle(AppColors.textPrimary)
+            
+            Text(hasUnsavedChanges ? "Tap Save to update your affirmations" : "Select up to \(maxSelections) goals")
+                .font(AppTypography.caption1)
+                .foregroundStyle(hasUnsavedChanges ? AppColors.accent : AppColors.textSecondary)
+        }
+        .padding(.vertical, AppTheme.Spacing.md)
+    }
+    
+    // MARK: - Actions
+    
+    private func loadCurrentGoals() {
+        if let profile = appState.userProfile {
+            let goals = Set(profile.selectedGoals.compactMap { GoalCategory(rawValue: $0) })
+            originalGoals = goals
+            selectedGoals = goals
+        }
+    }
+    
+    private func saveGoals() {
+        guard let profile = appState.userProfile else { return }
+        
+        // Update profile
+        profile.selectedGoals = selectedGoals.map { $0.rawValue }
+        try? modelContext.save()
+        appState.updateProfile(profile)
+        
+        // Update original to match - no longer has unsaved changes
+        originalGoals = selectedGoals
+        
+        // Reload affirmations with new categories
+        let categories = selectedGoals.map { $0.rawValue }
+        let repository = dependencies.makeAffirmationRepository(modelContext: modelContext)
+        
+        Task {
+            await store.loadAffirmations(
+                using: repository,
+                forCategories: categories
+            )
+        }
+        
+        // Haptic feedback
+        HapticFeedback.notification(.success)
+        
+        #if DEBUG
+        print("🎯 GoalsSettingsView: Saved \(selectedGoals.count) goals")
+        #endif
     }
 }
 
@@ -104,7 +157,14 @@ struct GoalsSettingsView: View {
 
 #Preview("Goals Settings") {
     NavigationStack {
-        GoalsSettingsView()
+        GoalsSettingsView(store: .preview)
+    }
+    .previewEnvironment()
+}
+
+#Preview("Goals Settings - With Selections") {
+    NavigationStack {
+        GoalsSettingsView(store: .preview)
     }
     .previewEnvironment()
 }

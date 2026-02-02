@@ -222,6 +222,9 @@
     "Choose up to %lld areas to focus your affirmations" : {
 
     },
+    "Choose your focus areas" : {
+
+    },
     "Choose Your Voice" : {
 
     },
@@ -433,13 +436,7 @@
     "Go to Practice" : {
 
     },
-    "Goal customization coming soon" : {
-
-    },
     "Goals" : {
-
-    },
-    "Goals Settings" : {
 
     },
     "Goals, %@" : {
@@ -521,9 +518,6 @@
 
     },
     "No favorites yet. Tap the heart on any affirmation to save it here." : {
-
-    },
-    "No goals selected" : {
 
     },
     "No Saved Sessions" : {
@@ -669,6 +663,9 @@
     "Save changes to session name" : {
 
     },
+    "Save goals" : {
+
+    },
     "Save session" : {
 
     },
@@ -676,6 +673,12 @@
 
     },
     "Save this combination of affirmations to practice again later." : {
+
+    },
+    "Save voice selection" : {
+
+    },
+    "Save waveform selection" : {
 
     },
     "Save your category selections" : {
@@ -699,6 +702,15 @@
     "Saved Sessions, %lld sessions" : {
 
     },
+    "Saves %@ as your voice" : {
+
+    },
+    "Saves %@ as your waveform style" : {
+
+    },
+    "Saves your goal selections and updates affirmations" : {
+
+    },
     "Say:" : {
 
     },
@@ -717,10 +729,16 @@
     "Select at least one goal to continue" : {
 
     },
+    "Select up to %lld goals" : {
+
+    },
     "Selected" : {
 
     },
     "Selected focus areas: %@" : {
+
+    },
+    "Selected Voice" : {
 
     },
     "Selected: %@" : {
@@ -845,6 +863,12 @@
 
     },
     "Tap a voice to select, tap play to preview" : {
+
+    },
+    "Tap Save to confirm your selection" : {
+
+    },
+    "Tap Save to update your affirmations" : {
 
     },
     "Tap the heart on any affirmation to save it here." : {
@@ -974,9 +998,6 @@
 
     },
     "You've reached the free tier limit of %lld saved sessions." : {
-
-    },
-    "Your current goals:" : {
 
     },
     "Your Focus Areas" : {

@@ -131,14 +131,12 @@ struct ResultsSummaryView: View {
                 }
                 
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
+                    Button("Save") {
                         onSaveSession()
-                    } label: {
-                        Image(systemName: isSaveButtonDisabled ? "checkmark.circle.fill" : "square.and.arrow.down")
-                            .font(.system(size: 16, weight: .medium))
                     }
                     .foregroundStyle(isSaveButtonDisabled ? AppColors.textTertiary : AppColors.accent)
                     .disabled(isSaveButtonDisabled)
+                    .opacity(isSaveButtonDisabled ? 0 : 1)
                     .accessibilityLabel(saveButtonAccessibilityLabel)
                 }
             }

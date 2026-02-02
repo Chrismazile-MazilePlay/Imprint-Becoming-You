@@ -15,9 +15,9 @@ import SwiftUI
 /// allowing users to see each style in action before selecting.
 ///
 /// ## Behavior
-/// - Tap to select: Immediately saves selection
+/// - Tap to select (pending until Save is tapped)
+/// - Save button appears only when selection differs from saved type
 /// - Live preview: Each option shows animated waveform
-/// - Back navigation: Standard navigation bar back button
 ///
 /// ## Navigation
 /// This view is pushed onto the Profile navigation stack.
@@ -29,16 +29,29 @@ struct WaveformSelectionView: View {
     
     // MARK: - Bindings
     
-    /// The currently selected waveform type (bound to UserProfile)
+    /// The currently saved waveform type (bound to UserProfile)
     @Binding var selectedType: DockWaveformType
     
     // MARK: - State
+    
+    /// The waveform type that was saved when the view appeared
+    @State private var originalType: DockWaveformType = .layeredWaves
+    
+    /// The currently selected (pending) waveform type
+    @State private var pendingType: DockWaveformType = .layeredWaves
     
     /// Animation state for previews
     @State private var previewState: DockCenterContentState = .playing(audioLevel: 0.6)
     
     /// Timer for cycling preview states
     @State private var previewTimer: Timer?
+    
+    // MARK: - Computed Properties
+    
+    /// Whether the user has made a change that differs from the saved type
+    private var hasUnsavedChanges: Bool {
+        pendingType != originalType
+    }
     
     // MARK: - Body
     
@@ -52,7 +65,7 @@ struct WaveformSelectionView: View {
                 ForEach(DockWaveformType.allCases) { type in
                     WaveformOptionCard(
                         type: type,
-                        isSelected: selectedType == type,
+                        isSelected: pendingType == type,
                         previewState: previewState
                     ) {
                         selectWaveform(type)
@@ -65,7 +78,21 @@ struct WaveformSelectionView: View {
         .background(AppColors.backgroundPrimary)
         .navigationTitle("Waveform Style")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                if hasUnsavedChanges {
+                    Button("Save") {
+                        saveWaveformSelection()
+                    }
+                    .foregroundStyle(AppColors.accent)
+                    .accessibilityLabel("Save waveform selection")
+                    .accessibilityHint("Saves \(pendingType.displayName) as your waveform style")
+                }
+            }
+        }
         .onAppear {
+            originalType = selectedType
+            pendingType = selectedType
             startPreviewAnimation()
         }
         .onDisappear {
@@ -82,9 +109,9 @@ struct WaveformSelectionView: View {
                 .foregroundStyle(AppColors.textSecondary)
                 .multilineTextAlignment(.center)
             
-            Text("Tap to select")
+            Text(hasUnsavedChanges ? "Tap Save to confirm your selection" : "Tap to select")
                 .font(AppTypography.caption1)
-                .foregroundStyle(AppColors.textTertiary)
+                .foregroundStyle(hasUnsavedChanges ? AppColors.accent : AppColors.textTertiary)
         }
         .padding(.vertical, AppTheme.Spacing.sm)
     }
@@ -92,20 +119,35 @@ struct WaveformSelectionView: View {
     // MARK: - Selection
     
     private func selectWaveform(_ type: DockWaveformType) {
-        guard selectedType != type else { return }
+        guard pendingType != type else { return }
         
         withAnimation(.easeInOut(duration: 0.2)) {
-            selectedType = type
+            pendingType = type
         }
+        
+        // Haptic feedback for selection
+        HapticFeedback.selection()
+        
+        #if DEBUG
+        print("🌊 WaveformSelectionView: Pending selection \(type.displayName)")
+        #endif
+    }
+    
+    private func saveWaveformSelection() {
+        // Update the binding (which updates UserProfile)
+        selectedType = pendingType
         
         // Save to persistence
         try? modelContext.save()
         
-        // Haptic feedback
-        HapticFeedback.selection()
+        // Update original to match - no longer has unsaved changes
+        originalType = pendingType
+        
+        // Haptic feedback for save
+        HapticFeedback.notification(.success)
         
         #if DEBUG
-        print("🌊 WaveformSelectionView: Selected \(type.displayName)")
+        print("🌊 WaveformSelectionView: Saved \(pendingType.displayName)")
         #endif
     }
     

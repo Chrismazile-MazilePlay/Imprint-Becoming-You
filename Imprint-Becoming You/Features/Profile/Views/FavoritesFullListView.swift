@@ -108,6 +108,8 @@ struct FavoritesFullListView: View {
                 .font(AppTypography.body)
                 .foregroundStyle(AppColors.textSecondary)
                 .multilineTextAlignment(.center)
+            
+            Spacer()
         }
         .padding(AppTheme.Spacing.xl)
         .safeAreaInset(edge: .bottom) {

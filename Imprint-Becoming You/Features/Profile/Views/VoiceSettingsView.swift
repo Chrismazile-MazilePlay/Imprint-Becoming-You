@@ -14,8 +14,9 @@ import AVFoundation
 /// Voice selection view pushed from Profile settings.
 ///
 /// Features:
-/// - Tap to select voice (selection is separate from preview)
+/// - Tap to select voice (pending selection until Save is tapped)
 /// - Tap play button to preview voice
+/// - Save button appears only when selection differs from saved voice
 /// - Shows engine status (Kokoro ready / System fallback)
 /// - Groups voices by accent and gender
 /// - Responsive cancellation on rapid tap-through
@@ -33,7 +34,10 @@ struct VoiceSettingsView: View {
     
     // MARK: - State
     
-    /// Currently selected voice ID (full Voice.id format)
+    /// The voice ID that was saved when the view appeared (the "committed" selection)
+    @State private var originalVoiceId: String = Voice.defaultVoice.id
+    
+    /// Currently selected voice ID (pending selection, not yet saved)
     @State private var selectedVoiceId: String = Voice.defaultVoice.id
     
     /// Voice currently being previewed (by full Voice.id)
@@ -47,6 +51,13 @@ struct VoiceSettingsView: View {
     
     /// Audio player for preview playback
     @State private var audioPlayer: AVAudioPlayer?
+    
+    // MARK: - Computed Properties
+    
+    /// Whether the user has made a change that differs from the saved voice
+    private var hasUnsavedChanges: Bool {
+        selectedVoiceId != originalVoiceId
+    }
     
     // MARK: - Body
     
@@ -72,6 +83,18 @@ struct VoiceSettingsView: View {
         }
         .navigationTitle("Voice Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                if hasUnsavedChanges {
+                    Button("Save") {
+                        saveVoiceSelection()
+                    }
+                    .foregroundStyle(AppColors.accent)
+                    .accessibilityLabel("Save voice selection")
+                    .accessibilityHint("Saves \(Voice.voice(forId: selectedVoiceId).name) as your voice")
+                }
+            }
+        }
         .onAppear {
             loadCurrentVoice()
             checkEngineStatus()
@@ -103,7 +126,7 @@ struct VoiceSettingsView: View {
     
     private var currentVoiceHeader: some View {
         VStack(spacing: AppTheme.Spacing.sm) {
-            Text("Current Voice")
+            Text(hasUnsavedChanges ? "Selected Voice" : "Current Voice")
                 .font(AppTypography.caption1)
                 .foregroundStyle(AppColors.textSecondary)
             
@@ -116,9 +139,9 @@ struct VoiceSettingsView: View {
                     .foregroundStyle(AppColors.textPrimary)
             }
             
-            Text("Tap a voice to select, tap play to preview")
+            Text(hasUnsavedChanges ? "Tap Save to confirm your selection" : "Tap a voice to select, tap play to preview")
                 .font(AppTypography.caption1)
-                .foregroundStyle(AppColors.textTertiary)
+                .foregroundStyle(hasUnsavedChanges ? AppColors.accent : AppColors.textTertiary)
         }
         .padding(.vertical, AppTheme.Spacing.lg)
     }
@@ -191,16 +214,15 @@ struct VoiceSettingsView: View {
     private func handleSelectTapped(_ voice: Voice) {
         // Toggle selection
         if selectedVoiceId == voice.id {
-            // Already selected - do nothing (or could deselect)
+            // Already selected - do nothing
             return
         }
         
-        // Select new voice
+        // Update pending selection (does NOT save until Save button is tapped)
         selectedVoiceId = voice.id
-        saveVoiceSelection(voice.id)
         
         #if DEBUG
-        print("🎤 VoiceSettingsView: Selected voice \(voice.id)")
+        print("🎤 VoiceSettingsView: Pending selection \(voice.id)")
         #endif
     }
     
@@ -309,13 +331,21 @@ struct VoiceSettingsView: View {
     
     private func loadCurrentVoice() {
         if let voiceId = appState.userProfile?.selectedVoiceId, !voiceId.isEmpty {
+            originalVoiceId = voiceId
             selectedVoiceId = voiceId
         }
     }
     
-    private func saveVoiceSelection(_ voiceId: String) {
-        appState.userProfile?.selectedVoiceId = voiceId
+    private func saveVoiceSelection() {
+        appState.userProfile?.selectedVoiceId = selectedVoiceId
         try? modelContext.save()
+        
+        // Update original to match - no longer has unsaved changes
+        originalVoiceId = selectedVoiceId
+        
+        #if DEBUG
+        print("🎤 VoiceSettingsView: Saved voice \(selectedVoiceId)")
+        #endif
     }
     
     private func checkEngineStatus() {

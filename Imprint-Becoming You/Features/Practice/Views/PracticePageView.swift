@@ -30,8 +30,8 @@ import SwiftData
 /// ## Color Morphing
 /// Background colors use true RGB interpolation (not opacity crossfade) for smooth
 /// transitions. The system has two modes:
-/// - **Active navigation** (progress â‰  0): Uses `interpolatedBackground` for real-time color blending
-/// - **At rest** (progress â‰ˆ 0): Uses `staticBackground` with `displayedBackgroundCategory`
+/// - **Active navigation** (progress Ã¢â€°Â  0): Uses `interpolatedBackground` for real-time color blending
+/// - **At rest** (progress Ã¢â€°Ë† 0): Uses `staticBackground` with `displayedBackgroundCategory`
 ///
 /// When navigation completes, `displayedBackgroundCategory` is immediately updated
 /// to match the new index, ensuring seamless handoff between modes.
@@ -71,9 +71,7 @@ struct PracticePageView: View {
     
     // MARK: - State
     
-    @State private var showCategories = false
-    
-    /// Tracks the background category to display when at rest (progress â‰ˆ 0).
+    /// Tracks the background category to display when at rest (progress ≈ 0).
     /// Updated immediately (no animation) when index changes, because the
     /// progress-based interpolation already handles the visual transition.
     @State private var displayedBackgroundCategory: GoalCategory?
@@ -123,8 +121,7 @@ struct PracticePageView: View {
                 FloatingHUDLayer(
                     store: store,
                     onProfileTap: onNavigateToProfile,
-                    onPromptsTap: onNavigateToPrompts,
-                    onCategoriesTap: { showCategories = true }
+                    onPromptsTap: onNavigateToPrompts
                 )
                 .dismissesDockMenuOnTouch(adapter: dockAdapter)
                 
@@ -138,9 +135,6 @@ struct PracticePageView: View {
             .ignoresSafeArea(edges: .bottom)
         }
         .gesture(horizontalBlockingGesture)
-        .fullScreenCover(isPresented: $showCategories) {
-            CategoriesFullScreenView(store: store)
-        }
         .onAppear {
             // Initialize background to current category
             displayedBackgroundCategory = store.currentAffirmation?.goalCategory
@@ -219,7 +213,7 @@ struct PracticePageView: View {
     ///
     /// Uses two rendering modes:
     /// - **At rest** (|progress| < 0.01): Shows static gradient for `displayedBackgroundCategory`
-    /// - **During navigation** (|progress| â‰¥ 0.01): Interpolates between current and target colors
+    /// - **During navigation** (|progress| Ã¢â€°Â¥ 0.01): Interpolates between current and target colors
     ///
     /// The handoff between modes is seamless because `displayedBackgroundCategory`
     /// is updated immediately when the index changes.

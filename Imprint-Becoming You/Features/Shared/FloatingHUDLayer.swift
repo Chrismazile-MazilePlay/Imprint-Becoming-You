@@ -14,7 +14,7 @@ import SwiftUI
 /// ## Layout
 /// ```
 /// ┌─────────────────────────────────────┐
-/// │  [✨ AI] [⊞]   [🎤 Listening]   [👤]│  ← Top row only
+/// │  [✨ AI]       [🎤 Listening]   [👤]│  ← Top row only
 /// │                                     │
 /// │        (Content scrolls here)       │
 /// │                                     │
@@ -34,7 +34,6 @@ struct FloatingHUDLayer: View {
     
     let onProfileTap: () -> Void
     let onPromptsTap: () -> Void
-    let onCategoriesTap: () -> Void
     
     // MARK: - Safe Area Helper
     
@@ -102,7 +101,7 @@ struct FloatingHUDLayer: View {
     
     private var topButtons: some View {
         HStack {
-            // LEFT: Exit button (active mode) or AI/Categories buttons (home mode)
+            // LEFT: Exit button (active mode) or AI button (home mode)
             leftButtons
             
             Spacer()
@@ -128,10 +127,7 @@ struct FloatingHUDLayer: View {
         if isActiveMode {
             exitButton
         } else {
-            HStack(spacing: AppTheme.Spacing.sm) {
-                aiPromptsButton
-                categoriesButton
-            }
+            aiPromptsButton
         }
     }
     
@@ -200,21 +196,6 @@ struct FloatingHUDLayer: View {
         .accessibilityLabel("AI Prompts")
     }
     
-    private var categoriesButton: some View {
-        Button {
-            onCategoriesTap()
-            HapticFeedback.impact(.light)
-        } label: {
-            Image(systemName: "square.grid.2x2")
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(AppColors.textSecondary)
-                .frame(width: 44, height: 44)
-                .background(AppColors.surfaceTertiary.opacity(0.8))
-                .clipShape(Circle())
-        }
-        .accessibilityLabel("Categories")
-    }
-    
     private var profileButton: some View {
         Button {
             onProfileTap()
@@ -258,8 +239,7 @@ struct FloatingHUDLayer: View {
         FloatingHUDLayer(
             store: .preview,
             onProfileTap: {},
-            onPromptsTap: {},
-            onCategoriesTap: {}
+            onPromptsTap: {}
         )
     }
 }
@@ -270,8 +250,7 @@ struct FloatingHUDLayer: View {
         FloatingHUDLayer(
             store: .previewReadAloud,
             onProfileTap: {},
-            onPromptsTap: {},
-            onCategoriesTap: {}
+            onPromptsTap: {}
         )
     }
 }
@@ -282,8 +261,7 @@ struct FloatingHUDLayer: View {
         FloatingHUDLayer(
             store: .previewListening,
             onProfileTap: {},
-            onPromptsTap: {},
-            onCategoriesTap: {}
+            onPromptsTap: {}
         )
     }
 }
@@ -294,8 +272,7 @@ struct FloatingHUDLayer: View {
         FloatingHUDLayer(
             store: .previewShowingScore,
             onProfileTap: {},
-            onPromptsTap: {},
-            onCategoriesTap: {}
+            onPromptsTap: {}
         )
     }
 }

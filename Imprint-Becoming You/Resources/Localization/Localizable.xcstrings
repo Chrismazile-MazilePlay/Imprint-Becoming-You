@@ -300,6 +300,9 @@
     "Currently selected voice" : {
 
     },
+    "Custom Settings" : {
+
+    },
     "Data won't be saved between sessions" : {
 
     },
@@ -430,6 +433,9 @@
     "Goals, %@" : {
 
     },
+    "Has custom settings" : {
+
+    },
     "If you continue, the app will work but your data won't be saved when you close it." : {
 
     },
@@ -508,6 +514,9 @@
     "No affirmations found" : {
 
     },
+    "No changes to save" : {
+
+    },
     "No Favorites Yet" : {
 
     },
@@ -538,6 +547,9 @@
     "Open the Settings app to enable permissions" : {
 
     },
+    "Opens voice customization options" : {
+
+    },
     "Phrase %lld of %lld" : {
       "localizations" : {
         "en" : {
@@ -549,6 +561,9 @@
       }
     },
     "Play the test text with the selected voice" : {
+
+    },
+    "Plays a sample with current settings" : {
 
     },
     "Practice" : {
@@ -621,6 +636,9 @@
     "Reset to Current" : {
 
     },
+    "Resets speed, pitch, and expressiveness to original values" : {
+
+    },
     "Resonance" : {
 
     },
@@ -630,7 +648,13 @@
     "Resonance score: %lld percent" : {
 
     },
+    "Restore Defaults" : {
+
+    },
     "Restore Purchases" : {
+
+    },
+    "Restore to default settings" : {
 
     },
     "Retry" : {
@@ -706,6 +730,9 @@
 
     },
     "Saves your goal selections and updates affirmations" : {
+
+    },
+    "Saves your voice customizations" : {
 
     },
     "Say:" : {
@@ -910,6 +937,9 @@
     "TTS Test" : {
 
     },
+    "Tuned" : {
+
+    },
     "Unable to Load Data" : {
 
     },
@@ -961,7 +991,13 @@
     "Voice Profile, %@" : {
 
     },
+    "Voice settings" : {
+
+    },
     "Voice Settings" : {
+
+    },
+    "Voice Tuning" : {
 
     },
     "Waiting for more affirmations" : {

@@ -16,6 +16,7 @@ import AVFoundation
 /// Features:
 /// - Tap to select voice (pending selection until Save is tapped)
 /// - Tap play button to preview voice
+/// - Tap gear icon on selected voice to customize settings
 /// - Save button appears only when selection differs from saved voice
 /// - Shows engine status (Kokoro ready / System fallback)
 /// - Groups voices by accent and gender
@@ -24,6 +25,7 @@ import AVFoundation
 /// ## Navigation
 /// This view is pushed onto the Profile navigation stack.
 /// Uses standard back navigation via the navigation bar.
+/// Gear icon pushes to `VoiceModificationView` for voice customization.
 struct VoiceSettingsView: View {
     
     // MARK: - Environment
@@ -51,6 +53,12 @@ struct VoiceSettingsView: View {
     
     /// Audio player for preview playback
     @State private var audioPlayer: AVAudioPlayer?
+    
+    /// Voice selected for modification (triggers navigation)
+    @State private var voiceForModification: Voice?
+    
+    /// Set of voice IDs that have custom settings (for indicator dots)
+    @State private var voicesWithCustomSettings: Set<String> = []
     
     // MARK: - Computed Properties
     
@@ -95,9 +103,16 @@ struct VoiceSettingsView: View {
                 }
             }
         }
+        .navigationDestination(item: $voiceForModification) { voice in
+            VoiceModificationView(voice: voice) { _ in
+                // Refresh custom settings state when returning
+                refreshCustomSettingsState()
+            }
+        }
         .onAppear {
             loadCurrentVoice()
             checkEngineStatus()
+            refreshCustomSettingsState()
         }
         .onDisappear {
             stopPreview()
@@ -125,7 +140,9 @@ struct VoiceSettingsView: View {
     // MARK: - Current Voice Header
     
     private var currentVoiceHeader: some View {
-        VStack(spacing: AppTheme.Spacing.sm) {
+        let selectedVoice = Voice.voice(forId: selectedVoiceId)
+        
+        return VStack(spacing: AppTheme.Spacing.sm) {
             Text(hasUnsavedChanges ? "Selected Voice" : "Current Voice")
                 .font(AppTypography.caption1)
                 .foregroundStyle(AppColors.textSecondary)
@@ -134,9 +151,26 @@ struct VoiceSettingsView: View {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(AppColors.accent)
                 
-                Text(Voice.voice(forId: selectedVoiceId).displayNameWithDefault)
+                Text(selectedVoice.displayNameWithDefault)
                     .font(AppTypography.headline)
                     .foregroundStyle(AppColors.textPrimary)
+                
+                // Custom settings indicator
+                if voicesWithCustomSettings.contains(selectedVoiceId) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 10))
+                        Text("Tuned")
+                            .font(AppTypography.caption2)
+                    }
+                    .foregroundStyle(AppColors.accent)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(AppColors.accent.opacity(0.15))
+                    )
+                }
             }
             
             Text(hasUnsavedChanges ? "Tap Save to confirm your selection" : "Tap a voice to select, tap play to preview")
@@ -178,9 +212,11 @@ struct VoiceSettingsView: View {
                     VoiceChip(
                         voice: voice,
                         isSelected: selectedVoiceId == voice.id,
+                        hasCustomSettings: voicesWithCustomSettings.contains(voice.id),
                         playbackState: playbackStateFor(voice),
                         onPlayTapped: { handlePlayTapped(voice) },
-                        onSelectTapped: { handleSelectTapped(voice) }
+                        onSelectTapped: { handleSelectTapped(voice) },
+                        onSettingsTapped: selectedVoiceId == voice.id ? { handleSettingsTapped(voice) } : nil
                     )
                 }
             }
@@ -222,8 +258,20 @@ struct VoiceSettingsView: View {
         selectedVoiceId = voice.id
         
         #if DEBUG
-        print("🎤 VoiceSettingsView: Pending selection \(voice.id)")
+        print("VoiceSettingsView: Pending selection \(voice.id)")
         #endif
+    }
+    
+    private func handleSettingsTapped(_ voice: Voice) {
+        #if DEBUG
+        print("VoiceSettingsView: Opening settings for \(voice.id)")
+        #endif
+        
+        // Stop any preview before navigating
+        stopPreview()
+        
+        // Navigate to modification view
+        voiceForModification = voice
     }
     
     // MARK: - Preview Playback
@@ -232,7 +280,7 @@ struct VoiceSettingsView: View {
         // Get raw TTS voice ID
         guard let ttsVoiceId = voice.ttsVoiceId else {
             #if DEBUG
-            print("⚠️ VoiceSettingsView: Could not get ttsVoiceId for \(voice.id)")
+            print("VoiceSettingsView: Could not get ttsVoiceId for \(voice.id)")
             #endif
             return
         }
@@ -245,18 +293,26 @@ struct VoiceSettingsView: View {
         let capturedVoiceId = voice.id
         let capturedTtsVoiceId = ttsVoiceId
         
+        // Get voice settings for preview
+        let settings = VoiceSettingsManager.shared.settings(for: voice.id)
+        
         Task { @MainActor in
             // Verify still previewing this voice
             guard previewingVoiceId == capturedVoiceId else { return }
             
             do {
-                let service = dependencies.voicePreviewCacheService
-                
                 #if DEBUG
-                print("🎤 VoiceSettingsView: Synthesizing \(capturedTtsVoiceId)")
+                print("VoiceSettingsView: Synthesizing \(capturedTtsVoiceId) with settings: speed=\(settings.speed), pitch=\(settings.pitchShiftSemitones), range=\(settings.pitchRangeScale)")
                 #endif
                 
-                let audioData = try await service.synthesizePreview(voiceId: capturedTtsVoiceId)
+                // Use custom settings for preview
+                let audioData = try await dependencies.ttsService.synthesize(
+                    text: Voice.previewPhrase,
+                    voiceId: capturedTtsVoiceId,
+                    speed: settings.speed,
+                    pitchShiftSemitones: settings.pitchShiftFloat,
+                    pitchRangeScale: settings.pitchRangeScale
+                )
                 
                 // Verify still previewing same voice
                 guard previewingVoiceId == capturedVoiceId else { return }
@@ -267,11 +323,11 @@ struct VoiceSettingsView: View {
                 
             } catch is CancellationError {
                 #if DEBUG
-                print("🎤 VoiceSettingsView: Synthesis cancelled for \(capturedTtsVoiceId)")
+                print("VoiceSettingsView: Synthesis cancelled for \(capturedTtsVoiceId)")
                 #endif
             } catch {
                 #if DEBUG
-                print("⚠️ VoiceSettingsView: Preview failed for \(capturedTtsVoiceId): \(error)")
+                print("VoiceSettingsView: Preview failed for \(capturedTtsVoiceId): \(error)")
                 #endif
             }
             
@@ -310,7 +366,7 @@ struct VoiceSettingsView: View {
         }
         
         #if DEBUG
-        print("🎤 VoiceSettingsView: Playing audio (\(data.count) bytes)")
+        print("VoiceSettingsView: Playing audio (\(data.count) bytes)")
         #endif
     }
     
@@ -344,7 +400,7 @@ struct VoiceSettingsView: View {
         originalVoiceId = selectedVoiceId
         
         #if DEBUG
-        print("🎤 VoiceSettingsView: Saved voice \(selectedVoiceId)")
+        print("VoiceSettingsView: Saved voice \(selectedVoiceId)")
         #endif
     }
     
@@ -355,6 +411,14 @@ struct VoiceSettingsView: View {
                 isKokoroReady = dependencies.ttsService.isKokoroReady
             }
         }
+    }
+    
+    private func refreshCustomSettingsState() {
+        voicesWithCustomSettings = Set(VoiceSettingsManager.shared.voiceIdsWithCustomSettings())
+        
+        #if DEBUG
+        print("VoiceSettingsView: \(voicesWithCustomSettings.count) voices have custom settings")
+        #endif
     }
 }
 

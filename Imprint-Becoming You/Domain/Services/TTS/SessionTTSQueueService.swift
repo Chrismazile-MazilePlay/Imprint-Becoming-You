@@ -22,12 +22,17 @@ import AVFoundation
 /// - Higher concurrency causes resource contention and thermal throttling
 /// - TaskGroup with bounded window ensures consistent performance
 ///
+/// ## Voice Settings
+/// Voice settings (speed, pitch, expressiveness) are loaded from `VoiceSettingsManager`
+/// at session start and cached for the duration of the session. This ensures consistent
+/// audio even if the user changes settings mid-session.
+///
 /// ## Thread Safety
 /// All state is `@MainActor` isolated. Synthesis happens via TaskGroup
 /// which manages concurrency internally. Results are cached on the main actor.
 ///
 /// ## Memory Management
-/// Audio data is stored in memory for the session duration (~500KB × N).
+/// Audio data is stored in memory for the session duration (~500KB x N).
 /// Cache is cleared when `cancelAll()` or `clearQueue()` is called.
 /// `clearQueue()` is specifically for background memory release without
 /// fully resetting the service state.
@@ -75,6 +80,10 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
     
     /// Voice ID for current session
     private var currentVoiceId: String?
+    
+    /// Voice settings for current session (cached at session start).
+    /// Settings remain consistent even if user changes them mid-session.
+    private var currentVoiceSettings: VoiceSettings = .default
     
     /// Whether to force System TTS for this session
     private var forceSystemTTS: Bool = false
@@ -165,7 +174,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         }
         
         #if DEBUG
-        print("🎵 SessionTTSQueue: Preparing session with \(affirmations.count) affirmations, voice: \(voiceId ?? "default"), forceSystemTTS: \(forceSystemTTS)")
+        print("SessionTTSQueue: Preparing session with \(affirmations.count) affirmations, voice: \(voiceId ?? "default"), forceSystemTTS: \(forceSystemTTS)")
         #endif
         
         // Cancel any existing session
@@ -176,6 +185,17 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         currentVoiceId = voiceId
         currentPlaybackIndex = 0
         self.forceSystemTTS = forceSystemTTS
+        
+        // Cache voice settings at session start
+        // Settings are stored by full Voice.id, so this lookup works correctly
+        if let voiceId = voiceId {
+            currentVoiceSettings = VoiceSettingsManager.shared.settings(for: voiceId)
+            #if DEBUG
+            print("SessionTTSQueue: Loaded voice settings for \(voiceId): speed=\(currentVoiceSettings.speed), pitch=\(currentVoiceSettings.pitchShiftSemitones)")
+            #endif
+        } else {
+            currentVoiceSettings = .default
+        }
         
         guard !affirmations.isEmpty else {
             _preparationPhase = .complete
@@ -191,7 +211,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
             Task { @MainActor in onPhaseChange(.waitingForKokoro) }
             
             #if DEBUG
-            print("🎵 SessionTTSQueue: Phase 1 - Waiting for Kokoro TTS engine...")
+            print("SessionTTSQueue: Phase 1 - Waiting for Kokoro TTS engine...")
             #endif
             
             let kokoroReady = await waitForKokoroReady()
@@ -203,7 +223,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
                 Task { @MainActor in onPhaseChange(.kokoroTimeout) }
                 
                 #if DEBUG
-                print("⚠️ SessionTTSQueue: Kokoro warm-up timeout - showing fallback options")
+                print("SessionTTSQueue: Kokoro warm-up timeout - showing fallback options")
                 #endif
                 
                 // Don't throw - let the UI handle showing fallback options
@@ -212,11 +232,11 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
             }
             
             #if DEBUG
-            print("✅ SessionTTSQueue: Kokoro ready, starting synthesis")
+            print("SessionTTSQueue: Kokoro ready, starting synthesis")
             #endif
         } else {
             #if DEBUG
-            print("🎵 SessionTTSQueue: Using System TTS (forced)")
+            print("SessionTTSQueue: Using System TTS (forced)")
             #endif
         }
         
@@ -226,7 +246,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         Task { @MainActor in onPhaseChange(.synthesizing) }
         
         #if DEBUG
-        print("🎵 SessionTTSQueue: Phase 2 - Starting bounded parallel synthesis (total: \(affirmations.count))")
+        print("SessionTTSQueue: Phase 2 - Starting bounded parallel synthesis (total: \(affirmations.count))")
         #endif
         
         // Perform bounded parallel synthesis of ALL affirmations
@@ -241,7 +261,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         Task { @MainActor in onPhaseChange(.complete) }
         
         #if DEBUG
-        print("✅ SessionTTSQueue: Session preparation complete (\(preparedCount)/\(totalCount))")
+        print("SessionTTSQueue: Session preparation complete (\(preparedCount)/\(totalCount))")
         #endif
     }
     
@@ -294,7 +314,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         reprioritizeQueue(from: index)
         
         #if DEBUG
-        print("🎵 SessionTTSQueue: Now playing index \(index)")
+        print("SessionTTSQueue: Now playing index \(index)")
         #endif
     }
     
@@ -327,7 +347,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         audioCache[index] = audioData
         
         #if DEBUG
-        print("🎵 SessionTTSQueue: On-demand synthesis complete for index \(index)")
+        print("SessionTTSQueue: On-demand synthesis complete for index \(index)")
         #endif
         
         return audioData
@@ -335,7 +355,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
     
     func cancelAll() {
         #if DEBUG
-        print("🎵 SessionTTSQueue: Cancelling all")
+        print("SessionTTSQueue: Cancelling all")
         #endif
         
         state = .cancelled
@@ -346,6 +366,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         audioCache.removeAll()
         sessionAffirmations.removeAll()
         currentVoiceId = nil
+        currentVoiceSettings = .default  // Reset voice settings
         forceSystemTTS = false
         currentPlaybackIndex = 0
     }
@@ -358,11 +379,11 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
     /// Unlike `cancelAll()`, this preserves session metadata so the session
     /// can potentially be resumed (though audio will need to be re-synthesized).
     ///
-    /// This can free ~500KB × N bytes where N is the number of cached affirmations.
+    /// This can free ~500KB x N bytes where N is the number of cached affirmations.
     func clearQueue() {
         #if DEBUG
         let cacheSize = audioCache.values.reduce(0) { $0 + $1.count }
-        print("🎵 SessionTTSQueue: Clearing queue (\(audioCache.count) items, ~\(cacheSize / 1024)KB)")
+        print("SessionTTSQueue: Clearing queue (\(audioCache.count) items, ~\(cacheSize / 1024)KB)")
         #endif
         
         // Cancel background synthesis
@@ -373,9 +394,9 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         audioCache.removeAll()
         synthesizingIndices.removeAll()
         
-        // Note: We preserve sessionAffirmations, currentVoiceId, etc.
+        // Note: We preserve sessionAffirmations, currentVoiceId, currentVoiceSettings, etc.
         // so the session structure is maintained. If playback resumes,
-        // audio will be re-synthesized on demand.
+        // audio will be re-synthesized on demand with the same settings.
     }
     
     // MARK: - Background Synthesis
@@ -412,12 +433,12 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
                     )
                     
                     #if DEBUG
-                    print("🎵 SessionTTSQueue: Background synthesized index \(index) (\(self.preparedCount)/\(self.sessionAffirmations.count))")
+                    print("SessionTTSQueue: Background synthesized index \(index) (\(self.preparedCount)/\(self.sessionAffirmations.count))")
                     #endif
                     
                 } catch {
                     #if DEBUG
-                    print("⚠️ SessionTTSQueue: Background synthesis failed for index \(index): \(error)")
+                    print("SessionTTSQueue: Background synthesis failed for index \(index): \(error)")
                     #endif
                 }
                 
@@ -428,7 +449,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
                 self.state = .complete
                 
                 #if DEBUG
-                print("✅ SessionTTSQueue: Background synthesis complete (\(self.preparedCount)/\(self.sessionAffirmations.count))")
+                print("SessionTTSQueue: Background synthesis complete (\(self.preparedCount)/\(self.sessionAffirmations.count))")
                 #endif
             }
         }
@@ -482,12 +503,12 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
                 state = .preparingParallel(prepared: completedCount, total: total)
                 
                 #if DEBUG
-                print("🎵 SessionTTSQueue: Completed \(completedCount)/\(total) (index \(index))")
+                print("SessionTTSQueue: Completed \(completedCount)/\(total) (index \(index))")
                 #endif
                 
                 if completedCount == readyToStartThreshold && total > largeSessionThreshold {
                     #if DEBUG
-                    print("🎵 SessionTTSQueue: Early start threshold reached (\(completedCount)/\(total))")
+                    print("SessionTTSQueue: Early start threshold reached (\(completedCount)/\(total))")
                     #endif
                 }
                 
@@ -507,7 +528,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
             }
             
             #if DEBUG
-            print("🎵 SessionTTSQueue: All \(total) affirmations synthesized")
+            print("SessionTTSQueue: All \(total) affirmations synthesized")
             #endif
         }
     }
@@ -518,11 +539,17 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         synthesizingIndices.insert(info.index)
         defer { synthesizingIndices.remove(info.index) }
         
-        // Use System TTS if forced, otherwise use normal routing
+        // Use System TTS if forced, otherwise use Kokoro with voice settings
         if forceSystemTTS {
             return try await ttsService.synthesizeWithSystemTTS(text: info.text)
         } else {
-            return try await ttsService.synthesize(text: info.text, voiceId: currentVoiceId)
+            return try await ttsService.synthesize(
+                text: info.text,
+                voiceId: currentVoiceId,
+                speed: currentVoiceSettings.speed,
+                pitchShiftSemitones: currentVoiceSettings.pitchShiftFloat,
+                pitchRangeScale: currentVoiceSettings.pitchRangeScale
+            )
         }
     }
     

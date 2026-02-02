@@ -534,14 +534,16 @@ struct MainPracticeView: View {
     
     /// Updates the store's voice ID from the user profile's stored voice.
     ///
-    /// Converts the full Voice.id (e.g., "kokoro_af_heart") to the raw
-    /// TTS voice ID (e.g., "af_heart") that the TTSService expects.
+    /// Now passes the full Voice.id directly (e.g., "kokoro_af_heart").
+    /// The TTSService handles conversion to raw engine format internally.
+    /// This ensures VoiceSettingsManager lookups work correctly since
+    /// settings are stored by full Voice.id.
     private func updateStoreVoice(from storedVoiceId: String?) {
-        let ttsVoiceId = Voice.ttsVoiceId(from: storedVoiceId)
-        store.selectedVoiceId = ttsVoiceId
+        // Pass full Voice.id directly - TTSService handles conversion
+        store.selectedVoiceId = storedVoiceId
         
         #if DEBUG
-        print("Ã°Å¸Å½Â¤ MainPracticeView: Set voice to \(ttsVoiceId ?? "default")")
+        print("MainPracticeView: Set voice to \(storedVoiceId ?? "default")")
         #endif
     }
     

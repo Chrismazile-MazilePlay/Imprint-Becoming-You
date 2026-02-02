@@ -25,20 +25,21 @@ enum VoiceChipPlaybackState: Equatable, Sendable {
 ///
 /// ## Layout
 /// ```
-/// ┌──────────────────────────────────────────────┐
-/// │   ┌─────┐   Name (US)                        │
-/// │   │  ▶  │   Warm, Expressive                 │
-/// │   └─────┘                                    │
-/// └──────────────────────────────────────────────┘
+/// ┌──────────────────────────────────────────────────────┐
+/// │   ┌─────┐   Name (US)                     ┌─────┐    │
+/// │   │  ▶  │   Warm, Expressive              │  ⚙  │    │
+/// │   └─────┘                                 └─────┘    │
+/// └──────────────────────────────────────────────────────┘
 /// ```
 ///
 /// ## Interaction
 /// - **Tap play button:** Triggers synthesis and playback
+/// - **Tap gear button:** Opens voice modification settings (when selected)
 /// - **Tap anywhere else:** Selects/deselects the voice
 ///
 /// ## States
 /// - Play button: idle (▶) → synthesizing (⟳) → playing (■) → idle
-/// - Selection: Border appears when selected
+/// - Selection: Border appears when selected, gear icon becomes visible
 struct VoiceChip: View {
     
     // MARK: - Properties
@@ -49,6 +50,9 @@ struct VoiceChip: View {
     /// Whether this voice is currently selected
     let isSelected: Bool
     
+    /// Whether this voice has custom settings (shows indicator dot)
+    var hasCustomSettings: Bool = false
+    
     /// Current playback state for the play button
     let playbackState: VoiceChipPlaybackState
     
@@ -58,15 +62,21 @@ struct VoiceChip: View {
     /// Called when the chip (non-play area) is tapped
     let onSelectTapped: () -> Void
     
+    /// Called when the settings gear is tapped (only visible when selected)
+    var onSettingsTapped: (() -> Void)? = nil
+    
     // MARK: - Constants
     
     private enum Layout {
         static let chipHeight: CGFloat = 56
         static let playButtonSize: CGFloat = 36
         static let playIconSize: CGFloat = 14
+        static let settingsButtonSize: CGFloat = 32
+        static let settingsIconSize: CGFloat = 14
         static let horizontalPadding: CGFloat = 12
         static let contentSpacing: CGFloat = 12
         static let borderWidth: CGFloat = 2
+        static let indicatorDotSize: CGFloat = 6
     }
     
     // MARK: - Body
@@ -83,6 +93,11 @@ struct VoiceChip: View {
             
             // Voice info area (tappable for selection)
             voiceInfoButton
+            
+            // Settings button (only when selected and callback provided)
+            if isSelected && onSettingsTapped != nil {
+                settingsButton
+            }
         }
         .frame(height: Layout.chipHeight)
         .background(chipBackground)
@@ -138,7 +153,7 @@ struct VoiceChip: View {
         Button(action: onSelectTapped) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    // Name with origin
+                    // Name with origin and custom indicator
                     HStack(spacing: 4) {
                         Text(voice.name)
                             .font(AppTypography.headline)
@@ -148,6 +163,14 @@ struct VoiceChip: View {
                             Text("(\(voice.originCode))")
                                 .font(AppTypography.caption1)
                                 .foregroundStyle(AppColors.textSecondary)
+                        }
+                        
+                        // Custom settings indicator
+                        if hasCustomSettings {
+                            Circle()
+                                .fill(AppColors.accent)
+                                .frame(width: Layout.indicatorDotSize, height: Layout.indicatorDotSize)
+                                .accessibilityLabel("Has custom settings")
                         }
                     }
                     
@@ -162,11 +185,35 @@ struct VoiceChip: View {
                 Spacer(minLength: Layout.horizontalPadding)
             }
             .padding(.leading, Layout.contentSpacing)
-            .padding(.trailing, Layout.horizontalPadding)
+            .padding(.trailing, isSelected && onSettingsTapped != nil ? 0 : Layout.horizontalPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+    
+    // MARK: - Settings Button
+    
+    private var settingsButton: some View {
+        Button(action: { onSettingsTapped?() }) {
+            ZStack {
+                // Background for touch target
+                Color.clear
+                    .frame(width: Layout.settingsButtonSize + Layout.horizontalPadding)
+                
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: Layout.settingsIconSize, weight: .medium))
+                    .foregroundStyle(AppColors.accent)
+                    .frame(width: Layout.settingsButtonSize, height: Layout.settingsButtonSize)
+                    .background(
+                        Circle()
+                            .fill(AppColors.accent.opacity(0.15))
+                    )
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Voice settings")
+        .accessibilityHint("Opens voice customization options")
     }
     
     // MARK: - Background & Border
@@ -194,6 +241,9 @@ struct VoiceChip: View {
         if !voice.adjectivesDisplay.isEmpty {
             label += ", \(voice.adjectivesDisplay)"
         }
+        if hasCustomSettings {
+            label += ", has custom settings"
+        }
         if isSelected {
             label += ", selected"
         }
@@ -203,6 +253,9 @@ struct VoiceChip: View {
     private var accessibilityHint: String {
         switch playbackState {
         case .idle:
+            if isSelected && onSettingsTapped != nil {
+                return "Double tap play button to preview, or settings button to customize"
+            }
             return isSelected ? "Double tap play button to preview" : "Double tap to select, or tap play button to preview"
         case .synthesizing:
             return "Loading preview"
@@ -233,13 +286,34 @@ struct VoiceChip: View {
             onSelectTapped: {}
         )
         
-        // Idle, selected
+        // Idle, selected (no settings callback)
         VoiceChip(
             voice: Voice.defaultVoice,
             isSelected: true,
             playbackState: .idle,
             onPlayTapped: {},
             onSelectTapped: {}
+        )
+        
+        // Selected with settings button
+        VoiceChip(
+            voice: Voice.defaultVoice,
+            isSelected: true,
+            playbackState: .idle,
+            onPlayTapped: {},
+            onSelectTapped: {},
+            onSettingsTapped: {}
+        )
+        
+        // Selected with settings and custom indicator
+        VoiceChip(
+            voice: Voice.allEnglishKokoroVoices[1],
+            isSelected: true,
+            hasCustomSettings: true,
+            playbackState: .idle,
+            onPlayTapped: {},
+            onSelectTapped: {},
+            onSettingsTapped: {}
         )
         
         // Synthesizing
@@ -257,16 +331,35 @@ struct VoiceChip: View {
             isSelected: true,
             playbackState: .playing,
             onPlayTapped: {},
-            onSelectTapped: {}
+            onSelectTapped: {},
+            onSettingsTapped: {}
         )
-        
-        // British voice
+    }
+    .padding()
+    .background(AppColors.backgroundPrimary)
+}
+
+#Preview("Voice Chip - Custom Settings") {
+    VStack(spacing: 16) {
+        // With custom settings indicator
         VoiceChip(
-            voice: Voice.allEnglishKokoroVoices.first { $0.languageCode == "en-GB" }!,
+            voice: Voice.defaultVoice,
             isSelected: false,
+            hasCustomSettings: true,
             playbackState: .idle,
             onPlayTapped: {},
             onSelectTapped: {}
+        )
+        
+        // Selected with custom settings
+        VoiceChip(
+            voice: Voice.defaultVoice,
+            isSelected: true,
+            hasCustomSettings: true,
+            playbackState: .idle,
+            onPlayTapped: {},
+            onSelectTapped: {},
+            onSettingsTapped: {}
         )
     }
     .padding()
@@ -278,9 +371,11 @@ struct VoiceChip: View {
         VoiceChip(
             voice: Voice.defaultVoice,
             isSelected: true,
+            hasCustomSettings: true,
             playbackState: .playing,
             onPlayTapped: {},
-            onSelectTapped: {}
+            onSelectTapped: {},
+            onSettingsTapped: {}
         )
     }
     .padding()

@@ -16,11 +16,17 @@ import Foundation
 /// - System AVSpeechSynthesizer (fallback, always available)
 /// - Cloud TTS with voice cloning (future Phase 7)
 ///
-/// ## Voice ID Routing
-/// - `nil` or empty: Uses default Kokoro voice (afHeart)
+/// ## Voice ID Format
+/// Use full Voice.id format throughout the app (e.g., "kokoro_af_heart").
+/// The service handles conversion to raw TTS engine format internally.
+/// - `nil` or empty: Uses default Kokoro voice (af_heart)
 /// - `kokoro_*`: Uses Kokoro neural TTS
 /// - `system`: Uses System AVSpeechSynthesizer
 /// - Other: Reserved for future cloud voices
+///
+/// ## Voice Settings
+/// Pass `speed`, `pitchShiftSemitones`, and `pitchRangeScale` parameters
+/// to apply user-customized voice settings during synthesis.
 ///
 /// ## Pre-Synthesis
 /// Use `preSynthesize()` to prepare audio in advance,
@@ -33,10 +39,10 @@ import Foundation
 /// ## Architecture
 /// ```
 /// TTSServiceProtocol
-/// ├── TTSService (Production)
-/// │   ├── KokoroTTSEngine (primary - neural TTS)
-/// │   └── SystemTTSService (fallback)
-/// └── MockTTSService (Testing)
+/// +-- TTSService (Production)
+/// |   +-- KokoroTTSEngine (primary - neural TTS)
+/// |   +-- SystemTTSService (fallback)
+/// +-- MockTTSService (Testing)
 /// ```
 ///
 /// ## Usage
@@ -51,11 +57,17 @@ import Foundation
 ///     // Proceed with neural TTS
 /// }
 ///
-/// // Speak with default Kokoro voice
+/// // Speak with default settings
 /// try await ttsService.speakText("I am confident", voiceId: nil)
 ///
-/// // Speak with specific Kokoro voice
-/// try await ttsService.speakText("I am capable", voiceId: "af_heart")
+/// // Speak with voice settings
+/// try await ttsService.speakText(
+///     "I am capable",
+///     voiceId: "kokoro_af_heart",
+///     speed: 0.9,
+///     pitchShiftSemitones: 2.0,
+///     pitchRangeScale: 1.2
+/// )
 ///
 /// // Force system TTS
 /// try await ttsService.speakText("Hello", voiceId: "system")
@@ -104,10 +116,19 @@ protocol TTSServiceProtocol: AnyObject {
     ///
     /// - Parameters:
     ///   - text: Text to synthesize
-    ///   - voiceId: Voice ID (nil for default Kokoro, "system" for AVSpeech)
+    ///   - voiceId: Voice ID in full format (e.g., "kokoro_af_heart"), nil for default
+    ///   - speed: Playback speed multiplier (0.5 - 2.0, default 1.0)
+    ///   - pitchShiftSemitones: Pitch shift in semitones (-12 to +12, default 0)
+    ///   - pitchRangeScale: Pitch variation scale (0.5 - 1.5, default 1.0)
     /// - Returns: Audio data (WAV format)
     /// - Throws: `AppError.ttsError` if synthesis fails
-    func synthesize(text: String, voiceId: String?) async throws -> Data
+    func synthesize(
+        text: String,
+        voiceId: String?,
+        speed: Float,
+        pitchShiftSemitones: Float,
+        pitchRangeScale: Float
+    ) async throws -> Data
     
     /// Synthesizes speech using System TTS regardless of Kokoro state.
     ///
@@ -124,9 +145,18 @@ protocol TTSServiceProtocol: AnyObject {
     ///
     /// - Parameters:
     ///   - text: Text to speak
-    ///   - voiceId: Voice ID (nil for default Kokoro, "system" for AVSpeech)
+    ///   - voiceId: Voice ID in full format (e.g., "kokoro_af_heart"), nil for default
+    ///   - speed: Playback speed multiplier (0.5 - 2.0, default 1.0)
+    ///   - pitchShiftSemitones: Pitch shift in semitones (-12 to +12, default 0)
+    ///   - pitchRangeScale: Pitch variation scale (0.5 - 1.5, default 1.0)
     /// - Throws: `AppError.ttsError` if synthesis or playback fails
-    func speakText(_ text: String, voiceId: String?) async throws
+    func speakText(
+        _ text: String,
+        voiceId: String?,
+        speed: Float,
+        pitchShiftSemitones: Float,
+        pitchRangeScale: Float
+    ) async throws
     
     // MARK: - Playback Control
     
@@ -142,8 +172,17 @@ protocol TTSServiceProtocol: AnyObject {
     ///
     /// - Parameters:
     ///   - text: The text to pre-synthesize
-    ///   - voiceId: Optional voice ID
-    func preSynthesize(text: String, voiceId: String?) async
+    ///   - voiceId: Voice ID in full format (e.g., "kokoro_af_heart"), nil for default
+    ///   - speed: Playback speed multiplier (0.5 - 2.0, default 1.0)
+    ///   - pitchShiftSemitones: Pitch shift in semitones (-12 to +12, default 0)
+    ///   - pitchRangeScale: Pitch variation scale (0.5 - 1.5, default 1.0)
+    func preSynthesize(
+        text: String,
+        voiceId: String?,
+        speed: Float,
+        pitchShiftSemitones: Float,
+        pitchRangeScale: Float
+    ) async
     
     /// Cancels any active pre-synthesis task.
     func cancelPreSynthesis()
@@ -163,14 +202,77 @@ protocol TTSServiceProtocol: AnyObject {
     func releaseForBackground() async
 }
 
+// MARK: - Convenience Extensions
+
+extension TTSServiceProtocol {
+    
+    /// Synthesizes speech with default voice settings.
+    ///
+    /// - Parameters:
+    ///   - text: Text to synthesize
+    ///   - voiceId: Voice ID (nil for default Kokoro, "system" for AVSpeech)
+    /// - Returns: Audio data (WAV format)
+    func synthesize(text: String, voiceId: String?) async throws -> Data {
+        try await synthesize(
+            text: text,
+            voiceId: voiceId,
+            speed: TTSConfiguration.defaultSpeed,
+            pitchShiftSemitones: TTSConfiguration.defaultPitchShift,
+            pitchRangeScale: TTSConfiguration.defaultPitchRange
+        )
+    }
+    
+    /// Speaks text with default voice settings.
+    ///
+    /// - Parameters:
+    ///   - text: Text to speak
+    ///   - voiceId: Voice ID (nil for default Kokoro, "system" for AVSpeech)
+    func speakText(_ text: String, voiceId: String?) async throws {
+        try await speakText(
+            text,
+            voiceId: voiceId,
+            speed: TTSConfiguration.defaultSpeed,
+            pitchShiftSemitones: TTSConfiguration.defaultPitchShift,
+            pitchRangeScale: TTSConfiguration.defaultPitchRange
+        )
+    }
+    
+    /// Pre-synthesizes text with default voice settings.
+    ///
+    /// - Parameters:
+    ///   - text: The text to pre-synthesize
+    ///   - voiceId: Voice ID (nil for default Kokoro, "system" for AVSpeech)
+    func preSynthesize(text: String, voiceId: String?) async {
+        await preSynthesize(
+            text: text,
+            voiceId: voiceId,
+            speed: TTSConfiguration.defaultSpeed,
+            pitchShiftSemitones: TTSConfiguration.defaultPitchShift,
+            pitchRangeScale: TTSConfiguration.defaultPitchRange
+        )
+    }
+}
+
 // MARK: - Default Implementations
 
 extension TTSServiceProtocol {
     
     /// Default implementation for pre-synthesis (synthesize and cache)
-    func preSynthesize(text: String, voiceId: String?) async {
+    func preSynthesize(
+        text: String,
+        voiceId: String?,
+        speed: Float,
+        pitchShiftSemitones: Float,
+        pitchRangeScale: Float
+    ) async {
         // Default: synthesize and let cache handle it
-        _ = try? await synthesize(text: text, voiceId: voiceId)
+        _ = try? await synthesize(
+            text: text,
+            voiceId: voiceId,
+            speed: speed,
+            pitchShiftSemitones: pitchShiftSemitones,
+            pitchRangeScale: pitchRangeScale
+        )
     }
     
     /// Default implementation for cancel (no-op for simple services)
@@ -218,6 +320,17 @@ enum TTSConfiguration {
     
     /// Kokoro output sample rate (24kHz)
     static let kokoroSampleRate: Int = 24000
+    
+    // MARK: - Voice Settings Defaults
+    
+    /// Default speed (1.0 = normal speed)
+    static let defaultSpeed: Float = 1.0
+    
+    /// Default pitch shift (0 = no shift)
+    static let defaultPitchShift: Float = 0.0
+    
+    /// Default pitch range scale (1.0 = normal expressiveness)
+    static let defaultPitchRange: Float = 1.0
     
     // MARK: - Voice ID Constants
     

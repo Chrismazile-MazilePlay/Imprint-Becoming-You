@@ -12,28 +12,28 @@ import SwiftUI
 /// A card representing a saved session in the list view.
 ///
 /// Supports selection-based interaction model where tapping selects/deselects
-/// the card, and a global configuration bar controls playback settings.
+/// the card, and swipe actions reveal edit/delete/info options.
+///
+/// ## Swipe Actions (left-to-right when revealed)
+/// - **Info** (blue) - View session affirmations; full-swipe navigates directly
+/// - **Edit** (accent) - Enter edit mode for renaming
+/// - **Delete** (red) - Show delete confirmation
 ///
 /// ## States
 ///
-/// | State | This Card Icons | Other Cards | Border |
-/// |-------|-----------------|-------------|--------|
-/// | Normal | ✏️ ⓘ | ✏️ ⓘ | Standard |
-/// | Selected | ✏️ ⓘ | ✏️ ⓘ | Accent |
-/// | Editing | ✏️ 🗑️ | (hidden) | Standard |
+/// | State | Border | Swipe Enabled |
+/// |-------|--------|---------------|
+/// | Normal | Standard | Yes |
+/// | Selected | Accent | Yes |
+/// | Editing | Standard | No |
 ///
 /// ## Layout
-/// Icons are aligned with the title row (top of card):
 /// ```
 /// ┌────────────────────────────────────────────────────────────┐
-/// │  Morning Confidence                           ✏️     ⓘ    │
-/// │  5 affirmations • Last played today                       │
+/// │  Morning Confidence                                        │
+/// │  5 affirmations • Last played today                        │
 /// └────────────────────────────────────────────────────────────┘
 /// ```
-///
-/// ## Layout Locking
-/// When icons are hidden (during edit mode on other cards), space is reserved
-/// using `.opacity(0)` to prevent text reflow.
 struct SavedSessionCard: View {
     
     // MARK: - Properties
@@ -53,13 +53,13 @@ struct SavedSessionCard: View {
     /// Callback when card is tapped (for selection)
     let onTap: () -> Void
     
-    /// Callback when edit button is tapped
+    /// Callback when edit action is triggered (via swipe)
     let onEdit: () -> Void
     
-    /// Callback when info button is tapped
+    /// Callback when info action is triggered (via swipe or full-swipe)
     let onInfo: () -> Void
     
-    /// Callback when delete button is tapped (only in edit mode)
+    /// Callback when delete action is triggered (via swipe)
     let onDelete: () -> Void
     
     /// Callback when title changes during editing (for tracking current value)
@@ -76,84 +76,84 @@ struct SavedSessionCard: View {
     /// Focus state for the text field
     @FocusState private var isTitleFieldFocused: Bool
     
-    // MARK: - Computed Properties
-    
-    /// Whether to show icons on this card
-    private var showIcons: Bool {
-        // Show icons if: not editing OR this is the editing card
-        !isAnyCardEditing || isEditing
-    }
-    
-    /// Whether info button is enabled
-    private var isInfoEnabled: Bool {
-        // Disabled when this card is being edited
-        !isEditing
-    }
-    
     // MARK: - Body
     
     var body: some View {
-        Button {
-            onTap()
-        } label: {
-            cardContent
-        }
-        .buttonStyle(.plain)
-        .disabled(isAnyCardEditing && !isEditing)
-        .onChange(of: isEditing) { wasEditing, nowEditing in
-            if nowEditing {
-                // Entering edit mode - initialize title
-                editingTitle = session.name
-                isTitleFieldFocused = true
-            } else if wasEditing {
-                // Exiting edit mode - clear focus
-                isTitleFieldFocused = false
+        cardContent
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard !isAnyCardEditing else { return }
+                onTap()
             }
-        }
+            .swipeActions(
+                isEnabled: !isAnyCardEditing,
+                onFullSwipe: {
+                    // Full-swipe navigates to affirmation list
+                    onInfo()
+                }
+            ) {
+                SwipeAction(
+                    symbolImage: "info.circle",
+                    tint: .white,
+                    background: .blue
+                ) { reset in
+                    reset.toggle()
+                    onInfo()
+                }
+                
+                SwipeAction(
+                    symbolImage: "pencil",
+                    tint: .white,
+                    background: AppColors.accent
+                ) { reset in
+                    reset.toggle()
+                    onEdit()
+                }
+                
+                SwipeAction(
+                    symbolImage: "trash.fill",
+                    tint: .white,
+                    background: AppColors.error
+                ) { reset in
+                    reset.toggle()
+                    onDelete()
+                }
+            }
+            .onChange(of: isEditing) { wasEditing, nowEditing in
+                if nowEditing {
+                    // Entering edit mode - initialize title and focus immediately
+                    editingTitle = session.name
+                    isTitleFieldFocused = true
+                } else if wasEditing {
+                    // Exiting edit mode - clear focus
+                    isTitleFieldFocused = false
+                }
+            }
     }
     
     // MARK: - Card Content
     
     private var cardContent: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
-            // Title row with icons overlaid
-            HStack(spacing: AppTheme.Spacing.sm) {
-                // Title (text or text field)
-                if isEditing {
-                    TextField("Session name", text: $editingTitle)
-                        .font(AppTypography.headline)
-                        .foregroundStyle(AppColors.textPrimary)
-                        .focused($isTitleFieldFocused)
-                        .submitLabel(.done)
-                        .onSubmit {
-                            // Notify parent to save and exit edit mode
-                            onTitleChanged(editingTitle)
-                            onTitleCommit()
-                        }
-                        .onChange(of: editingTitle) { _, newValue in
-                            // Keep parent informed of changes for Done button
-                            onTitleChanged(newValue)
-                        }
-                } else {
-                    Text(session.name)
-                        .font(AppTypography.headline)
-                        .foregroundStyle(AppColors.textPrimary)
-                        .lineLimit(1)
-                }
-                
-                Spacer(minLength: 0)
-                
-                // Invisible spacer to reserve width for icons (prevents text reflow)
-                Color.clear
-                    .frame(width: iconAreaWidth, height: 1)
-            }
-            .overlay(alignment: .trailing) {
-                // Action icons overlaid, vertically centered with title
-                // Offset to align icon glyph with card's internal padding
-                // (compensates for the 44pt tap target frame centering)
-                actionIcons
-                    .padding(.trailing, -14)
-                    .opacity(showIcons ? 1 : 0)
+            // Title row
+            if isEditing {
+                TextField("Session name", text: $editingTitle)
+                    .font(AppTypography.headline)
+                    .foregroundStyle(AppColors.textPrimary)
+                    .focused($isTitleFieldFocused)
+                    .submitLabel(.done)
+                    .onSubmit {
+                        onTitleChanged(editingTitle)
+                        onTitleCommit()
+                    }
+                    .onChange(of: editingTitle) { _, newValue in
+                        onTitleChanged(newValue)
+                    }
+            } else {
+                Text(session.name)
+                    .font(AppTypography.headline)
+                    .foregroundStyle(AppColors.textPrimary)
+                    .lineLimit(1)
             }
             
             // Subtitle row
@@ -161,6 +161,7 @@ struct SavedSessionCard: View {
                 .font(AppTypography.caption1)
                 .foregroundStyle(AppColors.textSecondary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(AppTheme.Spacing.md)
         .background(
             RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
@@ -170,13 +171,7 @@ struct SavedSessionCard: View {
             RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
                 .stroke(isSelected ? AppColors.accent : Color.clear, lineWidth: 2)
         )
-        .contentShape(Rectangle())
     }
-    
-    // MARK: - Constants
-    
-    /// Width reserved for the icon area (accounts for offset positioning)
-    private let iconAreaWidth: CGFloat = 60
     
     // MARK: - Subtitle
     
@@ -189,60 +184,6 @@ struct SavedSessionCard: View {
             return "\(countText) • Last played \(relative)"
         } else {
             return countText
-        }
-    }
-    
-    // MARK: - Action Icons
-    
-    /// Action icons with 44pt tap targets (Apple HIG minimum).
-    /// Overlaid on title row and vertically centered with title text.
-    /// Uses ZStack for the second icon position to lock layout during edit mode transition.
-    private var actionIcons: some View {
-        HStack(spacing: -8) {
-            // Edit button (always visible when icons show)
-            Button {
-                onEdit()
-            } label: {
-                Image(systemName: "pencil")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(AppColors.textSecondary)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Edit session name")
-            
-            // Second icon position - ZStack locks layout during transition
-            ZStack {
-                // Info button (normal mode)
-                Button {
-                    onInfo()
-                } label: {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(isInfoEnabled ? AppColors.textSecondary : AppColors.textTertiary)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .disabled(!isInfoEnabled)
-                .opacity(isEditing ? 0 : 1)
-                .accessibilityLabel("Session info")
-                .accessibilityHidden(isEditing)
-                
-                // Delete button (edit mode)
-                Button {
-                    onDelete()
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(AppColors.destructive)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .opacity(isEditing ? 1 : 0)
-                .accessibilityLabel("Delete session")
-                .accessibilityHidden(!isEditing)
-            }
-            .frame(width: 44, height: 44)
         }
     }
 }
@@ -321,46 +262,30 @@ struct SavedSessionCard: View {
     .background(AppColors.backgroundPrimary)
 }
 
-#Preview("Saved Session Cards - One Editing") {
-    VStack(spacing: AppTheme.Spacing.md) {
-        // This card is editing
-        SavedSessionCard(
-            session: SavedSession(
-                name: "Session Being Edited",
-                affirmationIds: Array(repeating: UUID(), count: 5),
-                defaultMode: .readThenSpeak,
-                affirmations: []
-            ),
-            isSelected: false,
-            isEditing: true,
-            isAnyCardEditing: true,
-            onTap: {},
-            onEdit: {},
-            onInfo: {},
-            onDelete: {},
-            onTitleChanged: { _ in },
-            onTitleCommit: {}
-        )
-        
-        // This card is NOT editing - icons hidden but layout preserved
-        SavedSessionCard(
-            session: SavedSession(
-                name: "Other Session",
-                affirmationIds: Array(repeating: UUID(), count: 3),
-                defaultMode: .readAloud,
-                affirmations: []
-            ),
-            isSelected: false,
-            isEditing: false,
-            isAnyCardEditing: true,
-            onTap: {},
-            onEdit: {},
-            onInfo: {},
-            onDelete: {},
-            onTitleChanged: { _ in },
-            onTitleCommit: {}
-        )
+#Preview("Swipe Actions Demo") {
+    ScrollView {
+        VStack(spacing: AppTheme.Spacing.md) {
+            ForEach(0..<3) { index in
+                SavedSessionCard(
+                    session: SavedSession(
+                        name: "Session \(index + 1)",
+                        affirmationIds: Array(repeating: UUID(), count: index + 2),
+                        defaultMode: .readThenSpeak,
+                        affirmations: []
+                    ),
+                    isSelected: index == 0,
+                    isEditing: false,
+                    isAnyCardEditing: false,
+                    onTap: { print("Tapped \(index + 1)") },
+                    onEdit: { print("Edit \(index + 1)") },
+                    onInfo: { print("Info \(index + 1)") },
+                    onDelete: { print("Delete \(index + 1)") },
+                    onTitleChanged: { _ in },
+                    onTitleCommit: {}
+                )
+            }
+        }
+        .padding()
     }
-    .padding()
     .background(AppColors.backgroundPrimary)
 }

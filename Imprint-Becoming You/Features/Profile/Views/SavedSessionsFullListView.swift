@@ -220,7 +220,7 @@ struct SavedSessionsFullListView: View {
                     )
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel("\(session.name). \(session.affirmationIds.count) affirmations. \(selectedSessionId == session.id ? "Selected" : "")")
-                    .accessibilityHint(selectedSessionId == session.id ? "Double tap to deselect" : "Double tap to select for playback")
+                    .accessibilityHint(selectedSessionId == session.id ? "Double tap to deselect. Swipe left for more options." : "Double tap to select for playback. Swipe left for more options.")
                 }
             }
             .padding(.horizontal, AppTheme.Spacing.lg)

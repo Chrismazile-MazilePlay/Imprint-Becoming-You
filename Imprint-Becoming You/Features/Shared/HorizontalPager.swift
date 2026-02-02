@@ -16,7 +16,7 @@ import SwiftUI
 /// `NavigationStack`'s back gesture can take priority without conflict.
 ///
 /// ## Architecture
-/// All pages remain in the view hierarchy at all times—only their horizontal
+/// All pages remain in the view hierarchy at all times--only their horizontal
 /// offset changes. This provides smooth animations and preserves page state.
 ///
 /// ## Gesture Priority
@@ -24,8 +24,22 @@ import SwiftUI
 /// entirely (`nil`), allowing `NavigationStack` edge swipes to work uncontested.
 /// This is controlled by the parent based on navigation depth.
 ///
-/// ## Exclusion Zones
-/// - **Bottom area**: Reserved for dock interaction on Practice page only
+/// ## Practice Page: Edge-Only Mode
+/// On the Practice page, horizontal paging is restricted to edge zones (40pt on each side).
+/// This ensures the center area is reserved for VerticalPager, providing clean gesture separation:
+/// ```
+/// +------+----------------------------+------+
+/// |<40pt>|                            |<40pt>|
+/// |      |                            |      |
+/// | LEFT |   CENTER (VerticalPager)   |RIGHT |
+/// | EDGE |   Vertical swipes only     | EDGE |
+/// |      |                            |      |
+/// +------+----------------------------+------+
+/// ```
+///
+/// ## Exclusion Zones (Practice page only)
+/// - **Edge zones**: Only left/right 40pt edges respond to horizontal paging
+/// - **Bottom area (120pt)**: Reserved for dock interaction
 ///
 /// ## Drag State Communication
 /// The `isHorizontallyDragging` binding communicates active drag state to child
@@ -95,6 +109,11 @@ struct HorizontalPager<Content: View>: View {
     /// Minimum movement to lock gesture direction
     private let directionLockThreshold: CGFloat = 15
     
+    /// Edge zone width for navigation on Practice page.
+    /// On Practice page, only edge swipes trigger page navigation,
+    /// leaving the center area for VerticalPager.
+    private let edgeWidth: CGFloat = 40
+    
     /// Animation for page transitions
     private var pageAnimation: Animation {
         .spring(response: 0.35, dampingFraction: 0.86)
@@ -136,8 +155,13 @@ struct HorizontalPager<Content: View>: View {
     /// and locked for the entire gesture. This prevents gesture interruption
     /// when dragging back and forth across the screen.
     ///
-    /// ## Exclusion Zones
-    /// - Bottom area for dock interaction (Practice page only)
+    /// ## Practice Page: Edge-Only Mode
+    /// On Practice page, horizontal paging only responds to edge swipes (left/right 40pt zones).
+    /// The center area is reserved for VerticalPager, ensuring clean gesture separation.
+    ///
+    /// ## Exclusion Zones (Practice page only)
+    /// - Bottom area (120pt) for dock interaction
+    /// - Center area for VerticalPager (only edges respond)
     ///
     /// When `isGestureEnabled` is false (Profile has navigation depth),
     /// the entire gesture is disabled, allowing NavigationStack full control.
@@ -162,9 +186,26 @@ struct HorizontalPager<Content: View>: View {
                 // Only respond if this is a horizontal gesture
                 guard isHorizontalGesture else { return }
                 
-                // Exclude bottom area ONLY on Practice page (has dock)
+                let startX = value.startLocation.x
                 let startY = value.startLocation.y
+                
+                // Last page (Profile): right edge is non-reactive (nothing to navigate to)
+                // This creates a "solid" feel matching NavigationStack pushed views
+                if currentPage == pageCount - 1 {
+                    let isRightEdge = startX > pageWidth - edgeWidth
+                    if isRightEdge {
+                        return // No response - solid edge
+                    }
+                }
+                
+                // Practice page: edge-only mode + bottom exclusion
                 if currentPage == practicePageIndex {
+                    // Only respond to edge swipes (left or right edge zones)
+                    let isLeftEdge = startX < edgeWidth
+                    let isRightEdge = startX > pageWidth - edgeWidth
+                    guard isLeftEdge || isRightEdge else { return }
+                    
+                    // Also exclude bottom area (dock)
                     guard startY < pageHeight - bottomExclusionHeight else { return }
                 }
                 
@@ -199,9 +240,25 @@ struct HorizontalPager<Content: View>: View {
                 // Only process if this was a horizontal gesture
                 guard wasHorizontal else { return }
                 
-                // Exclude bottom area ONLY on Practice page (has dock)
+                let startX = value.startLocation.x
                 let startY = value.startLocation.y
+                
+                // Last page (Profile): right edge is non-reactive
+                if currentPage == pageCount - 1 {
+                    let isRightEdge = startX > pageWidth - edgeWidth
+                    if isRightEdge {
+                        return // No response - solid edge
+                    }
+                }
+                
+                // Practice page: edge-only mode + bottom exclusion
                 if currentPage == practicePageIndex {
+                    // Only respond to edge swipes (left or right edge zones)
+                    let isLeftEdge = startX < edgeWidth
+                    let isRightEdge = startX > pageWidth - edgeWidth
+                    guard isLeftEdge || isRightEdge else { return }
+                    
+                    // Also exclude bottom area (dock)
                     guard startY < pageHeight - bottomExclusionHeight else { return }
                 }
                 
@@ -212,10 +269,10 @@ struct HorizontalPager<Content: View>: View {
                 var newPage = currentPage
                 
                 if translation < -dragThreshold || velocity < -500 {
-                    // Swiped left → go to next page
+                    // Swiped left -> go to next page
                     newPage = min(currentPage + 1, pageCount - 1)
                 } else if translation > dragThreshold || velocity > 500 {
-                    // Swiped right → go to previous page
+                    // Swiped right -> go to previous page
                     newPage = max(currentPage - 1, 0)
                 }
                 

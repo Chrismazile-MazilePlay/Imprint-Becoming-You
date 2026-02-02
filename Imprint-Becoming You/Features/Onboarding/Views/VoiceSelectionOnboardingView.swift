@@ -14,8 +14,8 @@ import SwiftUI
 /// Features:
 /// - Tap to select and preview voice
 /// - Shows all 26 English voices grouped by accent/gender
-/// - Loading indicator for voices not yet cached
-/// - Instant playback from cache when available
+/// - Central loading indicator during synthesis
+/// - On-demand synthesis (no pre-caching)
 struct VoiceSelectionOnboardingView: View {
     
     // MARK: - Environment
@@ -29,29 +29,49 @@ struct VoiceSelectionOnboardingView: View {
     // MARK: - Body
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            headerSection
-            
-            // Voice groups
-            ScrollView {
-                LazyVStack(spacing: AppTheme.Spacing.xl) {
-                    ForEach(Voice.englishVoicesByDisplayGroup, id: \.group) { groupData in
-                        voiceGroupSection(group: groupData.group, voices: groupData.voices)
+        ZStack {
+            VStack(spacing: 0) {
+                // Header
+                headerSection
+                
+                // Voice groups
+                ScrollView {
+                    LazyVStack(spacing: AppTheme.Spacing.xl) {
+                        ForEach(Voice.englishVoicesByDisplayGroup, id: \.group) { groupData in
+                            voiceGroupSection(group: groupData.group, voices: groupData.voices)
+                        }
                     }
+                    .padding(.horizontal, AppTheme.Spacing.lg)
+                    .padding(.vertical, AppTheme.Spacing.lg)
                 }
-                .padding(.horizontal, AppTheme.Spacing.lg)
-                .padding(.vertical, AppTheme.Spacing.lg)
+                
+                // Continue button
+                continueButton
             }
             
-            // Continue button
-            continueButton
+            // Central loading overlay (non-blocking)
+            loadingOverlay
         }
         .onAppear {
             injectDependencies()
         }
         .onDisappear {
             viewModel.stopPreview()
+        }
+    }
+    
+    // MARK: - Loading Overlay
+    
+    @ViewBuilder
+    private var loadingOverlay: some View {
+        if viewModel.isSynthesizing {
+            Color.black.opacity(0.3)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+            
+            ProgressView()
+                .scaleEffect(1.5)
+                .tint(AppColors.accent)
         }
     }
     
@@ -101,7 +121,6 @@ struct VoiceSelectionOnboardingView: View {
     private func voiceChip(voice: Voice) -> some View {
         let isSelected = viewModel.selectedVoiceId == voice.id
         let isPreviewing = viewModel.previewingVoiceId == voice.id && viewModel.isPreviewPlaying
-        let isCached = isVoiceCached(voice)
         
         return Button {
             viewModel.selectVoice(voice.id)
@@ -125,11 +144,6 @@ struct VoiceSelectionOnboardingView: View {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 14))
                             .foregroundStyle(AppColors.accent)
-                    } else if !isCached {
-                        // Not cached indicator (subtle)
-                        ProgressView()
-                            .scaleEffect(0.6)
-                            .tint(AppColors.textTertiary)
                     }
                 }
             }
@@ -184,12 +198,6 @@ struct VoiceSelectionOnboardingView: View {
     private func injectDependencies() {
         viewModel.ttsService = dependencies.ttsService
         viewModel.voicePreviewCacheService = dependencies.voicePreviewCacheService
-    }
-    
-    /// Checks if a voice preview is cached.
-    private func isVoiceCached(_ voice: Voice) -> Bool {
-        guard let ttsVoiceId = voice.ttsVoiceId else { return true }
-        return viewModel.voicePreviewCacheService?.isReady(ttsVoiceId) ?? true
     }
 }
 

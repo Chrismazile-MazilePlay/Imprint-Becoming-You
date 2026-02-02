@@ -17,7 +17,7 @@ import AVFoundation
 /// - Tap to select and preview voice (auto-saves)
 /// - Shows engine status (Kokoro ready / System fallback)
 /// - Groups voices by accent and gender
-/// - Uses cached previews for instant playback
+/// - On-demand synthesis with central loading indicator
 ///
 /// ## Navigation
 /// This view is pushed onto the Profile navigation stack.
@@ -38,13 +38,16 @@ struct VoiceSettingsView: View {
     /// Voice currently being previewed
     @State private var previewingVoiceId: String?
     
+    /// Whether synthesis is in progress (shows loading overlay)
+    @State private var isSynthesizing = false
+    
     /// Whether preview is playing
     @State private var isPreviewPlaying = false
     
     /// Whether Kokoro engine is ready
     @State private var isKokoroReady = false
     
-    /// Audio player for cached preview playback
+    /// Audio player for preview playback
     @State private var audioPlayer: AVAudioPlayer?
     
     // MARK: - Body
@@ -68,6 +71,9 @@ struct VoiceSettingsView: View {
                         .padding(.bottom, AppTheme.Spacing.xl)
                 }
             }
+            
+            // Central loading overlay (non-blocking)
+            loadingOverlay
         }
         .navigationTitle("Voice Settings")
         .navigationBarTitleDisplayMode(.inline)
@@ -77,6 +83,21 @@ struct VoiceSettingsView: View {
         }
         .onDisappear {
             stopPreview()
+        }
+    }
+    
+    // MARK: - Loading Overlay
+    
+    @ViewBuilder
+    private var loadingOverlay: some View {
+        if isSynthesizing {
+            Color.black.opacity(0.3)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+            
+            ProgressView()
+                .scaleEffect(1.5)
+                .tint(AppColors.accent)
         }
     }
     
@@ -162,7 +183,6 @@ struct VoiceSettingsView: View {
     private func voiceChip(voice: Voice) -> some View {
         let isSelected = selectedVoiceId == voice.id
         let isPreviewing = previewingVoiceId == voice.id && isPreviewPlaying
-        let isCached = isVoiceCached(voice)
         
         return Button {
             selectVoice(voice.id)
@@ -184,10 +204,6 @@ struct VoiceSettingsView: View {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 14))
                             .foregroundStyle(AppColors.accent)
-                    } else if !isCached {
-                        ProgressView()
-                            .scaleEffect(0.6)
-                            .tint(AppColors.textTertiary)
                     }
                 }
             }
@@ -210,17 +226,17 @@ struct VoiceSettingsView: View {
     // MARK: - Voice Selection
     
     private func selectVoice(_ voiceId: String) {
-        // Stop current preview
+        // Cancel any in-flight synthesis
+        dependencies.voicePreviewCacheService.cancelSynthesis()
+        
+        // Stop current playback
         stopPreview()
         
         // Select and save
         selectedVoiceId = voiceId
         saveVoiceSelection(voiceId)
         
-        // Haptic feedback
-        HapticFeedback.selection()
-        
-        // Play preview
+        // Play preview (no haptics)
         playPreview(for: voiceId)
         
         #if DEBUG
@@ -239,7 +255,7 @@ struct VoiceSettingsView: View {
         
         // Set preview state BEFORE async work
         previewingVoiceId = voiceId
-        isPreviewPlaying = true
+        isSynthesizing = true
         
         // Capture values for closure
         let capturedVoiceId = voiceId
@@ -250,33 +266,39 @@ struct VoiceSettingsView: View {
             guard previewingVoiceId == capturedVoiceId else { return }
             
             do {
-                let cache = dependencies.voicePreviewCacheService
+                let service = dependencies.voicePreviewCacheService
                 
-                // Try to get cached audio first
-                if let audioData = cache.getPreviewAudio(for: capturedTtsVoiceId) {
-                    #if DEBUG
-                    print("🎤 VoiceSettingsView: Playing cached audio for \(capturedTtsVoiceId)")
-                    #endif
-                    try playAudioData(audioData)
-                } else {
-                    // Synthesize on-demand
-                    #if DEBUG
-                    print("🎤 VoiceSettingsView: Synthesizing on-demand for \(capturedTtsVoiceId)")
-                    #endif
-                    let audioData = try await cache.synthesizeNow(capturedTtsVoiceId)
-                    
-                    // Verify still previewing same voice
-                    guard previewingVoiceId == capturedVoiceId else { return }
-                    
-                    try playAudioData(audioData)
-                }
+                // Synthesize on-demand (with auto-retry)
+                #if DEBUG
+                print("🎤 VoiceSettingsView: Synthesizing \(capturedTtsVoiceId)")
+                #endif
+                let audioData = try await service.synthesizePreview(voiceId: capturedTtsVoiceId)
+                
+                // Hide loading
+                isSynthesizing = false
+                
+                // Verify still previewing same voice
+                guard previewingVoiceId == capturedVoiceId else { return }
+                
+                // Play audio
+                isPreviewPlaying = true
+                try playAudioData(audioData)
+                
+            } catch is CancellationError {
+                // User tapped another voice - this is expected
+                #if DEBUG
+                print("🎤 VoiceSettingsView: Synthesis cancelled for \(capturedTtsVoiceId)")
+                #endif
             } catch {
                 #if DEBUG
                 print("⚠️ VoiceSettingsView: Voice preview failed for \(capturedTtsVoiceId): \(error)")
                 #endif
             }
             
-            // Clear state if still previewing same voice
+            // Clear synthesis state
+            isSynthesizing = false
+            
+            // Clear preview state if still previewing same voice
             if previewingVoiceId == capturedVoiceId {
                 isPreviewPlaying = false
                 previewingVoiceId = nil
@@ -311,15 +333,10 @@ struct VoiceSettingsView: View {
         audioPlayer?.stop()
         audioPlayer = nil
         dependencies.ttsService.stopSpeaking()
+        dependencies.voicePreviewCacheService.cancelSynthesis()
+        isSynthesizing = false
         isPreviewPlaying = false
         previewingVoiceId = nil
-    }
-    
-    // MARK: - Helpers
-    
-    private func isVoiceCached(_ voice: Voice) -> Bool {
-        guard let ttsVoiceId = voice.ttsVoiceId else { return true }
-        return dependencies.voicePreviewCacheService.isReady(ttsVoiceId)
     }
     
     // MARK: - Persistence

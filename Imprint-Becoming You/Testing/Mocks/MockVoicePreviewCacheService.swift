@@ -7,49 +7,45 @@
 
 import Foundation
 
-// MARK: - Mock Voice Preview Cache Service
+// MARK: - Mock Voice Preview Service
 
-/// Mock implementation of voice preview cache for previews and testing.
+/// Mock implementation of voice preview service for previews and testing.
 ///
-/// Returns immediately with fake audio data, simulating a fully cached state.
+/// Simulates on-demand synthesis with a brief delay and returns minimal WAV data.
 @MainActor
 final class MockVoicePreviewCacheService: VoicePreviewCacheServiceProtocol {
     
     // MARK: - State
     
-    var isComplete: Bool = true
-    var cachedCount: Int = 28
-    var totalCount: Int = 28
-    var synthesisProgress: Float = 1.0
-    var isSynthesizing: Bool = false
+    private(set) var isSynthesizing: Bool = false
     
-    // MARK: - Cache Access
-    
-    func isReady(_ voiceId: String) -> Bool {
-        true
-    }
-    
-    func getPreviewAudio(for voiceId: String) -> Data? {
-        // Return minimal valid WAV data
-        createMinimalWAVData()
-    }
+    /// Tracks if cancellation was requested
+    private var isCancelled: Bool = false
     
     // MARK: - Synthesis
     
-    func startBackgroundSynthesis() async {
-        // No-op for mock
-    }
-    
-    func synthesizeNow(_ voiceId: String) async throws -> Data {
-        // Simulate brief delay
-        try? await Task.sleep(for: .milliseconds(100))
+    func synthesizePreview(voiceId: String) async throws -> Data {
+        isSynthesizing = true
+        isCancelled = false
+        
+        // Simulate synthesis delay
+        try await Task.sleep(for: .milliseconds(200))
+        
+        // Check for cancellation
+        if isCancelled {
+            isSynthesizing = false
+            throw CancellationError()
+        }
+        
+        isSynthesizing = false
         return createMinimalWAVData()
     }
     
-    // MARK: - Cache Management
+    // MARK: - Cancellation
     
-    func clearCache() {
-        // No-op for mock
+    func cancelSynthesis() {
+        isCancelled = true
+        isSynthesizing = false
     }
     
     // MARK: - Private

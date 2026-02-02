@@ -81,6 +81,9 @@ final class OnboardingViewModel {
     /// Whether voice preview is currently playing
     var isPreviewPlaying: Bool = false
     
+    /// Whether synthesis is in progress (shows loading overlay)
+    var isSynthesizing: Bool = false
+    
     /// TTS service for voice preview (injected by view)
     var ttsService: (any TTSServiceProtocol)?
     
@@ -190,7 +193,6 @@ final class OnboardingViewModel {
             selectedGoals = selectedGoals.filter { !$0.isFaithBased }
         }
         
-        HapticFeedback.selection()
     }
     
     // MARK: - Goal Selection
@@ -224,39 +226,40 @@ final class OnboardingViewModel {
     ///
     /// - Parameter voiceId: The full voice ID (e.g., "kokoro_af_heart")
     func selectVoice(_ voiceId: String) {
-        // Stop any current preview
+        // Cancel any in-flight synthesis
+        voicePreviewCacheService?.cancelSynthesis()
+        
+        // Stop any current playback
         stopPreview()
         
-        // Select the voice
+        // Select the voice (no haptics)
         selectedVoiceId = voiceId
         
-        // Haptic feedback
-        HapticFeedback.selection()
         
         // Play preview
         playPreview(for: voiceId)
         
         #if DEBUG
-        print("🎤 OnboardingViewModel: Selected voice \(voiceId)")
+        print("ðŸŽ¤ OnboardingViewModel: Selected voice \(voiceId)")
         #endif
     }
     
     /// Plays preview audio for a voice.
     ///
-    /// Uses cached audio if available, otherwise synthesizes on-demand.
+    /// Synthesizes on-demand with auto-retry. No caching.
     /// CRITICAL: Captures voiceId before async work to prevent race conditions.
     private func playPreview(for voiceId: String) {
         // Get the raw TTS voice ID (e.g., "af_heart" from "kokoro_af_heart")
         guard let ttsVoiceId = Voice.ttsVoiceId(from: voiceId) else {
             #if DEBUG
-            print("⚠️ OnboardingViewModel: Could not get ttsVoiceId for \(voiceId)")
+            print("âš ï¸ OnboardingViewModel: Could not get ttsVoiceId for \(voiceId)")
             #endif
             return
         }
         
         // Set preview state BEFORE async work
         previewingVoiceId = voiceId
-        isPreviewPlaying = true
+        isSynthesizing = true
         
         // Capture values for closure to prevent race conditions
         let capturedVoiceId = voiceId
@@ -268,47 +271,51 @@ final class OnboardingViewModel {
             // Verify we're still previewing this voice (user might have tapped another)
             guard self.previewingVoiceId == capturedVoiceId else {
                 #if DEBUG
-                print("🎤 OnboardingViewModel: Voice changed, skipping preview for \(capturedVoiceId)")
+                print("ðŸŽ¤ OnboardingViewModel: Voice changed, skipping preview for \(capturedVoiceId)")
                 #endif
                 return
             }
             
             do {
-                // Try to get cached audio first
-                if let cache = self.voicePreviewCacheService,
-                   let audioData = cache.getPreviewAudio(for: capturedTtsVoiceId) {
-                    // Play from cache using AVAudioPlayer
+                guard let service = self.voicePreviewCacheService else {
                     #if DEBUG
-                    print("🎤 OnboardingViewModel: Playing cached audio for \(capturedTtsVoiceId)")
+                    print("⚠️ OnboardingViewModel: No voice preview service available")
                     #endif
-                    try self.playAudioData(audioData)
-                    
-                } else if let cache = self.voicePreviewCacheService {
-                    // Synthesize on-demand, cache it, then play
-                    #if DEBUG
-                    print("🎤 OnboardingViewModel: Synthesizing on-demand for \(capturedTtsVoiceId)")
-                    #endif
-                    let audioData = try await cache.synthesizeNow(capturedTtsVoiceId)
-                    
-                    // Verify still previewing same voice
-                    guard self.previewingVoiceId == capturedVoiceId else { return }
-                    
-                    try self.playAudioData(audioData)
-                    
-                } else if let tts = self.ttsService {
-                    // Fallback to direct TTS synthesis
-                    #if DEBUG
-                    print("🎤 OnboardingViewModel: Fallback to TTS for \(capturedTtsVoiceId)")
-                    #endif
-                    try await tts.speakText(Voice.previewPhrase, voiceId: capturedTtsVoiceId)
+                    self.isSynthesizing = false
+                    return
                 }
+                
+                // Synthesize on-demand (with auto-retry)
+                #if DEBUG
+                print("🎤 OnboardingViewModel: Synthesizing \(capturedTtsVoiceId)")
+                #endif
+                let audioData = try await service.synthesizePreview(voiceId: capturedTtsVoiceId)
+                
+                // Hide loading
+                self.isSynthesizing = false
+                
+                // Verify still previewing same voice
+                guard self.previewingVoiceId == capturedVoiceId else { return }
+                
+                // Play audio
+                self.isPreviewPlaying = true
+                try self.playAudioData(audioData)
+                
+            } catch is CancellationError {
+                // User tapped another voice - this is expected
+                #if DEBUG
+                print("🎤 OnboardingViewModel: Synthesis cancelled for \(capturedTtsVoiceId)")
+                #endif
             } catch {
                 #if DEBUG
                 print("⚠️ OnboardingViewModel: Voice preview failed for \(capturedTtsVoiceId): \(error)")
                 #endif
             }
             
-            // Only clear state if we're still previewing the same voice
+            // Clear synthesis state
+            self.isSynthesizing = false
+            
+            // Only clear preview state if we're still previewing the same voice
             if self.previewingVoiceId == capturedVoiceId {
                 self.isPreviewPlaying = false
                 self.previewingVoiceId = nil
@@ -339,7 +346,7 @@ final class OnboardingViewModel {
         }
         
         #if DEBUG
-        print("🎤 OnboardingViewModel: Playing audio (\(data.count) bytes)")
+        print("ðŸŽ¤ OnboardingViewModel: Playing audio (\(data.count) bytes)")
         #endif
     }
     
@@ -351,6 +358,10 @@ final class OnboardingViewModel {
         
         // Stop TTS service
         ttsService?.stopSpeaking()
+        
+        // Cancel any in-flight synthesis
+        voicePreviewCacheService?.cancelSynthesis()
+        isSynthesizing = false
         
         // Clear state
         isPreviewPlaying = false

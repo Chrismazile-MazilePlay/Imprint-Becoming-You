@@ -226,14 +226,6 @@ struct ImprintApp: App {
         MemoryManager.shared.logMemoryUsage()
         #endif
         
-        // ===============================================================
-        // VOICE PREVIEWS: Start background synthesis (disk-cached, lazy memory)
-        // ===============================================================
-        #if DEBUG
-        print("ImprintApp: Starting voice preview synthesis...")
-        #endif
-        await dependencies.voicePreviewCacheService.startBackgroundSynthesis()
-        
         #if DEBUG
         print("ImprintApp: All background services started")
         MemoryManager.shared.logMemoryUsage()

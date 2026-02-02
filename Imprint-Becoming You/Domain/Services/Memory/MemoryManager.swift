@@ -5,6 +5,7 @@
 //  Created by Christopher Mazile on 1/26/26.
 //
 
+
 import Foundation
 import UIKit
 
@@ -308,21 +309,19 @@ final class MemoryManager {
             AppLogger.info("  ✅ Released Kokoro TTS pipelines", category: .memory)
         }
         
-        // 2. Clear voice preview memory cache (keep disk cache)
-        if let voiceCache = dependencies?.voicePreviewCacheService as? VoicePreviewCacheService {
-            voiceCache.clearMemoryCache()
-            AppLogger.info("  ✅ Cleared voice preview memory cache", category: .memory)
-        }
+        // 2. Cancel any in-flight voice preview synthesis
+        dependencies?.voicePreviewCacheService.cancelSynthesis()
+        AppLogger.info("  ✅ Cancelled voice preview synthesis", category: .memory)
         
         // 3. Clear session TTS queue
         if let sessionQueue = dependencies?.sessionTTSQueueService as? SessionTTSQueueService {
             sessionQueue.clearQueue()
-            AppLogger.info("  ✅ Cleared session TTS queue", category: .memory)
+            AppLogger.info("  âœ… Cleared session TTS queue", category: .memory)
         }
         
         // 4. Clear repository instance cache to free references
         DependencyContainer.shared.clearRepositoryCache()
-        AppLogger.info("  ✅ Cleared repository cache", category: .memory)
+        AppLogger.info("  âœ… Cleared repository cache", category: .memory)
         
         hasReleasedForBackground = true
         
@@ -352,7 +351,7 @@ final class MemoryManager {
         // Re-warm Kokoro TTS (the main thing we need to restore)
         if let ttsService = dependencies?.ttsService {
             await ttsService.warmUp()
-            AppLogger.info("  ✅ Re-warmed Kokoro TTS", category: .memory)
+            AppLogger.info("  âœ… Re-warmed Kokoro TTS", category: .memory)
         }
         
         // Voice preview cache will reload on-demand from disk
@@ -401,7 +400,7 @@ final class MemoryManager {
         AppLogger.info("Current memory usage: \(usage)MB", category: .memory)
         
         #if DEBUG
-        print("📊 MemoryManager: Current usage = \(usage)MB")
+        print("ðŸ“Š MemoryManager: Current usage = \(usage)MB")
         #endif
     }
 }

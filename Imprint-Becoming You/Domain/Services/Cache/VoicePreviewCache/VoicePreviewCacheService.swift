@@ -7,386 +7,142 @@
 
 import Foundation
 
-// MARK: - Voice Preview Cache Service
+// MARK: - Voice Preview Service
 
-/// Production implementation of voice preview caching.
+/// Production implementation of on-demand voice preview synthesis.
 ///
-/// Synthesizes and caches voice preview audio clips for instant playback
-/// in voice selection UI. Supports background synthesis with priority ordering
-/// and persistent disk storage.
+/// Synthesizes voice preview audio clips on-demand for the voice selection UI.
+/// No caching is performed - each tap triggers a fresh synthesis.
 ///
-/// ## Memory Optimization
-/// Uses lazy loading - audio data is loaded from disk on-demand rather than
-/// keeping all 28 voice previews in memory simultaneously. This reduces
-/// memory footprint from ~5MB constantly to ~200KB per active voice.
-///
-/// ## Storage Structure
-/// ```
-/// Application Support/
-/// └── VoicePreviewCache/
-///     ├── manifest.json          ← Version + completion status
-///     ├── preview_af_heart.wav
-///     ├── preview_af_bella.wav
-///     └── ... (28 total)
-/// ```
+/// ## Features
+/// - **On-demand synthesis:** Fresh audio generated for each request
+/// - **Cancellation support:** In-flight synthesis can be cancelled
+/// - **Auto-retry:** Automatically retries once on failure
+/// - **Task management:** Only one synthesis runs at a time
 @MainActor
 final class VoicePreviewCacheService: VoicePreviewCacheServiceProtocol {
-    
-    // MARK: - Types
-    
-    /// Cache manifest for version tracking
-    private struct CacheManifest: Codable {
-        let version: Int
-        let previewPhrase: String
-        let generatedAt: Date
-        var cachedVoices: [String]
-        
-        static let currentVersion = 1
-    }
     
     // MARK: - Properties
     
     /// TTS service for synthesis
     private let ttsService: any TTSServiceProtocol
     
-    /// In-memory cache of audio data (lazy loaded, limited size)
-    /// Key: voiceId, Value: audio data
-    private var memoryCache: [String: Data] = [:]
-    
-    /// Maximum number of voices to keep in memory cache
-    /// Keeps most recently accessed voices
-    private static let maxMemoryCacheSize = 6
-    
-    /// Order of access for LRU eviction
-    private var memoryCacheAccessOrder: [String] = []
-    
-    /// Current manifest
-    private var manifest: CacheManifest?
-    
-    /// Cache directory URL
-    private let cacheDirectoryURL: URL
-    
-    /// Manifest file URL
-    private var manifestURL: URL {
-        cacheDirectoryURL.appendingPathComponent("manifest.json")
-    }
+    /// Current synthesis task (for cancellation)
+    private var currentSynthesisTask: Task<Data, Error>?
     
     // MARK: - State
     
     private(set) var isSynthesizing: Bool = false
-    
-    var isComplete: Bool {
-        cachedCount >= totalCount
-    }
-    
-    var cachedCount: Int {
-        manifest?.cachedVoices.count ?? 0
-    }
-    
-    var totalCount: Int {
-        Voice.allEnglishVoiceIds.count
-    }
-    
-    var synthesisProgress: Float {
-        guard totalCount > 0 else { return 0 }
-        return Float(cachedCount) / Float(totalCount)
-    }
     
     // MARK: - Initialization
     
     init(ttsService: any TTSServiceProtocol) {
         self.ttsService = ttsService
         
-        // Setup cache directory
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        self.cacheDirectoryURL = appSupport.appendingPathComponent("VoicePreviewCache", isDirectory: true)
-        
-        // Create directory if needed
-        try? FileManager.default.createDirectory(at: cacheDirectoryURL, withIntermediateDirectories: true)
-        
-        // Load manifest only (NOT audio data - that's lazy loaded)
-        loadManifest()
-        
         #if DEBUG
-        print("🎤 VoicePreviewCache: Initialized (\(cachedCount)/\(totalCount) cached on disk)")
+        print("🎤 VoicePreviewService: Initialized (on-demand synthesis)")
         #endif
-    }
-    
-    // MARK: - Cache Access
-    
-    func isReady(_ voiceId: String) -> Bool {
-        // Check memory cache first (fastest)
-        if memoryCache[voiceId] != nil {
-            return true
-        }
-        
-        // Check manifest (file exists on disk)
-        if manifest?.cachedVoices.contains(voiceId) == true {
-            // Verify file actually exists
-            let fileURL = previewFileURL(for: voiceId)
-            return FileManager.default.fileExists(atPath: fileURL.path)
-        }
-        
-        return false
-    }
-    
-    func getPreviewAudio(for voiceId: String) -> Data? {
-        // Try memory cache first
-        if let data = memoryCache[voiceId] {
-            // Update LRU order
-            updateAccessOrder(voiceId)
-            return data
-        }
-        
-        // Try loading from disk (lazy load)
-        if let data = loadFromDisk(voiceId: voiceId) {
-            // Add to memory cache with LRU eviction
-            addToMemoryCache(voiceId: voiceId, data: data)
-            return data
-        }
-        
-        return nil
     }
     
     // MARK: - Synthesis
     
-    func startBackgroundSynthesis() async {
-        // Skip if already complete
-        guard !isComplete else {
-            #if DEBUG
-            print("🎤 VoicePreviewCache: Already complete (\(cachedCount)/\(totalCount))")
-            #endif
-            return
-        }
-        
-        // Skip if already synthesizing
-        guard !isSynthesizing else {
-            #if DEBUG
-            print("🎤 VoicePreviewCache: Background synthesis already in progress")
-            #endif
-            return
-        }
-        
-        // Check if manifest needs reset (phrase changed, version bumped)
-        if let manifest = manifest {
-            if manifest.previewPhrase != Voice.previewPhrase || manifest.version != CacheManifest.currentVersion {
-                #if DEBUG
-                print("🎤 VoicePreviewCache: Manifest outdated, clearing cache")
-                #endif
-                clearCache()
-            }
-        }
-        
+    func synthesizePreview(voiceId: String) async throws -> Data {
         isSynthesizing = true
         
         #if DEBUG
-        print("🎤 VoicePreviewCache: Starting background synthesis (\(cachedCount)/\(totalCount) cached)")
+        print("🎤 VoicePreviewService: Synthesizing \(voiceId)...")
         let startTime = Date()
         #endif
         
-        // Get voices to synthesize (those not yet cached)
-        let voicesToSynthesize = Voice.allEnglishVoiceIds.filter { !isReady($0) }
+        // Create the synthesis task
+        let task = Task<Data, Error> {
+            try await synthesizeWithRetry(voiceId: voiceId)
+        }
         
-        for voiceId in voicesToSynthesize {
-            // Check if task was cancelled
-            guard !Task.isCancelled else { break }
+        currentSynthesisTask = task
+        
+        do {
+            let audioData = try await task.value
             
-            do {
-                _ = try await synthesizeAndCache(voiceId: voiceId)
-                
+            #if DEBUG
+            let elapsed = Date().timeIntervalSince(startTime)
+            print("🎤 VoicePreviewService: Synthesized \(voiceId) (\(audioData.count) bytes) in \(String(format: "%.2f", elapsed))s")
+            #endif
+            
+            isSynthesizing = false
+            currentSynthesisTask = nil
+            return audioData
+            
+        } catch {
+            isSynthesizing = false
+            currentSynthesisTask = nil
+            
+            // Don't log cancellation as error
+            if Task.isCancelled || error is CancellationError {
                 #if DEBUG
-                print("🎤 VoicePreviewCache: Cached \(voiceId) (\(cachedCount)/\(totalCount))")
+                print("🎤 VoicePreviewService: Synthesis cancelled for \(voiceId)")
                 #endif
-            } catch {
-                #if DEBUG
-                print("⚠️ VoicePreviewCache: Failed to synthesize \(voiceId): \(error)")
-                #endif
-                // Continue with next voice - don't fail entire process
+                throw CancellationError()
             }
             
-            // Small delay to avoid overwhelming the system
-            try? await Task.sleep(for: .milliseconds(50))
+            #if DEBUG
+            print("⚠️ VoicePreviewService: Synthesis failed for \(voiceId): \(error)")
+            #endif
+            throw error
         }
+    }
+    
+    // MARK: - Cancellation
+    
+    func cancelSynthesis() {
+        guard let task = currentSynthesisTask else { return }
         
+        #if DEBUG
+        print("🎤 VoicePreviewService: Cancelling in-flight synthesis")
+        #endif
+        
+        task.cancel()
+        currentSynthesisTask = nil
         isSynthesizing = false
-        
-        #if DEBUG
-        let elapsed = Date().timeIntervalSince(startTime)
-        print("🎤 VoicePreviewCache: Background synthesis complete (\(cachedCount)/\(totalCount)) in \(String(format: "%.1f", elapsed))s")
-        #endif
     }
     
-    func synthesizeNow(_ voiceId: String) async throws -> Data {
-        // Return cached if available
-        if let cached = getPreviewAudio(for: voiceId) {
-            #if DEBUG
-            print("🎤 VoicePreviewCache: Cache hit for \(voiceId)")
-            #endif
-            return cached
-        }
-        
-        #if DEBUG
-        print("🎤 VoicePreviewCache: Cache miss, synthesizing \(voiceId)")
-        #endif
-        
-        // Synthesize and cache
-        return try await synthesizeAndCache(voiceId: voiceId)
-    }
+    // MARK: - Private Methods
     
-    // MARK: - Cache Management
-    
-    func clearCache() {
-        // Clear memory cache
-        memoryCache.removeAll()
-        memoryCacheAccessOrder.removeAll()
-        
-        // Clear disk cache
-        try? FileManager.default.removeItem(at: cacheDirectoryURL)
-        try? FileManager.default.createDirectory(at: cacheDirectoryURL, withIntermediateDirectories: true)
-        
-        // Reset manifest
-        manifest = nil
-        
-        #if DEBUG
-        print("🎤 VoicePreviewCache: Cache cleared")
-        #endif
-    }
-    
-    /// Clears only the in-memory cache, keeping disk cache intact.
+    /// Synthesize with automatic retry on failure.
     ///
-    /// Call this when app enters background to reduce memory footprint
-    /// while preserving synthesized previews for when app returns.
-    func clearMemoryCache() {
-        let count = memoryCache.count
-        memoryCache.removeAll()
-        memoryCacheAccessOrder.removeAll()
-        
-        #if DEBUG
-        print("🎤 VoicePreviewCache: Memory cache cleared (\(count) items)")
-        #endif
-    }
-    
-    // MARK: - Private Methods - Synthesis
-    
-    private func synthesizeAndCache(voiceId: String) async throws -> Data {
-        // Synthesize using TTS service
-        #if DEBUG
-        print("🎤 VoicePreviewCache: Synthesizing \(voiceId)...")
-        #endif
-        
-        let audioData = try await ttsService.synthesize(text: Voice.previewPhrase, voiceId: voiceId)
-        
-        #if DEBUG
-        print("🎤 VoicePreviewCache: Synthesized \(voiceId) (\(audioData.count) bytes)")
-        #endif
-        
-        // Cache to memory (with LRU eviction)
-        addToMemoryCache(voiceId: voiceId, data: audioData)
-        
-        // Cache to disk
-        saveToDisk(voiceId: voiceId, data: audioData)
-        
-        // Update manifest
-        updateManifest(addingVoice: voiceId)
-        
-        return audioData
-    }
-    
-    // MARK: - Private Methods - Memory Cache (LRU)
-    
-    private func addToMemoryCache(voiceId: String, data: Data) {
-        // If already in cache, just update access order
-        if memoryCache[voiceId] != nil {
-            updateAccessOrder(voiceId)
-            return
-        }
-        
-        // Evict oldest entries if at capacity
-        while memoryCache.count >= Self.maxMemoryCacheSize {
-            evictOldestFromMemoryCache()
-        }
-        
-        // Add to cache
-        memoryCache[voiceId] = data
-        memoryCacheAccessOrder.append(voiceId)
-    }
-    
-    private func updateAccessOrder(_ voiceId: String) {
-        // Move to end of access order (most recently used)
-        if let index = memoryCacheAccessOrder.firstIndex(of: voiceId) {
-            memoryCacheAccessOrder.remove(at: index)
-        }
-        memoryCacheAccessOrder.append(voiceId)
-    }
-    
-    private func evictOldestFromMemoryCache() {
-        guard let oldest = memoryCacheAccessOrder.first else { return }
-        
-        memoryCacheAccessOrder.removeFirst()
-        memoryCache.removeValue(forKey: oldest)
-        
-        #if DEBUG
-        print("🎤 VoicePreviewCache: Evicted \(oldest) from memory cache")
-        #endif
-    }
-    
-    // MARK: - Private Methods - Disk Cache
-    
-    private func previewFileURL(for voiceId: String) -> URL {
-        cacheDirectoryURL.appendingPathComponent("preview_\(voiceId).wav")
-    }
-    
-    private func loadFromDisk(voiceId: String) -> Data? {
-        let fileURL = previewFileURL(for: voiceId)
-        return try? Data(contentsOf: fileURL)
-    }
-    
-    private func saveToDisk(voiceId: String, data: Data) {
-        let fileURL = previewFileURL(for: voiceId)
-        try? data.write(to: fileURL)
-    }
-    
-    // MARK: - Private Methods - Manifest
-    
-    private func loadManifest() {
-        guard FileManager.default.fileExists(atPath: manifestURL.path) else { return }
+    /// Attempts synthesis once, and if it fails, retries one more time.
+    /// - Parameter voiceId: The raw voice ID (e.g., "af_heart")
+    /// - Returns: Audio data (WAV format)
+    /// - Throws: Error if both attempts fail
+    private func synthesizeWithRetry(voiceId: String) async throws -> Data {
+        // Check for cancellation before starting
+        try Task.checkCancellation()
         
         do {
-            let data = try Data(contentsOf: manifestURL)
-            manifest = try JSONDecoder().decode(CacheManifest.self, from: data)
+            // First attempt
+            return try await ttsService.synthesize(text: Voice.previewPhrase, voiceId: voiceId)
+            
         } catch {
+            // Check if cancelled before retry
+            try Task.checkCancellation()
+            
+            // Don't retry cancellation errors
+            if error is CancellationError {
+                throw error
+            }
+            
             #if DEBUG
-            print("⚠️ VoicePreviewCache: Failed to load manifest: \(error)")
+            print("🎤 VoicePreviewService: First attempt failed, retrying...")
             #endif
-        }
-    }
-    
-    private func saveManifest() {
-        guard let manifest = manifest else { return }
-        
-        do {
-            let data = try JSONEncoder().encode(manifest)
-            try data.write(to: manifestURL, options: .atomic)
-        } catch {
-            #if DEBUG
-            print("⚠️ VoicePreviewCache: Failed to save manifest: \(error)")
-            #endif
-        }
-    }
-    
-    private func updateManifest(addingVoice voiceId: String) {
-        if manifest == nil {
-            manifest = CacheManifest(
-                version: CacheManifest.currentVersion,
-                previewPhrase: Voice.previewPhrase,
-                generatedAt: Date(),
-                cachedVoices: []
-            )
-        }
-        
-        if !(manifest?.cachedVoices.contains(voiceId) ?? false) {
-            manifest?.cachedVoices.append(voiceId)
-            saveManifest()
+            
+            // Brief delay before retry
+            try await Task.sleep(for: .milliseconds(100))
+            
+            // Check for cancellation after delay
+            try Task.checkCancellation()
+            
+            // Retry once
+            return try await ttsService.synthesize(text: Voice.previewPhrase, voiceId: voiceId)
         }
     }
 }

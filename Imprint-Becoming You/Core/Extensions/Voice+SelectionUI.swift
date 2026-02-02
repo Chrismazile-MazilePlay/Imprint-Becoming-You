@@ -89,6 +89,25 @@ extension Voice {
         isDefaultVoice ? "\(name) (Default)" : name
     }
     
+    /// Origin code for display (e.g., "US", "GB")
+    var originCode: String {
+        switch languageCode {
+        case "en-US": return "US"
+        case "en-GB": return "GB"
+        default:
+            // Extract country code from language code (e.g., "fr-FR" -> "FR")
+            if let countryCode = languageCode.split(separator: "-").last {
+                return String(countryCode)
+            }
+            return ""
+        }
+    }
+    
+    /// Formatted adjectives string (e.g., "Warm, Expressive")
+    var adjectivesDisplay: String {
+        adjectives.joined(separator: ", ")
+    }
+    
     // MARK: - System Voice for Selection
     
     /// System TTS voice for selection UI

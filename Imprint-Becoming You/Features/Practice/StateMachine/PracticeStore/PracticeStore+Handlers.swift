@@ -675,11 +675,25 @@ extension PracticeStore {
         
         lockNavigation()
         
+        // Capture generation BEFORE Task to detect if user navigates during score display
+        let generation = flowGeneration
+        
         // Fire-and-forget: short delay before score display completes
+        // Uses flowGeneration pattern to prevent double-skip when user manually navigates
+        // while score is showing (similar to how timeout modal uses timedOutAffirmationId)
         Task { [weak self] in
             guard let self = self else { return }
             try? await Task.sleep(for: PracticeTiming.scoreDisplayDuration)
-            guard !Task.isCancelled else { return }
+            
+            // If user navigated away during score display, flowGeneration will have changed
+            // This prevents the auto-advance from firing after manual navigation
+            guard self.shouldContinueFlow(generation: generation) else {
+                #if DEBUG
+                print("⏭️ Score display: User navigated away, skipping auto-advance")
+                #endif
+                return
+            }
+            
             self.send(.scoreDisplayCompleted)
         }
     }

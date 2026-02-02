@@ -10,6 +10,9 @@
     "\"%@\"?" : {
 
     },
+    "(%@)" : {
+
+    },
     "%@ (%lld)" : {
       "localizations" : {
         "en" : {
@@ -24,9 +27,6 @@
 
     },
     "%@ selector" : {
-
-    },
-    "%@ voice" : {
 
     },
     "%@, %@" : {
@@ -726,9 +726,6 @@
     "Selected: %@" : {
 
     },
-    "Selected. Tap to preview" : {
-
-    },
     "Session affirmations, %lld items" : {
 
     },
@@ -847,19 +844,13 @@
     "Success checkmark" : {
 
     },
-    "Tap any voice to hear it" : {
-
-    },
-    "Tap any voice to select and preview" : {
+    "Tap a voice to select, tap play to preview" : {
 
     },
     "Tap the heart on any affirmation to save it here." : {
 
     },
     "Tap to select" : {
-
-    },
-    "Tap to select and preview" : {
 
     },
     "Technical details" : {

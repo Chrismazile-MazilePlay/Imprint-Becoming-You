@@ -14,10 +14,11 @@ import AVFoundation
 /// Voice selection view pushed from Profile settings.
 ///
 /// Features:
-/// - Tap to select and preview voice (auto-saves)
+/// - Tap to select voice (selection is separate from preview)
+/// - Tap play button to preview voice
 /// - Shows engine status (Kokoro ready / System fallback)
 /// - Groups voices by accent and gender
-/// - On-demand synthesis with central loading indicator
+/// - Responsive cancellation on rapid tap-through
 ///
 /// ## Navigation
 /// This view is pushed onto the Profile navigation stack.
@@ -35,14 +36,11 @@ struct VoiceSettingsView: View {
     /// Currently selected voice ID (full Voice.id format)
     @State private var selectedVoiceId: String = Voice.defaultVoice.id
     
-    /// Voice currently being previewed
+    /// Voice currently being previewed (by full Voice.id)
     @State private var previewingVoiceId: String?
     
-    /// Whether synthesis is in progress (shows loading overlay)
-    @State private var isSynthesizing = false
-    
-    /// Whether preview is playing
-    @State private var isPreviewPlaying = false
+    /// Current playback state for the previewing voice
+    @State private var playbackState: VoiceChipPlaybackState = .idle
     
     /// Whether Kokoro engine is ready
     @State private var isKokoroReady = false
@@ -71,9 +69,6 @@ struct VoiceSettingsView: View {
                         .padding(.bottom, AppTheme.Spacing.xl)
                 }
             }
-            
-            // Central loading overlay (non-blocking)
-            loadingOverlay
         }
         .navigationTitle("Voice Settings")
         .navigationBarTitleDisplayMode(.inline)
@@ -83,21 +78,6 @@ struct VoiceSettingsView: View {
         }
         .onDisappear {
             stopPreview()
-        }
-    }
-    
-    // MARK: - Loading Overlay
-    
-    @ViewBuilder
-    private var loadingOverlay: some View {
-        if isSynthesizing {
-            Color.black.opacity(0.3)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-            
-            ProgressView()
-                .scaleEffect(1.5)
-                .tint(AppColors.accent)
         }
     }
     
@@ -136,7 +116,7 @@ struct VoiceSettingsView: View {
                     .foregroundStyle(AppColors.textPrimary)
             }
             
-            Text("Tap any voice to select and preview")
+            Text("Tap a voice to select, tap play to preview")
                 .font(AppTypography.caption1)
                 .foregroundStyle(AppColors.textTertiary)
         }
@@ -170,146 +150,120 @@ struct VoiceSettingsView: View {
             .padding(.leading, AppTheme.Spacing.xs)
             
             // Voice chips
-            FlowLayout(spacing: AppTheme.Spacing.sm) {
+            VStack(spacing: AppTheme.Spacing.sm) {
                 ForEach(voices) { voice in
-                    voiceChip(voice: voice)
+                    VoiceChip(
+                        voice: voice,
+                        isSelected: selectedVoiceId == voice.id,
+                        playbackState: playbackStateFor(voice),
+                        onPlayTapped: { handlePlayTapped(voice) },
+                        onSelectTapped: { handleSelectTapped(voice) }
+                    )
                 }
             }
         }
     }
     
-    // MARK: - Voice Chip
+    // MARK: - Playback State
     
-    private func voiceChip(voice: Voice) -> some View {
-        let isSelected = selectedVoiceId == voice.id
-        let isPreviewing = previewingVoiceId == voice.id && isPreviewPlaying
+    private func playbackStateFor(_ voice: Voice) -> VoiceChipPlaybackState {
+        guard previewingVoiceId == voice.id else { return .idle }
+        return playbackState
+    }
+    
+    // MARK: - Actions
+    
+    private func handlePlayTapped(_ voice: Voice) {
+        // If this voice is already playing, stop it
+        if previewingVoiceId == voice.id && playbackState == .playing {
+            stopPreview()
+            return
+        }
         
-        return Button {
-            selectVoice(voice.id)
-        } label: {
-            HStack(spacing: AppTheme.Spacing.xs) {
-                // Voice name
-                Text(voice.displayNameWithDefault)
-                    .font(AppTypography.body)
-                    .foregroundStyle(isSelected ? AppColors.accent : AppColors.textPrimary)
-                
-                // Status indicator
-                Group {
-                    if isPreviewing {
-                        Image(systemName: "speaker.wave.2.fill")
-                            .font(.system(size: 12))
-                            .foregroundStyle(AppColors.accent)
-                            .symbolEffect(.pulse, options: .repeating)
-                    } else if isSelected {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(AppColors.accent)
-                    }
-                }
-            }
-            .padding(.horizontal, AppTheme.Spacing.md)
-            .padding(.vertical, AppTheme.Spacing.sm)
-            .background(
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(isSelected ? AppColors.accent.opacity(0.15) : AppColors.backgroundSecondary)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .stroke(isSelected ? AppColors.accent : Color.clear, lineWidth: 2)
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(voice.name) voice")
-        .accessibilityHint(isSelected ? "Selected. Tap to preview" : "Tap to select and preview")
-    }
-    
-    // MARK: - Voice Selection
-    
-    private func selectVoice(_ voiceId: String) {
         // Cancel any in-flight synthesis
         dependencies.voicePreviewCacheService.cancelSynthesis()
+        stopAudioPlayback()
         
-        // Stop current playback
-        stopPreview()
+        // Start preview for this voice
+        playPreview(for: voice)
+    }
+    
+    private func handleSelectTapped(_ voice: Voice) {
+        // Toggle selection
+        if selectedVoiceId == voice.id {
+            // Already selected - do nothing (or could deselect)
+            return
+        }
         
-        // Select and save
-        selectedVoiceId = voiceId
-        saveVoiceSelection(voiceId)
-        
-        // Play preview (no haptics)
-        playPreview(for: voiceId)
+        // Select new voice
+        selectedVoiceId = voice.id
+        saveVoiceSelection(voice.id)
         
         #if DEBUG
-        print("🎤 VoiceSettingsView: Selected voice \(voiceId)")
+        print("🎤 VoiceSettingsView: Selected voice \(voice.id)")
         #endif
     }
     
-    private func playPreview(for voiceId: String) {
+    // MARK: - Preview Playback
+    
+    private func playPreview(for voice: Voice) {
         // Get raw TTS voice ID
-        guard let ttsVoiceId = Voice.ttsVoiceId(from: voiceId) else {
+        guard let ttsVoiceId = voice.ttsVoiceId else {
             #if DEBUG
-            print("⚠️ VoiceSettingsView: Could not get ttsVoiceId for \(voiceId)")
+            print("⚠️ VoiceSettingsView: Could not get ttsVoiceId for \(voice.id)")
             #endif
             return
         }
         
-        // Set preview state BEFORE async work
-        previewingVoiceId = voiceId
-        isSynthesizing = true
+        // Set state
+        previewingVoiceId = voice.id
+        playbackState = .synthesizing
         
-        // Capture values for closure
-        let capturedVoiceId = voiceId
+        // Capture for async closure
+        let capturedVoiceId = voice.id
         let capturedTtsVoiceId = ttsVoiceId
         
         Task { @MainActor in
-            // Verify we're still previewing this voice
+            // Verify still previewing this voice
             guard previewingVoiceId == capturedVoiceId else { return }
             
             do {
                 let service = dependencies.voicePreviewCacheService
                 
-                // Synthesize on-demand (with auto-retry)
                 #if DEBUG
                 print("🎤 VoiceSettingsView: Synthesizing \(capturedTtsVoiceId)")
                 #endif
-                let audioData = try await service.synthesizePreview(voiceId: capturedTtsVoiceId)
                 
-                // Hide loading
-                isSynthesizing = false
+                let audioData = try await service.synthesizePreview(voiceId: capturedTtsVoiceId)
                 
                 // Verify still previewing same voice
                 guard previewingVoiceId == capturedVoiceId else { return }
                 
-                // Play audio
-                isPreviewPlaying = true
+                // Transition to playing
+                playbackState = .playing
                 try playAudioData(audioData)
                 
             } catch is CancellationError {
-                // User tapped another voice - this is expected
                 #if DEBUG
                 print("🎤 VoiceSettingsView: Synthesis cancelled for \(capturedTtsVoiceId)")
                 #endif
             } catch {
                 #if DEBUG
-                print("⚠️ VoiceSettingsView: Voice preview failed for \(capturedTtsVoiceId): \(error)")
+                print("⚠️ VoiceSettingsView: Preview failed for \(capturedTtsVoiceId): \(error)")
                 #endif
             }
             
-            // Clear synthesis state
-            isSynthesizing = false
-            
-            // Clear preview state if still previewing same voice
-            if previewingVoiceId == capturedVoiceId {
-                isPreviewPlaying = false
+            // Only clear state if still on this voice and synthesis failed/cancelled
+            if previewingVoiceId == capturedVoiceId && playbackState == .synthesizing {
                 previewingVoiceId = nil
+                playbackState = .idle
             }
         }
     }
     
     private func playAudioData(_ data: Data) throws {
         // Stop any existing playback
-        audioPlayer?.stop()
-        audioPlayer = nil
+        stopAudioPlayback()
         
         // Configure audio session
         let session = AVAudioSession.sharedInstance()
@@ -318,7 +272,16 @@ struct VoiceSettingsView: View {
         
         // Create and play
         audioPlayer = try AVAudioPlayer(data: data)
+        audioPlayer?.delegate = AudioPlayerDelegateHandler.shared
         audioPlayer?.prepareToPlay()
+        
+        // Set up completion handler
+        AudioPlayerDelegateHandler.shared.onFinished = { [weak audioPlayer] in
+            if self.audioPlayer === audioPlayer {
+                self.previewingVoiceId = nil
+                self.playbackState = .idle
+            }
+        }
         
         guard audioPlayer?.play() == true else {
             throw AppError.ttsError("Failed to start audio playback")
@@ -330,13 +293,16 @@ struct VoiceSettingsView: View {
     }
     
     private func stopPreview() {
+        dependencies.voicePreviewCacheService.cancelSynthesis()
+        stopAudioPlayback()
+        previewingVoiceId = nil
+        playbackState = .idle
+    }
+    
+    private func stopAudioPlayback() {
         audioPlayer?.stop()
         audioPlayer = nil
         dependencies.ttsService.stopSpeaking()
-        dependencies.voicePreviewCacheService.cancelSynthesis()
-        isSynthesizing = false
-        isPreviewPlaying = false
-        previewingVoiceId = nil
     }
     
     // MARK: - Persistence
@@ -358,6 +324,22 @@ struct VoiceSettingsView: View {
             await MainActor.run {
                 isKokoroReady = dependencies.ttsService.isKokoroReady
             }
+        }
+    }
+}
+
+// MARK: - Audio Player Delegate Handler
+
+/// Shared delegate handler for AVAudioPlayer completion callbacks.
+private class AudioPlayerDelegateHandler: NSObject, AVAudioPlayerDelegate {
+    static let shared = AudioPlayerDelegateHandler()
+    
+    var onFinished: (() -> Void)?
+    
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        DispatchQueue.main.async {
+            self.onFinished?()
+            self.onFinished = nil
         }
     }
 }

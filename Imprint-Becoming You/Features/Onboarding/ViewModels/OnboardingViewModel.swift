@@ -19,7 +19,7 @@ import AVFoundation
 /// - Navigation between onboarding steps
 /// - Faith preference selection
 /// - Goal selection validation
-/// - Voice selection with tap-to-select + preview
+/// - Voice selection with tap-to-select + play-to-preview
 /// - Voice calibration coordination
 /// - Profile updates on completion
 ///
@@ -27,7 +27,7 @@ import AVFoundation
 /// 1. Welcome - Introduction to the app
 /// 2. Faith Preference - Choose to include Biblical content
 /// 3. Goal Selection - Select up to 5 focus areas
-/// 4. Voice Selection - Choose TTS voice (tap to select + preview)
+/// 4. Voice Selection - Choose TTS voice (tap to select, tap play to preview)
 /// 5. Calibration - Voice setup (optional)
 /// 6. Complete - Ready to practice
 @MainActor
@@ -78,11 +78,8 @@ final class OnboardingViewModel {
     /// Voice currently being previewed (by full Voice.id)
     var previewingVoiceId: String?
     
-    /// Whether voice preview is currently playing
-    var isPreviewPlaying: Bool = false
-    
-    /// Whether synthesis is in progress (shows loading overlay)
-    var isSynthesizing: Bool = false
+    /// Current playback state for the previewing voice
+    var playbackState: VoiceChipPlaybackState = .idle
     
     /// TTS service for voice preview (injected by view)
     var ttsService: (any TTSServiceProtocol)?
@@ -192,7 +189,6 @@ final class OnboardingViewModel {
         if !include {
             selectedGoals = selectedGoals.filter { !$0.isFaithBased }
         }
-        
     }
     
     // MARK: - Goal Selection
@@ -222,25 +218,47 @@ final class OnboardingViewModel {
     
     // MARK: - Voice Selection
     
-    /// Selects a voice and plays its preview.
+    /// Returns the playback state for a specific voice.
     ///
-    /// - Parameter voiceId: The full voice ID (e.g., "kokoro_af_heart")
-    func selectVoice(_ voiceId: String) {
+    /// - Parameter voice: The voice to check
+    /// - Returns: The playback state (idle, synthesizing, or playing)
+    func playbackStateFor(_ voice: Voice) -> VoiceChipPlaybackState {
+        guard previewingVoiceId == voice.id else { return .idle }
+        return playbackState
+    }
+    
+    /// Handles play button tap on a voice chip.
+    ///
+    /// - Parameter voice: The voice to preview
+    func handlePlayTapped(_ voice: Voice) {
+        // If this voice is already playing, stop it
+        if previewingVoiceId == voice.id && playbackState == .playing {
+            stopPreview()
+            return
+        }
+        
         // Cancel any in-flight synthesis
         voicePreviewCacheService?.cancelSynthesis()
+        stopAudioPlayback()
         
-        // Stop any current playback
-        stopPreview()
+        // Start preview for this voice
+        playPreview(for: voice)
+    }
+    
+    /// Handles selection tap on a voice chip (non-play area).
+    ///
+    /// - Parameter voice: The voice to select
+    func handleSelectTapped(_ voice: Voice) {
+        // Toggle selection - if already selected, do nothing
+        if selectedVoiceId == voice.id {
+            return
+        }
         
-        // Select the voice (no haptics)
-        selectedVoiceId = voiceId
-        
-        
-        // Play preview
-        playPreview(for: voiceId)
+        // Select new voice
+        selectedVoiceId = voice.id
         
         #if DEBUG
-        print("ðŸŽ¤ OnboardingViewModel: Selected voice \(voiceId)")
+        print("🎤 OnboardingViewModel: Selected voice \(voice.id)")
         #endif
     }
     
@@ -248,21 +266,21 @@ final class OnboardingViewModel {
     ///
     /// Synthesizes on-demand with auto-retry. No caching.
     /// CRITICAL: Captures voiceId before async work to prevent race conditions.
-    private func playPreview(for voiceId: String) {
+    private func playPreview(for voice: Voice) {
         // Get the raw TTS voice ID (e.g., "af_heart" from "kokoro_af_heart")
-        guard let ttsVoiceId = Voice.ttsVoiceId(from: voiceId) else {
+        guard let ttsVoiceId = voice.ttsVoiceId else {
             #if DEBUG
-            print("âš ï¸ OnboardingViewModel: Could not get ttsVoiceId for \(voiceId)")
+            print("⚠️ OnboardingViewModel: Could not get ttsVoiceId for \(voice.id)")
             #endif
             return
         }
         
         // Set preview state BEFORE async work
-        previewingVoiceId = voiceId
-        isSynthesizing = true
+        previewingVoiceId = voice.id
+        playbackState = .synthesizing
         
         // Capture values for closure to prevent race conditions
-        let capturedVoiceId = voiceId
+        let capturedVoiceId = voice.id
         let capturedTtsVoiceId = ttsVoiceId
         
         Task { @MainActor [weak self] in
@@ -271,7 +289,7 @@ final class OnboardingViewModel {
             // Verify we're still previewing this voice (user might have tapped another)
             guard self.previewingVoiceId == capturedVoiceId else {
                 #if DEBUG
-                print("ðŸŽ¤ OnboardingViewModel: Voice changed, skipping preview for \(capturedVoiceId)")
+                print("🎤 OnboardingViewModel: Voice changed, skipping preview for \(capturedVoiceId)")
                 #endif
                 return
             }
@@ -281,7 +299,8 @@ final class OnboardingViewModel {
                     #if DEBUG
                     print("⚠️ OnboardingViewModel: No voice preview service available")
                     #endif
-                    self.isSynthesizing = false
+                    self.playbackState = .idle
+                    self.previewingVoiceId = nil
                     return
                 }
                 
@@ -291,14 +310,11 @@ final class OnboardingViewModel {
                 #endif
                 let audioData = try await service.synthesizePreview(voiceId: capturedTtsVoiceId)
                 
-                // Hide loading
-                self.isSynthesizing = false
-                
                 // Verify still previewing same voice
                 guard self.previewingVoiceId == capturedVoiceId else { return }
                 
-                // Play audio
-                self.isPreviewPlaying = true
+                // Transition to playing
+                self.playbackState = .playing
                 try self.playAudioData(audioData)
                 
             } catch is CancellationError {
@@ -312,13 +328,10 @@ final class OnboardingViewModel {
                 #endif
             }
             
-            // Clear synthesis state
-            self.isSynthesizing = false
-            
-            // Only clear preview state if we're still previewing the same voice
-            if self.previewingVoiceId == capturedVoiceId {
-                self.isPreviewPlaying = false
+            // Only clear state if still on this voice and synthesis failed/cancelled
+            if self.previewingVoiceId == capturedVoiceId && self.playbackState == .synthesizing {
                 self.previewingVoiceId = nil
+                self.playbackState = .idle
             }
         }
     }
@@ -329,8 +342,7 @@ final class OnboardingViewModel {
     /// - Throws: Error if audio playback fails
     private func playAudioData(_ data: Data) throws {
         // Stop any existing playback
-        audioPlayer?.stop()
-        audioPlayer = nil
+        stopAudioPlayback()
         
         // Configure audio session
         let session = AVAudioSession.sharedInstance()
@@ -339,32 +351,46 @@ final class OnboardingViewModel {
         
         // Create and configure player
         audioPlayer = try AVAudioPlayer(data: data)
+        audioPlayer?.delegate = OnboardingAudioPlayerDelegate.shared
         audioPlayer?.prepareToPlay()
+        
+        // Set up completion handler
+        OnboardingAudioPlayerDelegate.shared.onFinished = { [weak self, weak audioPlayer] in
+            guard let self = self else { return }
+            if self.audioPlayer === audioPlayer {
+                self.previewingVoiceId = nil
+                self.playbackState = .idle
+            }
+        }
         
         guard audioPlayer?.play() == true else {
             throw AppError.ttsError("Failed to start audio playback")
         }
         
         #if DEBUG
-        print("ðŸŽ¤ OnboardingViewModel: Playing audio (\(data.count) bytes)")
+        print("🎤 OnboardingViewModel: Playing audio (\(data.count) bytes)")
         #endif
+    }
+    
+    /// Stops audio playback without clearing preview state.
+    private func stopAudioPlayback() {
+        audioPlayer?.stop()
+        audioPlayer = nil
     }
     
     /// Stops any currently playing voice preview.
     func stopPreview() {
         // Stop AVAudioPlayer
-        audioPlayer?.stop()
-        audioPlayer = nil
+        stopAudioPlayback()
         
         // Stop TTS service
         ttsService?.stopSpeaking()
         
         // Cancel any in-flight synthesis
         voicePreviewCacheService?.cancelSynthesis()
-        isSynthesizing = false
         
         // Clear state
-        isPreviewPlaying = false
+        playbackState = .idle
         previewingVoiceId = nil
     }
     
@@ -450,6 +476,22 @@ final class OnboardingViewModel {
     func dismissError() {
         errorMessage = nil
         showError = false
+    }
+}
+
+// MARK: - Onboarding Audio Player Delegate
+
+/// Shared delegate handler for AVAudioPlayer completion callbacks in onboarding.
+private class OnboardingAudioPlayerDelegate: NSObject, AVAudioPlayerDelegate {
+    static let shared = OnboardingAudioPlayerDelegate()
+    
+    var onFinished: (() -> Void)?
+    
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        DispatchQueue.main.async {
+            self.onFinished?()
+            self.onFinished = nil
+        }
     }
 }
 

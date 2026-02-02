@@ -226,6 +226,11 @@ struct SavedSessionsFullListView: View {
             .padding(.horizontal, AppTheme.Spacing.lg)
             .padding(.vertical, AppTheme.Spacing.md)
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            // Dismiss any open swipe actions when tapping outside cards
+            SwipeActionSharedState.shared.dismissAll()
+        }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: dockAreaHeight)
         }

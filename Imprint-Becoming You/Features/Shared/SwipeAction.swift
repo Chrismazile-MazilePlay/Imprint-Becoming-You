@@ -88,6 +88,12 @@ final class SwipeActionSharedState {
     private init() {}
     
     var activeSwipeActionId: String?
+    
+    /// Dismisses any open swipe action by clearing the active ID.
+    /// Call this when tapping outside cards or when navigating away.
+    func dismissAll() {
+        activeSwipeActionId = nil
+    }
 }
 
 // MARK: - SwipeAction Modifier

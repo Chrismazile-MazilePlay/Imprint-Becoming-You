@@ -83,6 +83,8 @@ struct SavedSessionCard: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 guard !isAnyCardEditing else { return }
+                // Dismiss any open swipe actions when tapping a card
+                SwipeActionSharedState.shared.dismissAll()
                 onTap()
             }
             .swipeActions(

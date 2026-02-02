@@ -42,9 +42,10 @@ struct SavedSessionsFullListView: View {
     @State private var editingSessionId: UUID?
     @State private var originalTitleBeforeEdit: String = ""
     @State private var currentEditingTitle: String = ""
-    @State private var sessionForInfo: SavedSession?
-    @State private var infoSheetAffirmations: [Affirmation] = []
     @State private var sessionToDelete: SavedSession?
+    
+    /// Session info destination for navigation
+    @State private var sessionInfoDestination: SessionInfoDestination?
     
     // MARK: - Constants
     
@@ -123,12 +124,11 @@ struct SavedSessionsFullListView: View {
                 }
             }
         }
-        .sheet(item: $sessionForInfo) { session in
-            SavedSessionInfoSheet(
-                session: session,
-                affirmations: infoSheetAffirmations
+        .navigationDestination(item: $sessionInfoDestination) { destination in
+            SavedSessionInfoView(
+                sessionName: destination.sessionName,
+                affirmationIds: destination.affirmationIds
             )
-            .presentationDetents([.large])
         }
         .overlay {
             if let session = sessionToDelete {
@@ -219,7 +219,7 @@ struct SavedSessionsFullListView: View {
                         }
                     )
                     .accessibilityElement(children: .combine)
-                    .accessibilityLabel("\(session.name). \(session.affirmations.count) affirmations. \(selectedSessionId == session.id ? "Selected" : "")")
+                    .accessibilityLabel("\(session.name). \(session.affirmationIds.count) affirmations. \(selectedSessionId == session.id ? "Selected" : "")")
                     .accessibilityHint(selectedSessionId == session.id ? "Double tap to deselect" : "Double tap to select for playback")
                 }
             }
@@ -300,9 +300,15 @@ struct SavedSessionsFullListView: View {
     
     // MARK: - Actions
     
+    /// Shows session info by navigating to detail view.
+    ///
+    /// Uses `affirmationIds` (stored reliably) instead of the SwiftData
+    /// relationship which may not be fully loaded due to lazy loading.
     private func showInfo(for session: SavedSession) {
-        infoSheetAffirmations = session.affirmations
-        sessionForInfo = session
+        sessionInfoDestination = SessionInfoDestination(
+            sessionName: session.name,
+            affirmationIds: session.affirmationIds
+        )
     }
     
     private func playSelectedSession(mode: SessionMode, loopCount: Int, shuffle: Bool) {
@@ -352,55 +358,132 @@ struct SavedSessionsFullListView: View {
     }
 }
 
-// MARK: - SavedSessionInfoSheet
+// MARK: - SessionInfoDestination
 
-/// Sheet displaying the affirmations in a saved session.
-struct SavedSessionInfoSheet: View {
+/// Navigation destination data for session info view.
+///
+/// Uses `affirmationIds` rather than the SwiftData relationship
+/// to ensure reliable data availability.
+struct SessionInfoDestination: Hashable, Identifiable {
+    let id = UUID()
+    let sessionName: String
+    let affirmationIds: [UUID]
+}
+
+// MARK: - SavedSessionInfoView
+
+/// View displaying the affirmations in a saved session.
+///
+/// Fetches affirmations by ID from the database to ensure
+/// consistent data availability (SwiftData relationships can
+/// be unreliable due to lazy loading).
+struct SavedSessionInfoView: View {
     
-    @Environment(\.dismiss) private var dismiss
+    // MARK: - Environment
     
-    let session: SavedSession
-    let affirmations: [Affirmation]
+    @Environment(\.modelContext) private var modelContext
+    
+    // MARK: - Properties
+    
+    let sessionName: String
+    let affirmationIds: [UUID]
+    
+    // MARK: - State
+    
+    @State private var affirmations: [Affirmation] = []
+    @State private var isLoading = true
+    
+    // MARK: - Body
     
     var body: some View {
-        NavigationStack {
-            ZStack {
-                AppColors.backgroundPrimary
-                    .ignoresSafeArea()
-                
-                ScrollView {
-                    LazyVStack(spacing: AppTheme.Spacing.md) {
-                        ForEach(affirmations) { affirmation in
-                            AffirmationListCard(
-                                text: affirmation.text,
-                                category: affirmation.goalCategory,
-                                context: .savedSessionInfo,
-                                isFavorited: affirmation.isFavorited,
-                                onToggleFavorite: { }
-                            )
-                            .accessibilityElement(children: .combine)
-                            .accessibilityLabel("\(affirmation.text). Category: \(affirmation.category)")
-                        }
-                    }
-                    .padding(AppTheme.Spacing.lg)
-                }
-                .accessibilityLabel("Session affirmations, \(affirmations.count) items")
+        ZStack {
+            AppColors.backgroundPrimary
+                .ignoresSafeArea()
+            
+            if isLoading {
+                ProgressView()
+                    .tint(AppColors.accent)
+            } else if affirmations.isEmpty {
+                emptyState
+            } else {
+                affirmationsList
             }
-            .navigationTitle(session.name)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(AppColors.textSecondary)
-                    }
-                    .accessibilityLabel("Close")
-                    .accessibilityHint("Dismiss session details")
+        }
+        .navigationTitle(sessionName)
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await loadAffirmations()
+        }
+    }
+    
+    // MARK: - Empty State
+    
+    private var emptyState: some View {
+        VStack(spacing: AppTheme.Spacing.md) {
+            Image(systemName: "doc.text")
+                .font(.system(size: 40))
+                .foregroundStyle(AppColors.textTertiary)
+            
+            Text("No affirmations found")
+                .font(AppTypography.body)
+                .foregroundStyle(AppColors.textSecondary)
+        }
+    }
+    
+    // MARK: - Affirmations List
+    
+    private var affirmationsList: some View {
+        ScrollView {
+            LazyVStack(spacing: AppTheme.Spacing.md) {
+                ForEach(affirmations) { affirmation in
+                    AffirmationListCard(
+                        text: affirmation.text,
+                        category: affirmation.goalCategory,
+                        context: .savedSessionInfo,
+                        isFavorited: affirmation.isFavorited,
+                        onToggleFavorite: { }
+                    )
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(affirmation.text). Category: \(affirmation.category)")
                 }
             }
+            .padding(AppTheme.Spacing.lg)
+        }
+        .accessibilityLabel("Session affirmations, \(affirmations.count) items")
+    }
+    
+    // MARK: - Data Loading
+    
+    /// Fetches affirmations by their IDs, preserving the original order.
+    @MainActor
+    private func loadAffirmations() async {
+        defer { isLoading = false }
+        
+        guard !affirmationIds.isEmpty else { return }
+        
+        // Fetch all affirmations matching the IDs
+        let descriptor = FetchDescriptor<Affirmation>(
+            predicate: #Predicate<Affirmation> { affirmation in
+                affirmationIds.contains(affirmation.id)
+            }
+        )
+        
+        do {
+            let fetchedAffirmations = try modelContext.fetch(descriptor)
+            
+            // Reorder to match original affirmationIds order
+            var orderedAffirmations: [Affirmation] = []
+            for id in affirmationIds {
+                if let affirmation = fetchedAffirmations.first(where: { $0.id == id }) {
+                    orderedAffirmations.append(affirmation)
+                }
+            }
+            
+            affirmations = orderedAffirmations
+        } catch {
+            #if DEBUG
+            print("[ERROR] SavedSessionInfoView: Failed to fetch affirmations: \(error)")
+            #endif
         }
     }
 }
@@ -412,6 +495,16 @@ struct SavedSessionInfoSheet: View {
         SavedSessionsFullListView(
             store: .preview,
             onStartSession: {}
+        )
+    }
+    .previewEnvironment()
+}
+
+#Preview("Session Info View") {
+    NavigationStack {
+        SavedSessionInfoView(
+            sessionName: "Morning Confidence",
+            affirmationIds: []
         )
     }
     .previewEnvironment()

@@ -400,7 +400,7 @@ final class MemoryManager {
         AppLogger.info("Current memory usage: \(usage)MB", category: .memory)
         
         #if DEBUG
-        print("ðŸ“Š MemoryManager: Current usage = \(usage)MB")
+        print("💻 MemoryManager: Current usage = \(usage)MB")
         #endif
     }
 }

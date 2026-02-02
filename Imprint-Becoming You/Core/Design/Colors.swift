@@ -117,7 +117,7 @@ enum AppColors {
     /// Separator/divider lines
     /// Hex: #38383A
     /// Note: Named 'divider' in Assets to avoid conflict with UIColor.separator
-    static let separator = Color("divider")
+    static let separator = Color("separatingColor")
     
     /// Card borders
     /// Hex: #48484A

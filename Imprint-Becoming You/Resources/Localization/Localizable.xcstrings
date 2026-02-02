@@ -321,9 +321,6 @@
     "Dismiss error" : {
 
     },
-    "Dismiss session details" : {
-
-    },
     "Dismiss warning" : {
 
     },
@@ -346,9 +343,6 @@
 
     },
     "Double tap to deselect" : {
-
-    },
-    "Double tap to navigate to the practice page" : {
 
     },
     "Double tap to remove from favorites" : {
@@ -511,7 +505,13 @@
     "MOST POPULAR" : {
 
     },
+    "Navigate to the practice screen" : {
+
+    },
     "Neural voice ready" : {
+
+    },
+    "No affirmations found" : {
 
     },
     "No Favorites Yet" : {
@@ -682,6 +682,9 @@
 
     },
     "Save your category selections" : {
+
+    },
+    "Saved" : {
 
     },
     "Saved %@" : {

@@ -20,8 +20,10 @@ import SwiftUI
 /// - View generated affirmations from prompts
 /// - Claude API integration for generation
 ///
-/// ## Navigation
-/// - Right arrow navigates back to center Practice page
+/// ## Navigation Architecture
+/// Uses NavigationStack with standard toolbar for navigation.
+/// The right chevron navigates to the center Practice page.
+/// Mirrors the navigation structure of ProfilePageView.
 struct PromptsPageView: View {
     
     // MARK: - Properties
@@ -37,53 +39,47 @@ struct PromptsPageView: View {
     // MARK: - Body
     
     var body: some View {
-        ZStack {
-            AppColors.backgroundPrimary
-                .ignoresSafeArea()
-            
-            VStack(spacing: AppTheme.Spacing.xl) {
-                // Navigation header
-                navigationHeader
+        NavigationStack {
+            ZStack {
+                AppColors.backgroundPrimary
+                    .ignoresSafeArea()
                 
-                Spacer()
-                
-                // Placeholder content
                 placeholderContent
-                
-                Spacer()
-                Spacer()
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    forwardToPracticeButton
+                }
             }
         }
+        .tint(AppColors.accent)
     }
     
-    // MARK: - Navigation Header
+    // MARK: - Forward Button
     
-    private var navigationHeader: some View {
-        HStack {
-            Spacer()
-            
-            Button {
-                onNavigateToCenter()
-            } label: {
-                HStack(spacing: AppTheme.Spacing.xs) {
-                    Text("Practice")
-                        .font(AppTypography.body)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 16, weight: .semibold))
-                }
-                .foregroundStyle(AppColors.accent)
+    private var forwardToPracticeButton: some View {
+        Button {
+            onNavigateToCenter()
+        } label: {
+            HStack(spacing: AppTheme.Spacing.xs) {
+                Text("Practice")
+                    .font(AppTypography.body)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 16, weight: .semibold))
             }
-            .accessibilityLabel("Go to Practice")
-            .accessibilityHint("Double tap to navigate to the practice page")
-            .padding(.trailing, AppTheme.Spacing.lg)
-            .padding(.top, AppTheme.Spacing.xl)
+            .foregroundStyle(AppColors.accent)
         }
+        .accessibilityLabel("Go to Practice")
+        .accessibilityHint("Navigate to the practice screen")
     }
     
     // MARK: - Placeholder Content
     
     private var placeholderContent: some View {
         VStack(spacing: AppTheme.Spacing.lg) {
+            Spacer()
+            
             // Icon
             Image(systemName: "sparkles")
                 .font(.system(size: 60))
@@ -110,6 +106,9 @@ struct PromptsPageView: View {
                 .background(AppColors.accent.opacity(0.15))
                 .clipShape(Capsule())
                 .padding(.top, AppTheme.Spacing.md)
+            
+            Spacer()
+            Spacer()
         }
     }
 }

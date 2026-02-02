@@ -98,14 +98,9 @@ struct ProfilePageView: View {
         .task {
             await loadStats()
         }
-        .onChange(of: navigationPath) { oldPath, newPath in
+        .onChange(of: navigationPath) { _, newPath in
             // Publish depth to parent for gesture control
             navigationDepth = newPath.count
-            
-            #if DEBUG
-            print("ðŸ”µ [ProfilePageView] navigationPath changed: \(oldPath.count) â†’ \(newPath.count)")
-            print("ðŸ”µ [ProfilePageView] Published navigationDepth: \(navigationDepth)")
-            #endif
             
             // Reload stats when returning to root (path becomes empty)
             if newPath.isEmpty {
@@ -115,17 +110,8 @@ struct ProfilePageView: View {
         .onAppear {
             // Sync depth on appear
             navigationDepth = navigationPath.count
-            #if DEBUG
-            print("ðŸ”µ [ProfilePageView] onAppear - navigationPath.count: \(navigationPath.count)")
-            #endif
-        }
-        .onDisappear {
-            #if DEBUG
-            print("ðŸ”µ [ProfilePageView] onDisappear - navigationPath.count: \(navigationPath.count)")
-            #endif
         }
     }
-    
     // MARK: - Back Button
     
     private var backToPracticeButton: some View {
@@ -177,9 +163,10 @@ struct ProfilePageView: View {
             }
             .scrollDisabled(isHorizontallyDragging)
             .onChange(of: isActive) { _, nowActive in
-                // Scroll to top when this page becomes active
+                // When this page becomes active, scroll to top and reload stats
                 if nowActive {
                     proxy.scrollTo("profileTop", anchor: .top)
+                    Task { await loadStats() }
                 }
             }
         }
@@ -510,18 +497,9 @@ struct ProfilePageView: View {
     
     // MARK: - Navigation Helper
     
-    /// Navigates to a destination with debug logging.
+    /// Navigates to a destination.
     private func navigateTo(_ destination: ProfileDestination) {
-        #if DEBUG
-        print("ðŸ”· [ProfilePageView] navigateTo(\(destination)) called")
-        print("   - navigationPath.count BEFORE: \(navigationPath.count)")
-        #endif
-        
         navigationPath.append(destination)
-        
-        #if DEBUG
-        print("   - navigationPath.count AFTER: \(navigationPath.count)")
-        #endif
     }
     
     // MARK: - Data Loading

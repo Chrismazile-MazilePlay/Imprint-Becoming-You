@@ -28,13 +28,21 @@ struct ResultsSummaryView: View {
     
     @State private var dockAdapter: ConfigurationDockAdapter
     
+    /// Captured disabled state from when view appeared.
+    /// Prevents button from flashing enabled when store state resets during dismissal.
+    @State private var capturedSaveButtonDisabled: Bool = true
+    
+    /// Captured saved state - true once session has been saved.
+    /// Prevents label from changing during dismissal.
+    @State private var capturedIsSessionSaved: Bool = false
+    
     // MARK: - Constants
     
     private let dockAreaHeight: CGFloat = 120
     
     // MARK: - Computed Properties
     
-    /// Whether the save button should be disabled.
+    /// Whether the save button should be disabled based on current state.
     ///
     /// Disabled when:
     /// - Playing a saved session (re-saving not allowed)
@@ -44,14 +52,19 @@ struct ResultsSummaryView: View {
         isPlayingSavedSession || isFavoritesSession || isSessionSaved
     }
     
+    /// Stable disabled state that never transitions from disabled to enabled.
+    /// Once the button becomes disabled (initially or after saving), it stays disabled.
+    /// Prevents visual glitch when store state resets during dismissal.
+    private var stableSaveButtonDisabled: Bool {
+        capturedSaveButtonDisabled || isSaveButtonDisabled
+    }
+    
     /// Accessibility label for the save button based on its state.
     private var saveButtonAccessibilityLabel: String {
-        if isSessionSaved {
+        if capturedIsSessionSaved {
             return "Session saved"
-        } else if isPlayingSavedSession {
-            return "Cannot save - playing a saved session"
-        } else if isFavoritesSession {
-            return "Cannot save - favorites session"
+        } else if isPlayingSavedSession || isFavoritesSession {
+            return "Cannot save this session"
         } else {
             return "Save session"
         }
@@ -131,13 +144,31 @@ struct ResultsSummaryView: View {
                 }
                 
                 ToolbarItem(placement: .primaryAction) {
-                    Button("Save") {
+                    // Always show save button, disable when not saveable
+                    // Uses stable state to prevent flashing on dismissal
+                    Button(capturedIsSessionSaved ? "Saved" : "Save") {
                         onSaveSession()
                     }
-                    .foregroundStyle(isSaveButtonDisabled ? AppColors.textTertiary : AppColors.accent)
-                    .disabled(isSaveButtonDisabled)
-                    .opacity(isSaveButtonDisabled ? 0 : 1)
+                    .foregroundStyle(stableSaveButtonDisabled ? AppColors.textTertiary : AppColors.accent)
+                    .disabled(stableSaveButtonDisabled)
                     .accessibilityLabel(saveButtonAccessibilityLabel)
+                }
+            }
+            .onAppear {
+                // Capture initial state
+                capturedSaveButtonDisabled = isSaveButtonDisabled
+                capturedIsSessionSaved = isSessionSaved
+            }
+            .onChange(of: isSaveButtonDisabled) { _, newValue in
+                // Once disabled, stay disabled (captures state after saving)
+                if newValue {
+                    capturedSaveButtonDisabled = true
+                }
+            }
+            .onChange(of: isSessionSaved) { _, newValue in
+                // Once saved, stay saved (captures state after saving)
+                if newValue {
+                    capturedIsSessionSaved = true
                 }
             }
         }

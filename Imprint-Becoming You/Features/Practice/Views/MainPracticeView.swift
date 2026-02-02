@@ -144,19 +144,6 @@ struct MainPracticeView: View {
         .onChange(of: scenePhase) { oldPhase, newPhase in
             handleScenePhaseChange(from: oldPhase, to: newPhase)
         }
-        .onChange(of: profileNavigationDepth) { oldDepth, newDepth in
-            #if DEBUG
-            print("🟡 [MainPracticeView] profileNavigationDepth CHANGED: \(oldDepth) → \(newDepth)")
-            print("   - currentPage is: \(currentPage)")
-            print("   - isPagerGestureEnabled: \(isPagerGestureEnabled)")
-            #endif
-        }
-        .onChange(of: currentPage) { oldPage, newPage in
-            #if DEBUG
-            print("🟢 [MainPracticeView] currentPage CHANGED: \(oldPage) → \(newPage)")
-            print("   - profileNavigationDepth is: \(profileNavigationDepth)")
-            #endif
-        }
         .alert(
             "Error",
             isPresented: errorBinding,
@@ -554,7 +541,7 @@ struct MainPracticeView: View {
         store.selectedVoiceId = ttsVoiceId
         
         #if DEBUG
-        print("ðŸŽ¤ MainPracticeView: Set voice to \(ttsVoiceId ?? "default")")
+        print("Ã°Å¸Å½Â¤ MainPracticeView: Set voice to \(ttsVoiceId ?? "default")")
         #endif
     }
     

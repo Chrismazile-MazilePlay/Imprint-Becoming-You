@@ -72,13 +72,11 @@ struct DeleteConfirmationPopup: View {
     
     var body: some View {
         ZStack {
-            // Dimmed background
+            // Dimmed background — non-interactive.
+            // The modal is only dismissable via Delete or Cancel buttons
+            // to prevent accidental dismissal of a destructive action.
             Color.black.opacity(0.6)
                 .ignoresSafeArea()
-                .onTapGesture {
-                    // Tapping outside cancels
-                    onCancel()
-                }
             
             // Popup card
             popupContent

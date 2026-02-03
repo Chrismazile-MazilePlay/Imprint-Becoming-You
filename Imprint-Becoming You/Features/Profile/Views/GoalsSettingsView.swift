@@ -15,7 +15,8 @@ import SwiftData
 /// Features:
 /// - Uses the reusable GoalPickerView component
 /// - Changes are pending until Save is tapped
-/// - Save button only appears when selection differs from saved goals
+/// - Save button appears when selection differs from saved goals
+/// - Save button appears when selection differs from saved goals, disables after save
 /// - Reloads affirmations when saved
 ///
 /// ## Navigation
@@ -35,8 +36,9 @@ struct GoalsSettingsView: View {
     
     // MARK: - State
     
-    /// The goals that were saved when the view appeared
-    @State private var originalGoals: Set<GoalCategory> = []
+    /// The goals that were last saved.
+    /// Updated each time the user taps Save, so change detection stays reactive.
+    @State private var savedGoals: Set<GoalCategory> = []
     
     /// The currently selected (pending) goals
     @State private var selectedGoals: Set<GoalCategory> = []
@@ -49,7 +51,7 @@ struct GoalsSettingsView: View {
     
     /// Whether the user has made changes that differ from the saved goals
     private var hasUnsavedChanges: Bool {
-        selectedGoals != originalGoals
+        selectedGoals != savedGoals
     }
     
     /// Whether faith-based categories should be excluded
@@ -81,15 +83,11 @@ struct GoalsSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                if hasUnsavedChanges {
-                    Button("Save") {
-                        saveGoals()
-                    }
-                    .foregroundStyle(AppColors.accent)
-                    .disabled(selectedGoals.isEmpty)
-                    .accessibilityLabel("Save goals")
-                    .accessibilityHint("Saves your goal selections and updates affirmations")
-                }
+                SaveToolbarButton(
+                    hasUnsavedChanges: hasUnsavedChanges,
+                    accessibilityHint: "Saves your goal selections and updates affirmations",
+                    onSave: { saveGoals() }
+                )
             }
         }
         .onAppear {
@@ -117,7 +115,7 @@ struct GoalsSettingsView: View {
     private func loadCurrentGoals() {
         if let profile = appState.userProfile {
             let goals = Set(profile.selectedGoals.compactMap { GoalCategory(rawValue: $0) })
-            originalGoals = goals
+            savedGoals = goals
             selectedGoals = goals
         }
     }
@@ -130,8 +128,8 @@ struct GoalsSettingsView: View {
         try? modelContext.save()
         appState.updateProfile(profile)
         
-        // Update original to match - no longer has unsaved changes
-        originalGoals = selectedGoals
+        // Update saved baseline - hasUnsavedChanges becomes false
+        savedGoals = selectedGoals
         
         // Reload affirmations with new categories
         let categories = selectedGoals.map { $0.rawValue }
@@ -148,7 +146,7 @@ struct GoalsSettingsView: View {
         HapticFeedback.notification(.success)
         
         #if DEBUG
-        print("🎯 GoalsSettingsView: Saved \(selectedGoals.count) goals")
+        print("GoalsSettingsView: Saved \(selectedGoals.count) goals")
         #endif
     }
 }

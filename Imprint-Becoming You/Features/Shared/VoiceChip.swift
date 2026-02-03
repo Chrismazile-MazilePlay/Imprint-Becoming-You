@@ -25,11 +25,12 @@ enum VoiceChipPlaybackState: Equatable, Sendable {
 ///
 /// ## Layout
 /// ```
-/// ┌──────────────────────────────────────────────────────┐
-/// │   ┌─────┐   Name (US)                     ┌─────┐    │
-/// │   │  ▶  │   Warm, Expressive              │  ⚙  │    │
-/// │   └─────┘                                 └─────┘    │
-/// └──────────────────────────────────────────────────────┘
+/// ┌─────────────────────────────────────────────────────────────┐
+/// │  ┌─────┐                                        ┌─────┐   │
+/// │  │  ▶  │  Name (US) Current voice               │  ⚙  │   │
+/// │  │     │  Warm, Expressive                       │     │   │
+/// │  └─────┘                                        └─────┘   │
+/// └─────────────────────────────────────────────────────────────┘
 /// ```
 ///
 /// ## Interaction
@@ -47,8 +48,11 @@ struct VoiceChip: View {
     /// The voice to display
     let voice: Voice
     
-    /// Whether this voice is currently selected
+    /// Whether this voice is currently selected (pending or saved)
     let isSelected: Bool
+    
+    /// Whether this voice is the currently saved voice
+    var isSavedVoice: Bool = false
     
     /// Whether this voice has custom settings (shows indicator dot)
     var hasCustomSettings: Bool = false
@@ -69,10 +73,8 @@ struct VoiceChip: View {
     
     private enum Layout {
         static let chipHeight: CGFloat = 56
-        static let playButtonSize: CGFloat = 36
-        static let playIconSize: CGFloat = 14
-        static let settingsButtonSize: CGFloat = 32
-        static let settingsIconSize: CGFloat = 14
+        static let actionButtonSize: CGFloat = 36
+        static let actionIconSize: CGFloat = 14
         static let horizontalPadding: CGFloat = 12
         static let contentSpacing: CGFloat = 12
         static let borderWidth: CGFloat = 2
@@ -96,6 +98,11 @@ struct VoiceChip: View {
             
             // Settings button (only when selected and callback provided)
             if isSelected && onSettingsTapped != nil {
+                // Divider before settings
+                Rectangle()
+                    .fill(AppColors.separator)
+                    .frame(width: 1, height: 32)
+                
                 settingsButton
             }
         }
@@ -115,14 +122,14 @@ struct VoiceChip: View {
             ZStack {
                 // Background for touch target
                 Color.clear
-                    .frame(width: Layout.playButtonSize + Layout.horizontalPadding * 2)
+                    .frame(width: Layout.actionButtonSize + Layout.horizontalPadding * 2)
                 
                 // Icon or spinner
                 Group {
                     switch playbackState {
                     case .idle:
                         Image(systemName: "play.fill")
-                            .font(.system(size: Layout.playIconSize, weight: .semibold))
+                            .font(.system(size: Layout.actionIconSize, weight: .semibold))
                             .foregroundStyle(AppColors.textPrimary)
                     
                     case .synthesizing:
@@ -132,11 +139,11 @@ struct VoiceChip: View {
                     
                     case .playing:
                         Image(systemName: "stop.fill")
-                            .font(.system(size: Layout.playIconSize, weight: .semibold))
+                            .font(.system(size: Layout.actionIconSize, weight: .semibold))
                             .foregroundStyle(AppColors.accent)
                     }
                 }
-                .frame(width: Layout.playButtonSize, height: Layout.playButtonSize)
+                .frame(width: Layout.actionButtonSize, height: Layout.actionButtonSize)
                 .background(
                     Circle()
                         .fill(AppColors.backgroundTertiary)
@@ -153,7 +160,7 @@ struct VoiceChip: View {
         Button(action: onSelectTapped) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    // Name with origin and custom indicator
+                    // Name with origin, current voice label, and custom indicator
                     HStack(spacing: 4) {
                         Text(voice.name)
                             .font(AppTypography.headline)
@@ -163,6 +170,13 @@ struct VoiceChip: View {
                             Text("(\(voice.originCode))")
                                 .font(AppTypography.caption1)
                                 .foregroundStyle(AppColors.textSecondary)
+                        }
+                        
+                        // Current voice label (shown only for the saved voice)
+                        if isSavedVoice {
+                            Text("Current voice")
+                                .font(AppTypography.caption2)
+                                .foregroundStyle(AppColors.accent)
                         }
                         
                         // Custom settings indicator
@@ -197,14 +211,14 @@ struct VoiceChip: View {
     private var settingsButton: some View {
         Button(action: { onSettingsTapped?() }) {
             ZStack {
-                // Background for touch target
+                // Background for touch target - symmetric padding like play button
                 Color.clear
-                    .frame(width: Layout.settingsButtonSize + Layout.horizontalPadding)
+                    .frame(width: Layout.actionButtonSize + Layout.horizontalPadding * 2)
                 
                 Image(systemName: "gearshape.fill")
-                    .font(.system(size: Layout.settingsIconSize, weight: .medium))
+                    .font(.system(size: Layout.actionIconSize, weight: .medium))
                     .foregroundStyle(AppColors.accent)
-                    .frame(width: Layout.settingsButtonSize, height: Layout.settingsButtonSize)
+                    .frame(width: Layout.actionButtonSize, height: Layout.actionButtonSize)
                     .background(
                         Circle()
                             .fill(AppColors.accent.opacity(0.15))
@@ -240,6 +254,9 @@ struct VoiceChip: View {
         }
         if !voice.adjectivesDisplay.isEmpty {
             label += ", \(voice.adjectivesDisplay)"
+        }
+        if isSavedVoice {
+            label += ", current voice"
         }
         if hasCustomSettings {
             label += ", has custom settings"
@@ -305,15 +322,26 @@ struct VoiceChip: View {
             onSettingsTapped: {}
         )
         
-        // Selected with settings and custom indicator
+        // Selected with settings, custom indicator, and current voice label
         VoiceChip(
             voice: Voice.allEnglishKokoroVoices[1],
             isSelected: true,
+            isSavedVoice: true,
             hasCustomSettings: true,
             playbackState: .idle,
             onPlayTapped: {},
             onSelectTapped: {},
             onSettingsTapped: {}
+        )
+        
+        // Saved voice but not selected (different voice is pending)
+        VoiceChip(
+            voice: Voice.defaultVoice,
+            isSelected: false,
+            isSavedVoice: true,
+            playbackState: .idle,
+            onPlayTapped: {},
+            onSelectTapped: {}
         )
         
         // Synthesizing
@@ -371,6 +399,7 @@ struct VoiceChip: View {
         VoiceChip(
             voice: Voice.defaultVoice,
             isSelected: true,
+            isSavedVoice: true,
             hasCustomSettings: true,
             playbackState: .playing,
             onPlayTapped: {},

@@ -16,7 +16,8 @@ import SwiftUI
 ///
 /// ## Behavior
 /// - Tap to select (pending until Save is tapped)
-/// - Save button appears only when selection differs from saved type
+/// - Save button appears when selection differs from saved type
+/// - Save button appears when selection differs from saved type, disables after save
 /// - Live preview: Each option shows animated waveform
 ///
 /// ## Navigation
@@ -34,8 +35,9 @@ struct WaveformSelectionView: View {
     
     // MARK: - State
     
-    /// The waveform type that was saved when the view appeared
-    @State private var originalType: DockWaveformType = .layeredWaves
+    /// The waveform type that was last saved.
+    /// Updated each time the user taps Save, so change detection stays reactive.
+    @State private var savedType: DockWaveformType = .layeredWaves
     
     /// The currently selected (pending) waveform type
     @State private var pendingType: DockWaveformType = .layeredWaves
@@ -50,7 +52,7 @@ struct WaveformSelectionView: View {
     
     /// Whether the user has made a change that differs from the saved type
     private var hasUnsavedChanges: Bool {
-        pendingType != originalType
+        pendingType != savedType
     }
     
     // MARK: - Body
@@ -80,18 +82,15 @@ struct WaveformSelectionView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                if hasUnsavedChanges {
-                    Button("Save") {
-                        saveWaveformSelection()
-                    }
-                    .foregroundStyle(AppColors.accent)
-                    .accessibilityLabel("Save waveform selection")
-                    .accessibilityHint("Saves \(pendingType.displayName) as your waveform style")
-                }
+                SaveToolbarButton(
+                    hasUnsavedChanges: hasUnsavedChanges,
+                    accessibilityHint: "Saves \(pendingType.displayName) as your waveform style",
+                    onSave: { saveWaveformSelection() }
+                )
             }
         }
         .onAppear {
-            originalType = selectedType
+            savedType = selectedType
             pendingType = selectedType
             startPreviewAnimation()
         }
@@ -129,7 +128,7 @@ struct WaveformSelectionView: View {
         HapticFeedback.selection()
         
         #if DEBUG
-        print("🌊 WaveformSelectionView: Pending selection \(type.displayName)")
+        print("WaveformSelectionView: Pending selection \(type.displayName)")
         #endif
     }
     
@@ -140,14 +139,14 @@ struct WaveformSelectionView: View {
         // Save to persistence
         try? modelContext.save()
         
-        // Update original to match - no longer has unsaved changes
-        originalType = pendingType
+        // Update saved baseline - hasUnsavedChanges becomes false
+        savedType = pendingType
         
         // Haptic feedback for save
         HapticFeedback.notification(.success)
         
         #if DEBUG
-        print("🌊 WaveformSelectionView: Saved \(pendingType.displayName)")
+        print("WaveformSelectionView: Saved \(pendingType.displayName)")
         #endif
     }
     

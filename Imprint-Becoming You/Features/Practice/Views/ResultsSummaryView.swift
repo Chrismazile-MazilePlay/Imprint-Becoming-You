@@ -10,6 +10,12 @@ import SwiftUI
 // MARK: - ResultsSummaryView
 
 /// Displays the results of a completed practice session.
+///
+/// ## Save Button Behavior
+/// - Shows "Save" when session can be saved
+/// - Transitions sharply to "Saved" after successful save (locks permanently)
+/// - Disabled when playing a saved session, favorites session, or already saved
+/// - Uses stable state capture to prevent visual glitch during dismissal
 struct ResultsSummaryView: View {
     
     // MARK: - Properties
@@ -33,7 +39,7 @@ struct ResultsSummaryView: View {
     @State private var capturedSaveButtonDisabled: Bool = true
     
     /// Captured saved state - true once session has been saved.
-    /// Prevents label from changing during dismissal.
+    /// Prevents label from changing during dismissal. Locks permanently.
     @State private var capturedIsSessionSaved: Bool = false
     
     // MARK: - Constants
@@ -144,12 +150,11 @@ struct ResultsSummaryView: View {
                 }
                 
                 ToolbarItem(placement: .primaryAction) {
-                    // Always show save button, disable when not saveable
-                    // Uses stable state to prevent flashing on dismissal
                     Button(capturedIsSessionSaved ? "Saved" : "Save") {
                         onSaveSession()
                     }
                     .foregroundStyle(stableSaveButtonDisabled ? AppColors.textTertiary : AppColors.accent)
+                    .fontWeight(capturedIsSessionSaved ? .regular : .semibold)
                     .disabled(stableSaveButtonDisabled)
                     .accessibilityLabel(saveButtonAccessibilityLabel)
                 }

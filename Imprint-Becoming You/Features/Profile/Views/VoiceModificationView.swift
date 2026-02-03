@@ -17,13 +17,13 @@ import AVFoundation
 /// - Pitch shift slider (-12 to +12 semitones)
 /// - Pitch range slider (0.5 to 1.5 expressiveness)
 /// - Preview button to hear changes
-/// - Save button in navigation bar (shows "Saved" after save)
+/// - Save button appears when settings differ from saved, disappears after save
 /// - Restore to Defaults button
 ///
 /// ## Change Detection
-/// The Save button enables whenever current settings differ from the last saved state.
-/// After saving, if the user makes additional changes, the button re-enables.
-/// After restoring defaults, if defaults differ from saved state, the button enables.
+/// The Save button appears whenever current settings differ from the last saved state.
+/// After saving, if the user makes additional changes, the button reappears.
+/// After restoring defaults, if defaults differ from saved state, the button appears.
 ///
 /// ## Navigation
 /// Pushed from `VoiceSettingsView` when the gear icon is tapped on a selected voice.
@@ -53,11 +53,9 @@ struct VoiceModificationView: View {
     /// Current pitch range value (for slider)
     @State private var pitchRange: Double = 1.0
     
-    /// Settings as they were when the view appeared (the "saved" baseline)
+    /// Settings as they were when last saved (the "saved" baseline).
+    /// Updated each time the user taps Save, so change detection stays reactive.
     @State private var savedSettings: VoiceSettings = .default
-    
-    /// Whether settings have been saved during this session (for "Saved" label display)
-    @State private var showSavedLabel: Bool = false
     
     /// Whether preview is currently playing
     @State private var isPreviewPlaying: Bool = false
@@ -80,8 +78,6 @@ struct VoiceModificationView: View {
     }
     
     /// Whether the current values differ from the last saved settings.
-    ///
-    /// This is the primary change detection - enables Save button when true.
     private var hasUnsavedChanges: Bool {
         currentSettings != savedSettings
     }
@@ -124,7 +120,11 @@ struct VoiceModificationView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                saveToolbarButton
+                SaveToolbarButton(
+                    hasUnsavedChanges: hasUnsavedChanges,
+                    accessibilityHint: "Saves your voice customizations",
+                    onSave: { saveSettings() }
+                )
             }
         }
         .onAppear {
@@ -132,47 +132,6 @@ struct VoiceModificationView: View {
         }
         .onDisappear {
             stopPreview()
-        }
-        .onChange(of: currentSettings) { _, newSettings in
-            // When user makes any change, reset the "Saved" label
-            // The label should only show immediately after saving
-            if newSettings != savedSettings {
-                showSavedLabel = false
-            }
-        }
-    }
-    
-    // MARK: - Save Toolbar Button
-    
-    /// Whether to show "Saved" state (label + styling)
-    private var showSavedState: Bool {
-        showSavedLabel && !hasUnsavedChanges
-    }
-    
-    @ViewBuilder
-    private var saveToolbarButton: some View {
-        Button {
-            saveSettings()
-        } label: {
-            Text(showSavedState ? "Saved" : "Save")
-                .contentTransition(.interpolate)
-        }
-        .foregroundStyle(hasUnsavedChanges ? AppColors.accent : AppColors.textTertiary)
-        .fontWeight(showSavedState ? .regular : .semibold)
-        .disabled(!hasUnsavedChanges)
-        .animation(.easeInOut(duration: 0.2), value: showSavedState)
-        .animation(.easeInOut(duration: 0.2), value: hasUnsavedChanges)
-        .accessibilityLabel(accessibilityLabelForSaveButton)
-        .accessibilityHint(hasUnsavedChanges ? "Saves your voice customizations" : "No changes to save")
-    }
-    
-    private var accessibilityLabelForSaveButton: String {
-        if showSavedState {
-            return "Saved"
-        } else if hasUnsavedChanges {
-            return "Save"
-        } else {
-            return "Save unavailable"
         }
     }
     
@@ -415,7 +374,6 @@ struct VoiceModificationView: View {
         speed = Double(settings.speed)
         pitchShift = Double(settings.pitchShiftSemitones)
         pitchRange = Double(settings.pitchRangeScale)
-        showSavedLabel = false
         
         #if DEBUG
         print("VoiceModificationView: Loaded settings for \(voice.id): \(settings)")
@@ -426,14 +384,8 @@ struct VoiceModificationView: View {
         let settings = currentSettings
         VoiceSettingsManager.shared.save(settings, for: voice.id)
         
-        // Animate the state transition for smooth button update
-        withAnimation(.easeInOut(duration: 0.2)) {
-            // Update the saved baseline to current values
-            savedSettings = settings
-            
-            // Show "Saved" label
-            showSavedLabel = true
-        }
+        // Update saved baseline - hasUnsavedChanges becomes false
+        savedSettings = settings
         
         // Notify callback
         onSave?(settings)
@@ -456,7 +408,7 @@ struct VoiceModificationView: View {
         
         // Note: We do NOT reset savedSettings here.
         // If saved settings were custom, defaults differ from saved,
-        // so hasUnsavedChanges will be true and Save button will enable.
+        // so hasUnsavedChanges will be true and Save button will appear.
         // If saved settings were already defaults, no change needed.
         
         // Haptic feedback

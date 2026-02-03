@@ -23,9 +23,6 @@
         }
       }
     },
-    "%@ phrase" : {
-
-    },
     "%@ selector" : {
 
     },
@@ -156,9 +153,6 @@
     "Are you sure you want to delete" : {
 
     },
-    "Audio is playing" : {
-
-    },
     "Audio level: %lld percent" : {
 
     },
@@ -211,9 +205,6 @@
 
     },
     "Change your waveform visualization style" : {
-
-    },
-    "Check Kokoro engine status again" : {
 
     },
     "Choose how your waveform looks during practice sessions." : {
@@ -291,13 +282,13 @@
     "Create custom prompts to generate\npersonalized affirmations." : {
 
     },
+    "Current voice" : {
+
+    },
     "Current Voice" : {
 
     },
     "Currently selected" : {
-
-    },
-    "Currently selected voice" : {
 
     },
     "Custom Settings" : {
@@ -354,9 +345,6 @@
     "Double tap to select for playback. Swipe left for more options." : {
 
     },
-    "Double tap to select this voice" : {
-
-    },
     "Double tap to toggle shuffle mode" : {
 
     },
@@ -364,9 +352,6 @@
 
     },
     "Enter a name" : {
-
-    },
-    "Enter the text you want to hear spoken" : {
 
     },
     "Error" : {
@@ -454,21 +439,6 @@
     "Imprint: Becoming You. Loading..." : {
 
     },
-    "In progress" : {
-
-    },
-    "Kokoro engine not ready" : {
-
-    },
-    "Kokoro engine ready" : {
-
-    },
-    "Kokoro Not Ready" : {
-
-    },
-    "Kokoro Ready" : {
-
-    },
     "Let's Learn Your Voice" : {
 
     },
@@ -514,9 +484,6 @@
     "No affirmations found" : {
 
     },
-    "No changes to save" : {
-
-    },
     "No Favorites Yet" : {
 
     },
@@ -527,9 +494,6 @@
 
     },
     "No saved sessions. Complete a practice session and save it to create your own custom sessions." : {
-
-    },
-    "Not selected" : {
 
     },
     "Not Signed In" : {
@@ -559,9 +523,6 @@
           }
         }
       }
-    },
-    "Play the test text with the selected voice" : {
-
     },
     "Plays a sample with current settings" : {
 
@@ -600,16 +561,7 @@
         }
       }
     },
-    "Quick phrase buttons" : {
-
-    },
     "Read each affirmation aloud so we can personalize your experience" : {
-
-    },
-    "Ready" : {
-
-    },
-    "Refresh status" : {
 
     },
     "Remove all selected goals" : {
@@ -666,9 +618,6 @@
     "Return to the practice screen" : {
 
     },
-    "Return to voice settings" : {
-
-    },
     "Save" : {
 
     },
@@ -681,9 +630,6 @@
     "Save changes to session name" : {
 
     },
-    "Save goals" : {
-
-    },
     "Save session" : {
 
     },
@@ -691,12 +637,6 @@
 
     },
     "Save this combination of affirmations to practice again later." : {
-
-    },
-    "Save voice selection" : {
-
-    },
-    "Save waveform selection" : {
 
     },
     "Save your category selections" : {
@@ -723,18 +663,6 @@
     "Saved Sessions, %lld sessions" : {
 
     },
-    "Saves %@ as your voice" : {
-
-    },
-    "Saves %@ as your waveform style" : {
-
-    },
-    "Saves your goal selections and updates affirmations" : {
-
-    },
-    "Saves your voice customizations" : {
-
-    },
     "Say:" : {
 
     },
@@ -754,9 +682,6 @@
 
     },
     "Select up to %lld goals" : {
-
-    },
-    "Selected" : {
 
     },
     "Selected focus areas: %@" : {
@@ -781,9 +706,6 @@
 
     },
     "Session Name" : {
-
-    },
-    "Set test text to a %@ example phrase" : {
 
     },
     "Share" : {
@@ -828,15 +750,6 @@
     "Soon" : {
 
     },
-    "Speak" : {
-
-    },
-    "Speaking" : {
-
-    },
-    "Speaking..." : {
-
-    },
     "Start calibration" : {
 
     },
@@ -864,12 +777,6 @@
           }
         }
       }
-    },
-    "Stop" : {
-
-    },
-    "Stop the current speech playback" : {
-
     },
     "Stop voice calibration" : {
 
@@ -904,9 +811,6 @@
     "Technical Details" : {
 
     },
-    "Test text input" : {
-
-    },
     "than expected to load" : {
 
     },
@@ -932,9 +836,6 @@
 
     },
     "Try recovery action: %@" : {
-
-    },
-    "TTS Test" : {
 
     },
     "Tuned" : {

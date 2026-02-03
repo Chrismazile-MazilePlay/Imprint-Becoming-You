@@ -17,10 +17,17 @@ import AVFoundation
 /// - Tap to select voice (pending selection until Save is tapped)
 /// - Tap play button to preview voice
 /// - Tap gear icon on selected voice to customize settings
-/// - Save button appears only when selection differs from saved voice
+/// - Save button appears when selection differs from saved voice, disappears after save
+/// - "Current voice" label shown on the chip matching the saved voice
 /// - Shows engine status (Kokoro ready / System fallback)
 /// - Groups voices by accent and gender
 /// - Responsive cancellation on rapid tap-through
+///
+/// ## State Persistence
+/// Initial voice is loaded once on first appear. When returning from
+/// VoiceModificationView, the pending selection is preserved -- the user
+/// does not lose their unsaved choice. This ensures the Save button never
+/// flashes (appears then immediately disappears).
 ///
 /// ## Navigation
 /// This view is pushed onto the Profile navigation stack.
@@ -36,8 +43,15 @@ struct VoiceSettingsView: View {
     
     // MARK: - State
     
-    /// The voice ID that was saved when the view appeared (the "committed" selection)
-    @State private var originalVoiceId: String = Voice.defaultVoice.id
+    /// Whether the initial voice has been loaded.
+    /// Prevents `loadCurrentVoice()` from running on subsequent appears
+    /// (e.g. returning from VoiceModificationView), which would reset
+    /// the pending selection and cause a Save button flash.
+    @State private var hasLoaded: Bool = false
+    
+    /// The voice ID that was last saved (the "committed" selection).
+    /// Updated each time the user taps Save, so change detection stays reactive.
+    @State private var savedVoiceId: String = Voice.defaultVoice.id
     
     /// Currently selected voice ID (pending selection, not yet saved)
     @State private var selectedVoiceId: String = Voice.defaultVoice.id
@@ -64,7 +78,7 @@ struct VoiceSettingsView: View {
     
     /// Whether the user has made a change that differs from the saved voice
     private var hasUnsavedChanges: Bool {
-        selectedVoiceId != originalVoiceId
+        selectedVoiceId != savedVoiceId
     }
     
     // MARK: - Body
@@ -93,14 +107,11 @@ struct VoiceSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                if hasUnsavedChanges {
-                    Button("Save") {
-                        saveVoiceSelection()
-                    }
-                    .foregroundStyle(AppColors.accent)
-                    .accessibilityLabel("Save voice selection")
-                    .accessibilityHint("Saves \(Voice.voice(forId: selectedVoiceId).name) as your voice")
-                }
+                SaveToolbarButton(
+                    hasUnsavedChanges: hasUnsavedChanges,
+                    accessibilityHint: "Saves \(Voice.voice(forId: selectedVoiceId).name) as your voice",
+                    onSave: { saveVoiceSelection() }
+                )
             }
         }
         .navigationDestination(item: $voiceForModification) { voice in
@@ -110,7 +121,12 @@ struct VoiceSettingsView: View {
             }
         }
         .onAppear {
-            loadCurrentVoice()
+            // Load voice only on first appear to preserve pending selection
+            // when returning from VoiceModificationView
+            if !hasLoaded {
+                loadCurrentVoice()
+                hasLoaded = true
+            }
             checkEngineStatus()
             refreshCustomSettingsState()
         }
@@ -212,6 +228,7 @@ struct VoiceSettingsView: View {
                     VoiceChip(
                         voice: voice,
                         isSelected: selectedVoiceId == voice.id,
+                        isSavedVoice: savedVoiceId == voice.id,
                         hasCustomSettings: voicesWithCustomSettings.contains(voice.id),
                         playbackState: playbackStateFor(voice),
                         onPlayTapped: { handlePlayTapped(voice) },
@@ -385,9 +402,12 @@ struct VoiceSettingsView: View {
     
     // MARK: - Persistence
     
+    /// Loads the current saved voice from the user profile.
+    /// Called only once on first appear to avoid resetting pending selection
+    /// when returning from child views (e.g. VoiceModificationView).
     private func loadCurrentVoice() {
         if let voiceId = appState.userProfile?.selectedVoiceId, !voiceId.isEmpty {
-            originalVoiceId = voiceId
+            savedVoiceId = voiceId
             selectedVoiceId = voiceId
         }
     }
@@ -396,8 +416,11 @@ struct VoiceSettingsView: View {
         appState.userProfile?.selectedVoiceId = selectedVoiceId
         try? modelContext.save()
         
-        // Update original to match - no longer has unsaved changes
-        originalVoiceId = selectedVoiceId
+        // Update saved baseline - hasUnsavedChanges becomes false
+        savedVoiceId = selectedVoiceId
+        
+        // Haptic feedback
+        HapticFeedback.notification(.success)
         
         #if DEBUG
         print("VoiceSettingsView: Saved voice \(selectedVoiceId)")

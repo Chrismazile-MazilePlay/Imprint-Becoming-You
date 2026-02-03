@@ -11,23 +11,26 @@ import SwiftUI
 
 /// Reusable save button for navigation bar toolbar.
 ///
-/// Shows "Save" initially, transitions to "Saved" on success, and maintains
-/// stable disabled state to prevent visual glitches during view dismissal.
+/// Displays a "Save" label that appears when there are unsaved changes and
+/// disappears when there are none. Purely state-driven, zero internal state.
 ///
-/// ## Features
-/// - Displays "Save" when there are unsaved changes
-/// - Transitions to "Saved" after successful save
-/// - Maintains stable disabled state (once disabled, stays disabled)
-/// - Prevents visual glitches during view dismissal
+/// ## Lifecycle (consistent across all views)
+/// - **Hidden** when `hasUnsavedChanges` is false
+/// - **Visible + Enabled** when `hasUnsavedChanges` is true
+/// - After save: parent updates its saved baseline -> `hasUnsavedChanges` becomes
+///   false -> button disappears in the same render pass
+///
+/// ## Performance
+/// No internal state. No animation modifiers. The button is a pure function
+/// of `hasUnsavedChanges` -- SwiftUI diffs a single Bool and updates visibility.
 ///
 /// ## Usage
 /// ```swift
 /// .toolbar {
 ///     ToolbarItem(placement: .primaryAction) {
 ///         SaveToolbarButton(
-///             isSaved: viewModel.isSaved,
-///             isDisabled: viewModel.cannotSave,
-///             onSave: { viewModel.save() }
+///             hasUnsavedChanges: selectedId != savedId,
+///             onSave: { saveSelection() }
 ///         )
 ///     }
 /// }
@@ -36,89 +39,54 @@ struct SaveToolbarButton: View {
     
     // MARK: - Properties
     
-    /// Whether the content has been saved
-    let isSaved: Bool
+    /// Whether the parent view has unsaved changes.
+    /// When true, the button is visible. When false, hidden.
+    let hasUnsavedChanges: Bool
     
-    /// Whether the save action is disabled
-    let isDisabled: Bool
+    /// Accessibility hint shown when the button is visible.
+    let accessibilityHint: String
     
-    /// Action to perform when save is tapped
+    /// Action to perform when save is tapped.
+    /// The parent should update its saved baseline in this closure so that
+    /// `hasUnsavedChanges` becomes false on the next render.
     let onSave: () -> Void
     
-    // MARK: - State
+    // MARK: - Initialization
     
-    /// Captured saved state - true once content has been saved.
-    /// Prevents label from changing during dismissal.
-    @State private var capturedIsSaved: Bool = false
-    
-    /// Captured disabled state - true once disabled.
-    /// Prevents button from flashing enabled during dismissal.
-    @State private var capturedIsDisabled: Bool = false
-    
-    // MARK: - Computed Properties
-    
-    /// Stable disabled state that never transitions from disabled to enabled.
-    /// Once the button becomes disabled (initially or after saving), it stays disabled.
-    private var stableIsDisabled: Bool {
-        capturedIsDisabled || isDisabled
-    }
-    
-    /// Display text based on saved state
-    private var buttonText: String {
-        capturedIsSaved ? "Saved" : "Save"
-    }
-    
-    /// Accessibility label based on current state
-    private var accessibilityLabel: String {
-        if capturedIsSaved {
-            return "Saved"
-        } else if stableIsDisabled {
-            return "Save unavailable"
-        } else {
-            return "Save"
-        }
+    init(
+        hasUnsavedChanges: Bool,
+        accessibilityHint: String = "Saves your changes",
+        onSave: @escaping () -> Void
+    ) {
+        self.hasUnsavedChanges = hasUnsavedChanges
+        self.accessibilityHint = accessibilityHint
+        self.onSave = onSave
     }
     
     // MARK: - Body
     
     var body: some View {
-        Button(buttonText) {
-            onSave()
-        }
-        .foregroundStyle(stableIsDisabled ? AppColors.textTertiary : AppColors.accent)
-        .fontWeight(capturedIsSaved ? .regular : .semibold)
-        .disabled(stableIsDisabled)
-        .accessibilityLabel(accessibilityLabel)
-        .onAppear {
-            // Capture initial state
-            capturedIsSaved = isSaved
-            capturedIsDisabled = isDisabled
-        }
-        .onChange(of: isDisabled) { _, newValue in
-            // Once disabled, stay disabled
-            if newValue {
-                capturedIsDisabled = true
+        if hasUnsavedChanges {
+            Button("Save") {
+                onSave()
             }
-        }
-        .onChange(of: isSaved) { _, newValue in
-            // Once saved, stay saved
-            if newValue {
-                capturedIsSaved = true
-            }
+            .foregroundStyle(AppColors.accent)
+            .fontWeight(.semibold)
+            .accessibilityLabel("Save")
+            .accessibilityHint(accessibilityHint)
         }
     }
 }
 
 // MARK: - Previews
 
-#Preview("Save Button - Active") {
+#Preview("Save Button - Visible") {
     NavigationStack {
-        Text("Content")
+        Text("Has unsaved changes")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     SaveToolbarButton(
-                        isSaved: false,
-                        isDisabled: false,
+                        hasUnsavedChanges: true,
                         onSave: { print("Save tapped") }
                     )
                 }
@@ -126,30 +94,14 @@ struct SaveToolbarButton: View {
     }
 }
 
-#Preview("Save Button - Saved") {
+#Preview("Save Button - Hidden") {
     NavigationStack {
-        Text("Content")
+        Text("No button visible")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     SaveToolbarButton(
-                        isSaved: true,
-                        isDisabled: true,
-                        onSave: { }
-                    )
-                }
-            }
-    }
-}
-
-#Preview("Save Button - Disabled") {
-    NavigationStack {
-        Text("Content")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    SaveToolbarButton(
-                        isSaved: false,
-                        isDisabled: true,
-                        onSave: { }
+                        hasUnsavedChanges: false,
+                        onSave: {}
                     )
                 }
             }

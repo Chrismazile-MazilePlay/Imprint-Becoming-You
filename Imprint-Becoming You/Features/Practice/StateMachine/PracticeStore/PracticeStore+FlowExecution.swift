@@ -36,6 +36,28 @@ extension PracticeStore {
     func executeCurrentFlow(generation: Int) async {
         guard shouldContinueFlow(generation: generation) else { return }
         
+        // DRAIN: Guarantee a clean AudioPlayerService state.
+        //
+        // During rapid skipping, each `cancelCurrentActivity()` fires a
+        // fire-and-forget `Task { await playerService.stop() }`. These
+        // Tasks queue on the AudioPlayerService actor. If we don't drain
+        // them before attempting playback, the actor may still be processing
+        // stale stops when our `playRawPCMData` arrives — or worse, a
+        // late-arriving stop() could kill our playback mid-stream.
+        //
+        // By awaiting `stop()` here, we serialize behind ALL pending
+        // operations on the actor. After this returns, we know:
+        //   1. No audio is playing
+        //   2. No pending continuations exist
+        //   3. No queued fire-and-forget Tasks are ahead of us
+        //
+        // Cost: one actor hop (~10-50μs) — negligible vs the 300ms delay.
+        await dependencies.audioPlayerService.stop()
+        
+        // Re-validate after drain — another flow may have started while
+        // we were waiting on the actor.
+        guard shouldContinueFlow(generation: generation) else { return }
+        
         // Measure flow execution with signpost
         let signpostID = AppLogger.makeSignpostID(for: .practice)
         AppLogger.beginInterval(AppLogger.SignpostName.flowExecution, id: signpostID, category: .practice)

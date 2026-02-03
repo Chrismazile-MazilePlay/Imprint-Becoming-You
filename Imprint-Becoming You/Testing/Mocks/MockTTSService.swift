@@ -175,6 +175,10 @@ final class MockTTSService: TTSServiceProtocol {
         _isKokoroReady = false
     }
     
+    func releasePipelineMemory() async {
+        // No-op for mock - Kokoro stays "ready"
+    }
+    
     // MARK: - Test Helpers
     
     /// Resets all call counts and tracked values

@@ -196,7 +196,7 @@ actor AudioPlayerService {
         }
         
         #if DEBUG
-        print("🔊 AudioPlayerService: Playing \(data.count) bytes via AVAudioPlayer")
+        print("ðŸ”Š AudioPlayerService: Playing \(data.count) bytes via AVAudioPlayer")
         #endif
         
         // Create the player synchronously within actor context
@@ -220,13 +220,16 @@ actor AudioPlayerService {
         player.delegate = delegate
         player.volume = self.volume
         
-        // Configure audio session
+        // Ensure audio session is active.
+        // NOTE: Category is already configured by TTSService.preConfigureAudioSession()
+        // during warm-up. Only setActive() is needed here — it's a fast ~1-5ms call.
+        // Previously this called setCategory() on every playback with different options
+        // than TTSService, causing unnecessary 50-200ms reconfiguration overhead.
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [.duckOthers])
             try session.setActive(true)
         } catch {
-            throw AppError.audioPlaybackFailed(reason: "Failed to configure audio session: \(error.localizedDescription)")
+            throw AppError.audioPlaybackFailed(reason: "Failed to activate audio session: \(error.localizedDescription)")
         }
         
         // Start playback
@@ -237,7 +240,7 @@ actor AudioPlayerService {
         self.isPlaying = true
         
         #if DEBUG
-        print("🔊 AudioPlayerService: Playback started (duration: \(String(format: "%.2f", player.duration))s)")
+        print("ðŸ”Š AudioPlayerService: Playback started (duration: \(String(format: "%.2f", player.duration))s)")
         #endif
         
         // Wait for completion using continuation
@@ -398,7 +401,7 @@ final class AudioPlayerCompletionDelegate: NSObject, AVAudioPlayerDelegate {
     
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
         #if DEBUG
-        print("⚠️ AudioPlayerCompletionDelegate: Decode error - \(error?.localizedDescription ?? "unknown")")
+        print("âš ï¸ AudioPlayerCompletionDelegate: Decode error - \(error?.localizedDescription ?? "unknown")")
         #endif
         completion(false)
     }

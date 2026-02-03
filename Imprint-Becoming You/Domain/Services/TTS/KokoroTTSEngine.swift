@@ -254,6 +254,49 @@ actor KokoroTTSEngine {
         #endif
     }
     
+    /// Releases ML pipelines to free CoreML prediction buffer memory.
+    ///
+    /// Unlike `releaseForBackground()`, this is designed for **session-end cleanup**
+    /// where the engine should remain logically "ready". The next `synthesizeToData()`
+    /// call will transparently reload the needed pipeline via `ensurePipeline()`.
+    ///
+    /// ## Why This Exists
+    /// CoreML caches intermediate prediction buffers (BERT attention maps, Generator
+    /// Core tensors) inside `TTSPipeline` objects. These buffers total ~800MB-1.5GB
+    /// and are only released when the pipeline is deallocated. This method nils the
+    /// pipelines to trigger deallocation while keeping `resourcesValidated = true`
+    /// so lazy reloading works without re-validating file paths.
+    ///
+    /// ## Performance Impact
+    /// Pipeline reload takes ~7-8 seconds, which is absorbed by the session
+    /// preparation "Preparing..." UI on the next session start.
+    ///
+    /// - Note: `isReady` will return `false` after this call until the next
+    ///   `ensurePipeline()` or `warmUp()` reloads a pipeline.
+    func releasePipelineMemory() {
+        guard usPipeline != nil || gbPipeline != nil else {
+            #if DEBUG
+            print("KokoroTTSEngine: No pipelines to release")
+            #endif
+            return
+        }
+        
+        #if DEBUG
+        let releasedUS = usPipeline != nil
+        let releasedGB = gbPipeline != nil
+        print("KokoroTTSEngine: Releasing ML pipelines for session cleanup (US: \(releasedUS), GB: \(releasedGB))")
+        #endif
+        
+        // Nil out pipelines to free CoreML prediction buffers.
+        // resourcesValidated stays true - ensurePipeline() can reload on-demand.
+        usPipeline = nil
+        gbPipeline = nil
+        
+        #if DEBUG
+        print("KokoroTTSEngine: ML pipelines released (session cleanup)")
+        #endif
+    }
+    
     /// Checks if the engine can be re-initialized.
     ///
     /// Returns `true` if the Kokoro resources are available in the bundle.

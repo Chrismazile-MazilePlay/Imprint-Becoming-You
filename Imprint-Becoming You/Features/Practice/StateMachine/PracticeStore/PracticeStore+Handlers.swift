@@ -361,18 +361,42 @@ extension PracticeStore {
         )
     }
     
-    /// Handles completion of a loop iteration
+    /// Handles completion of a loop iteration.
     ///
-    /// ## Timing Design
-    /// Uses the EXACT same pattern as `handleAutoAdvanceCompleted()` to ensure
-    /// loop transitions have identical timing to within-loop transitions:
-    /// 1. `incrementSegmentGeneration()` → dock timer restarts immediately
-    ///    (isAnimating is still true from the previous affirmation's `.complete` state)
-    /// 2. `startFlowForCurrentAffirmation()` → 300ms flowStartDelay → TTS plays
+    /// ## Rapid-Skip Resilience
     ///
-    /// Previously used `resetToIdle()` + 300ms Task delay, which created a 600ms
-    /// dead zone where segments showed 0% with no animation — desynchronizing
-    /// the segment timer from TTS playback in loop 2+.
+    /// Each swipe/skip fires a fire-and-forget `Task { await playerService.stop() }`
+    /// via `cancelCurrentActivity()`. After 10 rapid skips, ~10 such Tasks queue
+    /// on the `AudioPlayerService` actor. Without cleanup, the next loop's first
+    /// `playRawPCMData()` call must wait behind ALL of them — causing a visible delay.
+    ///
+    /// ### Defense-in-Depth (3 layers):
+    ///
+    /// 1. **`cancelCurrentActivity()`** — Best-effort teardown. Cancels the active
+    ///    flow task, stops TTS, fires a fire-and-forget `stop()` on the audio actor.
+    ///    This handles the common case but leaves fire-and-forget Tasks in-flight.
+    ///
+    /// 2. **`isAnimating` toggle** — Sets flow to `.idle` (isAnimating=false) BEFORE
+    ///    resetting the index, so the dock timer cannot start prematurely.
+    ///    `handleAnimatingChanged` restarts it when flow sets `.playing`.
+    ///
+    /// 3. **Actor drain in `executeCurrentFlow()`** — The new flow's Task awaits
+    ///    `playerService.stop()` before the 300ms `flowStartDelay`. This serializes
+    ///    behind ALL pending fire-and-forget operations, guaranteeing a clean audio
+    ///    state before playback begins. No matter how many stale Tasks are queued,
+    ///    they're drained before TTS plays.
+    ///
+    /// ### State Change Order (Critical)
+    /// ```
+    /// 1. cancelCurrentActivity()  -> fire-and-forget stop() Tasks queued
+    /// 2. Set flow to .idle        -> isAnimating=false -> dock timer STOPS
+    /// 3. Reset index to 0         -> no timer start (isAnimating=false)
+    /// 4. startFlowForCurrentAffirmation() -> new Task:
+    ///    a. await playerService.stop()  -> DRAINS all pending fire-and-forget ops
+    ///    b. 300ms flowStartDelay
+    ///    c. setFlow(.playing)           -> isAnimating=true -> dock timer STARTS
+    ///    d. speakText()                 -> TTS plays simultaneously
+    /// ```
     func handleLoopIterationCompleted() {
         guard loopConfiguration.hasMoreLoops else {
             // All loops complete, show summary
@@ -391,12 +415,34 @@ extension PracticeStore {
             context: ["currentLoop": config.currentLoopIteration, "totalLoops": config.loopCount]
         )
         
+        // LAYER 1: Best-effort teardown of all current activity.
+        // Cancels flow task, stops TTS, fires fire-and-forget audio stop.
+        // Rapid skipping may have left fire-and-forget Tasks in-flight —
+        // these are drained by Layer 3 (actor drain in executeCurrentFlow).
+        cancelCurrentActivity()
+        
         // Invalidate stale completion handlers BEFORE state reset.
         // Prevents race conditions where old timers fire during the
         // transition and trigger premature auto-advance.
         flowGeneration += 1
         
-        // Reset session index for new loop
+        // LAYER 2: Set flow to idle to stop the dock timer.
+        // The flow was .readAloud(.complete) which keeps isAnimating=true.
+        // If we reset the index while isAnimating is still true,
+        // handleSegmentChanged would immediately start a new timer —
+        // creating a head start over TTS (the flowStartDelay gap).
+        switch sessionMode {
+        case .readAloud:
+            setFlow(.readAloud(.idle))
+        case .readThenSpeak:
+            setFlow(.readAndSpeak(.idle))
+        case .speakOnly:
+            setFlow(.speakOnly(.idle))
+        default:
+            break
+        }
+        
+        // Now safe to reset index — isAnimating is false, timer won't start
         setSessionState(index: 0)
         setSegmentProgress(0)
         
@@ -414,15 +460,13 @@ extension PracticeStore {
             dependencies.sessionTTSQueueService.invalidateCacheForShuffle(newOrder: newOrder)
         }
         
-        // Signal dock to restart segment timer — IDENTICAL to handleAutoAdvanceCompleted.
-        // The timer restarts immediately because isAnimating is still true from
-        // the previous affirmation's .complete state (we deliberately do NOT
-        // call resetToIdle, which would set isAnimating=false and break timing).
-        incrementSegmentGeneration()
-        
+        // LAYER 3 is inside executeCurrentFlow() — actor drain.
         // Start flow for first affirmation of the new loop.
-        // Same direct call as handleAutoAdvanceCompleted — TTS begins after
-        // flowStartDelay (~300ms), matching within-loop timing exactly.
+        // After drain + flowStartDelay, the flow sets .playing which:
+        //   1. Toggles isAnimating false->true
+        //   2. handleAnimatingChanged starts the dock timer
+        //   3. speakText() fires TTS at the same moment
+        // Result: dock timer and TTS are perfectly synchronized.
         startFlowForCurrentAffirmation()
         
         HapticFeedback.notification(.success)
@@ -719,7 +763,7 @@ extension PracticeStore {
             // This prevents the auto-advance from firing after manual navigation
             guard self.shouldContinueFlow(generation: generation) else {
                 #if DEBUG
-                print("â­ï¸ Score display: User navigated away, skipping auto-advance")
+                print("Ã¢ÂÂ­Ã¯Â¸Â Score display: User navigated away, skipping auto-advance")
                 #endif
                 return
             }

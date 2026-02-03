@@ -14,11 +14,11 @@ extension PracticeStore {
     /// Repeats the session with user-specified configuration from the summary dock.
     ///
     /// Called via `send(.repeatSessionWithConfig(...))` from `ResultsSummaryView`.
-    /// Follows the same instant-restart pattern as `handleRepeatSession()` —
+    /// Follows the same instant-restart pattern as `handleRepeatSession()` â€”
     /// reuses the existing TTS cache (no loading screen, no re-synthesis).
     ///
     /// ## Cache Reuse Strategy
-    /// - **No shuffle**: Cache is 100% valid — same affirmations, same order, same voice.
+    /// - **No shuffle**: Cache is 100% valid â€” same affirmations, same order, same voice.
     ///   Flow restarts instantly from index 0.
     /// - **Shuffle enabled**: Cache invalidated (indices no longer match) but voice settings
     ///   preserved. On-demand synthesis handles each affirmation during playback.
@@ -53,7 +53,7 @@ extension PracticeStore {
         setSegmentProgress(0)
         sessionStartTime = Date()
         
-        // Handle shuffle — invalidate cache but preserve voice settings
+        // Handle shuffle â€” invalidate cache but preserve voice settings
         if shuffle {
             shuffleSessionAffirmations()
             
@@ -90,7 +90,7 @@ extension PracticeStore {
         }
         
         // After summary dismissal, start flow directly (no preparation needed).
-        // TTS cache is reused — no loading screen.
+        // TTS cache is reused â€” no loading screen.
         // incrementSegmentGeneration ensures dock timer starts in sync with flow.
         Task { [weak self] in
             guard let self = self else { return }

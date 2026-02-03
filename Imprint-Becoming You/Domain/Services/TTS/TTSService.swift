@@ -347,6 +347,36 @@ final class TTSService: TTSServiceProtocol {
         #endif
     }
     
+    /// Releases ML pipeline memory without disabling Kokoro.
+    ///
+    /// Frees ~800MB-1.5GB of CoreML prediction buffers cached inside
+    /// `TTSPipeline` objects. Unlike `releaseForBackground()`, this keeps
+    /// `isKokoroReady = true` so the next synthesis transparently reloads
+    /// the pipeline via `ensurePipeline()` lazy loading.
+    ///
+    /// Call from `showSessionSummary()` to free memory when the user
+    /// no longer needs active synthesis.
+    func releasePipelineMemory() async {
+        #if DEBUG
+        print("TTSService: Releasing pipeline memory (session cleanup)...")
+        #endif
+        
+        // Cancel any pending pre-synthesis (no longer needed)
+        cancelPreSynthesis()
+        
+        // Release ML pipelines but keep Kokoro logically "ready"
+        // ensurePipeline() will reload on-demand during next session preparation
+        await kokoroEngine.releasePipelineMemory()
+        
+        // NOTE: We intentionally do NOT set _isKokoroReady = false
+        // or _isReleasedForBackground = true. Kokoro stays "ready"
+        // and the pipeline will lazy-load on next synthesis call.
+        
+        #if DEBUG
+        print("TTSService: Pipeline memory released (Kokoro still marked ready)")
+        #endif
+    }
+    
     // MARK: - Pre-Synthesis
     
     func preSynthesize(

@@ -200,6 +200,26 @@ protocol TTSServiceProtocol: AnyObject {
     ///
     /// This can free ~500MB-1GB of memory from Kokoro ML pipelines.
     func releaseForBackground() async
+    
+    /// Releases ML pipeline memory without disabling Kokoro.
+    ///
+    /// Unlike `releaseForBackground()`, this does **not** set `isKokoroReady`
+    /// to `false`. The next synthesis call will transparently reload the
+    /// needed pipeline on-demand via lazy loading.
+    ///
+    /// Call when:
+    /// - Session completes and summary is shown (frees ~1.5GB of CoreML buffers)
+    ///
+    /// ## Why This Exists
+    /// CoreML caches intermediate prediction buffers inside `TTSPipeline` objects.
+    /// These ~800MB-1.5GB of buffers persist until the pipeline is deallocated.
+    /// After a session, users don't need synthesis until the next session, so
+    /// freeing this memory improves overall app stability.
+    ///
+    /// ## Performance
+    /// Pipeline reloads (~7-8s) during the next session's "Preparing..." UI,
+    /// so users experience no perceptible delay.
+    func releasePipelineMemory() async
 }
 
 // MARK: - Convenience Extensions
@@ -293,6 +313,11 @@ extension TTSServiceProtocol {
     
     /// Default implementation for background release (no-op for mocks)
     func releaseForBackground() async {
+        // Default: no-op for mock services
+    }
+    
+    /// Default implementation for pipeline memory release (no-op for mocks)
+    func releasePipelineMemory() async {
         // Default: no-op for mock services
     }
 }

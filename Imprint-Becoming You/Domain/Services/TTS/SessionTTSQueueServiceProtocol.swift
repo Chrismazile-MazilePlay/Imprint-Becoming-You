@@ -32,8 +32,8 @@ import Foundation
 /// ## Preparation Phases
 /// The preparation process has distinct phases for smooth progress UI:
 /// ```
-/// Phase 1: WaitingForKokoro  - Wait for TTS engine warm-up (0% → 15%)
-/// Phase 2: Synthesizing      - Parallel audio synthesis (15% → 99%)
+/// Phase 1: WaitingForKokoro  - Wait for TTS engine warm-up (0% â†’ 15%)
+/// Phase 2: Synthesizing      - Parallel audio synthesis (15% â†’ 99%)
 /// Phase 3: Complete          - All ready (100%)
 /// Phase 4: Error             - Timeout or failure (shows fallback UI)
 /// ```
@@ -41,9 +41,9 @@ import Foundation
 /// ## Architecture
 /// ```
 /// SessionTTSQueueServiceProtocol
-/// ├── SessionTTSQueueService (Production)
-/// │   └── Uses TTSServiceProtocol with bounded TaskGroup
-/// └── MockSessionTTSQueueService (Testing)
+/// â”œâ”€â”€ SessionTTSQueueService (Production)
+/// â”‚   â””â”€â”€ Uses TTSServiceProtocol with bounded TaskGroup
+/// â””â”€â”€ MockSessionTTSQueueService (Testing)
 /// ```
 @MainActor
 protocol SessionTTSQueueServiceProtocol: AnyObject {
@@ -150,6 +150,22 @@ protocol SessionTTSQueueServiceProtocol: AnyObject {
     /// - Throws: `AppError.ttsError` if synthesis fails
     func synthesizeOnDemand(index: Int) async throws -> Data
     
+    /// Invalidates the audio cache after a shuffle and updates the affirmation order.
+    ///
+    /// Use this instead of `cancelAll()` when the session is being repeated or looped
+    /// with shuffle enabled. Clears stale cached audio (indices no longer match) and
+    /// updates the internal affirmation list so `synthesizeOnDemand()` produces correct
+    /// audio for the new order.
+    ///
+    /// Preserves voice settings (`currentVoiceId`, `currentVoiceSettings`) so on-demand
+    /// synthesis uses the same voice configuration as the original session.
+    ///
+    /// Does NOT start background re-synthesis — each affirmation is synthesized
+    /// on-demand via `speakText`'s fallback chain during playback.
+    ///
+    /// - Parameter newOrder: The shuffled affirmation list (with updated indices)
+    func invalidateCacheForShuffle(newOrder: [SessionAffirmationInfo])
+    
     /// Cancels all synthesis and clears the cache.
     ///
     /// Call this when:
@@ -170,11 +186,11 @@ protocol SessionTTSQueueServiceProtocol: AnyObject {
 enum SessionPreparationPhase: Equatable, Sendable {
     
     /// Waiting for Kokoro TTS engine to be ready.
-    /// Progress bar animates from 2% → 15% during this phase.
+    /// Progress bar animates from 2% â†’ 15% during this phase.
     case waitingForKokoro
     
     /// Actively synthesizing affirmations.
-    /// Progress bar animates from 15% → 99% based on completion.
+    /// Progress bar animates from 15% â†’ 99% based on completion.
     case synthesizing
     
     /// All affirmations synthesized successfully.

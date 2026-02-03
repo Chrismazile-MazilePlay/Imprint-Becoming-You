@@ -159,7 +159,7 @@ final class MockSessionTTSQueueService: SessionTTSQueueServiceProtocol {
         isBackgroundSynthesizing = false
         
         #if DEBUG
-        print("🎵 MockSessionTTSQueue: Background synthesis complete")
+        print("ðŸŽµ MockSessionTTSQueue: Background synthesis complete")
         #endif
     }
     
@@ -192,6 +192,18 @@ final class MockSessionTTSQueueService: SessionTTSQueueServiceProtocol {
         let audio = generateMockAudio(for: info.text)
         audioCache[index] = audio
         return audio
+    }
+    
+    func invalidateCacheForShuffle(newOrder: [SessionAffirmationInfo]) {
+        // Clear stale audio cache
+        audioCache.removeAll()
+        
+        // Update affirmation order
+        sessionAffirmations = newOrder
+        totalCount = newOrder.count
+        preparedCount = 0
+        
+        // Preserve: currentVoiceId, forceSystemTTS
     }
     
     func cancelAll() {

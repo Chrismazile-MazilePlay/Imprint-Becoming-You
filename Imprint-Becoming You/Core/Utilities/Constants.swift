@@ -83,7 +83,7 @@ enum Constants {
         /// Maximum concurrent TTS synthesis tasks.
         /// Tuned for ANE (Apple Neural Engine) throughput - 3 provides optimal
         /// parallelism without resource contention or thermal throttling.
-        static let maxConcurrency = 4
+        static let maxConcurrency = 3
         
         /// Number of affirmations required before "Start Now" button enables.
         /// At 3 concurrent synthesis (~3/sec), this takes ~5 seconds to reach.

@@ -66,16 +66,6 @@
         }
       }
     },
-    "%@. Category: %@. Favorited." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@. Category: %2$@. Favorited."
-          }
-        }
-      }
-    },
     "%lld" : {
 
     },
@@ -336,9 +326,6 @@
     "Double tap to deselect. Swipe left for more options." : {
 
     },
-    "Double tap to remove from favorites" : {
-
-    },
     "Double tap to select" : {
 
     },
@@ -421,6 +408,9 @@
     "Has custom settings" : {
 
     },
+    "Heart affirmations during practice to add them here." : {
+
+    },
     "If you continue, the app will work but your data won't be saved when you close it." : {
 
     },
@@ -487,7 +477,7 @@
     "No Favorites Yet" : {
 
     },
-    "No favorites yet. Tap the heart on any affirmation to save it here." : {
+    "No favorites yet. Heart affirmations during practice to add them here." : {
 
     },
     "No Saved Sessions" : {
@@ -797,9 +787,6 @@
 
     },
     "Tap Save to update your affirmations" : {
-
-    },
-    "Tap the heart on any affirmation to save it here." : {
 
     },
     "Tap to select" : {

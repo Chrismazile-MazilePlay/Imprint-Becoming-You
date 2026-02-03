@@ -229,7 +229,7 @@ struct MainPracticeView: View {
                         dismissSummary()
                     },
                     onRepeat: { mode, loopCount, shuffle in
-                        store.repeatSessionWithConfig(mode: mode, loopCount: loopCount, shuffle: shuffle)
+                        store.send(.repeatSessionWithConfig(mode: mode, loopCount: loopCount, shuffle: shuffle))
                     },
                     onSaveSession: {
                         refreshSavedSessionCount()

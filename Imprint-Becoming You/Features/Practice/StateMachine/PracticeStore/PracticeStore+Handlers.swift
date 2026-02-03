@@ -240,6 +240,9 @@ extension PracticeStore {
         dependencies.sessionTTSQueueService.cancelAll()
         clearSessionPreparation()
         
+        // 2b. Reset session-scoped voice flag so next session uses proper voice
+        forceSystemTTSForSession = false
+        
         // 3. Dismiss any alerts and clear timeout tracking
         setShowingTimeoutAlert(false)
         timedOutAffirmationId = nil
@@ -291,6 +294,9 @@ extension PracticeStore {
         // Cancel TTS queue and clear preparation state
         dependencies.sessionTTSQueueService.cancelAll()
         clearSessionPreparation()
+        
+        // Reset session-scoped voice flag so next session uses proper voice
+        forceSystemTTSForSession = false
         
         // Dismiss summary if showing (no animation needed since we're resetting)
         if isShowingSummary {
@@ -356,6 +362,17 @@ extension PracticeStore {
     }
     
     /// Handles completion of a loop iteration
+    ///
+    /// ## Timing Design
+    /// Uses the EXACT same pattern as `handleAutoAdvanceCompleted()` to ensure
+    /// loop transitions have identical timing to within-loop transitions:
+    /// 1. `incrementSegmentGeneration()` → dock timer restarts immediately
+    ///    (isAnimating is still true from the previous affirmation's `.complete` state)
+    /// 2. `startFlowForCurrentAffirmation()` → 300ms flowStartDelay → TTS plays
+    ///
+    /// Previously used `resetToIdle()` + 300ms Task delay, which created a 600ms
+    /// dead zone where segments showed 0% with no animation — desynchronizing
+    /// the segment timer from TTS playback in loop 2+.
     func handleLoopIterationCompleted() {
         guard loopConfiguration.hasMoreLoops else {
             // All loops complete, show summary
@@ -374,26 +391,39 @@ extension PracticeStore {
             context: ["currentLoop": config.currentLoopIteration, "totalLoops": config.loopCount]
         )
         
+        // Invalidate stale completion handlers BEFORE state reset.
+        // Prevents race conditions where old timers fire during the
+        // transition and trigger premature auto-advance.
+        flowGeneration += 1
+        
         // Reset session index for new loop
         setSessionState(index: 0)
         setSegmentProgress(0)
         
-        // Shuffle if enabled
+        // Shuffle if enabled and invalidate stale TTS cache
         if config.isShuffleEnabled {
             shuffleSessionAffirmations()
+            
+            // Update TTS queue with new affirmation order.
+            // Clears cached audio (indices no longer match) but preserves
+            // voice settings. On-demand synthesis handles each affirmation
+            // during playback via speakText's fallback chain.
+            let newOrder = sessionAffirmations.enumerated().map { index, affirmation in
+                SessionAffirmationInfo(affirmation: affirmation, index: index)
+            }
+            dependencies.sessionTTSQueueService.invalidateCacheForShuffle(newOrder: newOrder)
         }
         
-        // Reset to idle state for the mode
-        resetToIdle()
+        // Signal dock to restart segment timer — IDENTICAL to handleAutoAdvanceCompleted.
+        // The timer restarts immediately because isAnimating is still true from
+        // the previous affirmation's .complete state (we deliberately do NOT
+        // call resetToIdle, which would set isAnimating=false and break timing).
+        incrementSegmentGeneration()
         
-        // Start the new loop
-        // Fire-and-forget: short delay before restart, no tracking needed
-        Task { [weak self] in
-            guard let self = self else { return }
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled else { return }
-            self.startFlowForCurrentAffirmation()
-        }
+        // Start flow for first affirmation of the new loop.
+        // Same direct call as handleAutoAdvanceCompleted — TTS begins after
+        // flowStartDelay (~300ms), matching within-loop timing exactly.
+        startFlowForCurrentAffirmation()
         
         HapticFeedback.notification(.success)
     }
@@ -689,7 +719,7 @@ extension PracticeStore {
             // This prevents the auto-advance from firing after manual navigation
             guard self.shouldContinueFlow(generation: generation) else {
                 #if DEBUG
-                print("⏭️ Score display: User navigated away, skipping auto-advance")
+                print("â­ï¸ Score display: User navigated away, skipping auto-advance")
                 #endif
                 return
             }

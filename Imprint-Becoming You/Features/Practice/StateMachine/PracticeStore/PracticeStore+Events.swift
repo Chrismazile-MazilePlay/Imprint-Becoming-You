@@ -120,6 +120,9 @@ extension PracticeStore {
         case .repeatSession:
             handleRepeatSession()
             
+        case .repeatSessionWithConfig(let mode, let loopCount, let shuffle):
+            handleRepeatSessionWithConfig(mode: mode, loopCount: loopCount, shuffle: shuffle)
+            
         case .toggleFavoriteInSummary(let affirmationId):
             handleToggleFavoriteInSummary(affirmationId: affirmationId)
             
@@ -143,12 +146,16 @@ extension PracticeStore {
         case .saveSession(let name):
             handleSaveSession(name: name)
             
+        // MARK: Favorites Session Events
+        case .startFavoritesSession(let affirmations, let mode, let shuffle):
+            handleStartFavoritesSession(affirmations: affirmations, mode: mode, shuffle: shuffle)
+            
         // MARK: TTS Events
         case .ttsStarted:
             break
             
         case .ttsProgress(let progress):
-            handleTTSProgress(progress)
+            handleTTSProgress(Double(progress))
             
         case .ttsCompleted:
             handleTTSCompleted()

@@ -110,6 +110,12 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     /// User tapped repeat session (with current loop/shuffle config)
     case repeatSession
     
+    /// User tapped repeat session with custom mode/loop/shuffle from summary dock.
+    ///
+    /// Routes through `prepareAndStartSession` to ensure TTS is properly prepared
+    /// when the mode changes (e.g. Speak Only -> Read Aloud on repeat).
+    case repeatSessionWithConfig(mode: SessionMode, loopCount: Int, shuffle: Bool)
+    
     /// User toggled favorite on an affirmation in the summary
     /// - Parameter affirmationId: The ID of the affirmation to toggle
     case toggleFavoriteInSummary(UUID)
@@ -136,66 +142,75 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     /// User wants to save current session
     case saveSession(name: String)
     
+    // MARK: - Favorites Session Events
+    
+    /// User tapped play on favorites list.
+    ///
+    /// Follows the same synchronous event-driven pattern as `startSavedSession`.
+    /// Affirmations are pre-fetched by `FavoritesFullListView` and passed directly,
+    /// avoiding unnecessary `async` suspension that could cause voice ID staleness.
+    case startFavoritesSession(affirmations: [Affirmation], mode: SessionMode, shuffle: Bool)
+    
     // MARK: - TTS Events
     
-    /// TTS playback started
+    /// TTS synthesis started
     case ttsStarted
     
     /// TTS playback progress updated
     case ttsProgress(Double)
     
-    /// TTS playback completed successfully
+    /// TTS playback completed normally
     case ttsCompleted
     
-    /// TTS playback failed
+    /// TTS failed with error
     case ttsFailed(PracticeError)
     
-    /// TTS was cancelled (user navigation)
+    /// TTS was cancelled (user action)
     case ttsCancelled
     
     // MARK: - Speech Recognition Events
     
-    /// Started listening for user speech
+    /// Speech recognition started (microphone active)
     case listeningStarted
     
-    /// Live update during listening
+    /// Speech recognition update (partial results, audio level)
     case listeningUpdate(ListeningContext)
     
-    /// User finished speaking (silence detected or manual stop)
+    /// Speech recognition completed with final text
     case listeningCompleted(recognizedText: String, duration: TimeInterval)
     
     /// Speech recognition failed
     case listeningFailed(PracticeError)
     
-    /// Listening was cancelled (user navigation)
+    /// Speech recognition was cancelled
     case listeningCancelled
     
-    /// Word detection timed out (no matching words for 10 seconds)
+    /// Speech recognition timed out (no speech detected)
     case listeningTimedOut
     
-    /// User chose to retry after timeout
+    /// User tapped retry after timeout
     case retryListening
     
-    /// User chose to skip affirmation after timeout
+    /// User tapped skip after timeout
     case skipAffirmation
     
     // MARK: - Permission Events
     
-    /// Microphone or speech recognition permission was denied
+    /// A required permission was denied
     case permissionDenied(PermissionType)
     
-    /// User wants to open Settings to grant permissions
+    /// User chose to open Settings for permission
     case openSettings
     
-    /// User chose to continue without permission (falls back to read-only)
+    /// User chose to continue without the permission
     case continueWithoutPermission
     
     // MARK: - Score Events
     
-    /// Score calculation started
+    /// Score analysis started
     case analysisStarted
     
-    /// Score calculation completed
+    /// Score was calculated
     case scoreCalculated(ScoreResult)
     
     /// Score calculation failed
@@ -331,7 +346,7 @@ extension PracticeEvent {
             return true
         case .listeningTimedOut, .skipAffirmation:
             return true
-        case .repeatSession, .startSavedSession:
+        case .repeatSession, .repeatSessionWithConfig, .startSavedSession, .startFavoritesSession:
             return true
         case .cancelSessionPreparation:
             return true
@@ -355,7 +370,7 @@ extension PracticeEvent {
             return true
         case .cycleLoopCount, .toggleShuffle:
             return true
-        case .repeatSession, .startSavedSession, .saveSession:
+        case .repeatSession, .repeatSessionWithConfig, .startSavedSession, .startFavoritesSession, .saveSession:
             return true
         default:
             return false
@@ -399,7 +414,7 @@ extension PracticeEvent {
     /// Whether this event is related to loop/shuffle functionality
     var isLoopEvent: Bool {
         switch self {
-        case .cycleLoopCount, .toggleShuffle, .loopIterationCompleted, .repeatSession:
+        case .cycleLoopCount, .toggleShuffle, .loopIterationCompleted, .repeatSession, .repeatSessionWithConfig:
             return true
         default:
             return false
@@ -448,6 +463,8 @@ extension PracticeEvent: CustomStringConvertible {
             return "dismissSummary"
         case .repeatSession:
             return "repeatSession"
+        case .repeatSessionWithConfig(let mode, let loopCount, let shuffle):
+            return "repeatSessionWithConfig(\(mode.rawValue), loops: \(loopCount), shuffle: \(shuffle))"
         case .toggleFavoriteInSummary(let id):
             return "toggleFavoriteInSummary(\(id.uuidString.prefix(8)))"
         case .cycleLoopCount:
@@ -462,6 +479,8 @@ extension PracticeEvent: CustomStringConvertible {
             return "clearSavedSessionContext"
         case .saveSession(let name):
             return "saveSession(\(name))"
+        case .startFavoritesSession(let affs, let mode, let shuffle):
+            return "startFavoritesSession(\(affs.count) affirmations, \(mode.rawValue), shuffle: \(shuffle))"
         case .startFlow:
             return "startFlow"
         case .pauseFlow:

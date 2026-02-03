@@ -61,64 +61,64 @@ extension PracticeStore {
         }
     }
     
-    /// Loads user's favorited affirmations as a practice session.
+    /// Handles starting a favorites session via the event-driven `send()` pattern.
     ///
-    /// Unlike `loadFavorites`, this starts a proper session with the selected
-    /// mode, allowing scoring, loop tracking, and results summary.
+    /// Follows the same synchronous flow as `handleStartSavedSession`:
+    /// cancel activity -> reset state -> set affirmations -> prepare and start.
+    /// This avoids the `async` suspension that previously caused voice ID staleness.
     ///
     /// - Parameters:
-    ///   - repository: The repository to load from
+    ///   - affirmations: Pre-fetched favorite affirmations from `FavoritesFullListView`
     ///   - mode: The practice mode to use
     ///   - shuffle: Whether to shuffle the affirmations
-    func loadFavoritesAsSession(
-        using repository: any AffirmationRepositoryProtocol,
+    func handleStartFavoritesSession(
+        affirmations: [Affirmation],
         mode: SessionMode,
         shuffle: Bool
-    ) async {
-        self.repository = repository
+    ) {
+        // Close any open menus
+        send(.closeSelectors)
         
-        do {
-            let favorites = try repository.fetchFavorites()
-            
-            guard !favorites.isEmpty else {
-                setError(.dataLoadError("No favorites yet. Heart some affirmations first!"))
-                return
-            }
-            
-            // Cancel any current activity
-            cancelCurrentActivity()
-            flowGeneration += 1
-            
-            // Clear any saved session context (this is not a saved session playback)
-            clearSavedSessionContext()
-            
-            // Mark this as a favorites session
-            setFavoritesSession(true)
-            
-            // Clear original IDs so setSessionState captures fresh ones
-            clearOriginalSessionAffirmationIds()
-            
-            // Set up session state - this captures originalSessionAffirmationIds
-            setSessionState(affirmations: favorites, index: 0)
-            setSessionResults([])
-            setSegmentProgress(0)
-            sessionStartTime = Date()
-            
-            // Shuffle AFTER setting session state (preserves original order in originalSessionAffirmationIds)
-            if shuffle {
-                shuffleSessionAffirmations()
-            }
-            
+        guard !affirmations.isEmpty else {
             #if DEBUG
-            print("[OK] PracticeStore: Starting favorites session with \(favorites.count) affirmations, mode: \(mode.displayName)")
+            print("[WARN] PracticeStore: No favorites to start session")
             #endif
-            
-            // Use preparation flow for TTS modes
-            prepareAndStartSession(mode: mode)
-            
-        } catch {
-            send(.affirmationsLoadFailed(.dataLoadError(error.localizedDescription)))
+            setError(.dataLoadError("No favorites yet. Heart some affirmations first!"))
+            return
         }
+        
+        cancelCurrentActivity()
+        flowGeneration += 1
+        setSegmentProgress(0)
+        
+        // Reset loop iteration for a fresh start
+        resetLoopIteration()
+        
+        // Clear any saved session context (this is not a saved session playback)
+        clearSavedSessionContext()
+        
+        // Mark this as a favorites session
+        setFavoritesSession(true)
+        
+        // Clear original IDs so setSessionState captures fresh ones
+        clearOriginalSessionAffirmationIds()
+        
+        // Set up session state - this captures originalSessionAffirmationIds
+        setSessionState(affirmations: affirmations, index: 0)
+        setSessionResults([])
+        sessionStartTime = Date()
+        
+        // Shuffle AFTER setting session state (preserves original order in originalSessionAffirmationIds)
+        if shuffle {
+            shuffleSessionAffirmations()
+        }
+        
+        #if DEBUG
+        print("[OK] PracticeStore: Starting favorites session with \(affirmations.count) affirmations, mode: \(mode.displayName), voiceId: \(selectedVoiceId ?? "nil")")
+        #endif
+        
+        // Use preparation flow for TTS modes (identical path to saved sessions)
+        prepareAndStartSession(mode: mode)
     }
     
     /// Updates the current index in the active queue.

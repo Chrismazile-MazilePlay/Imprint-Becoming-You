@@ -353,6 +353,28 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         return audioData
     }
     
+    func invalidateCacheForShuffle(newOrder: [SessionAffirmationInfo]) {
+        #if DEBUG
+        let oldCacheCount = audioCache.count
+        print("SessionTTSQueue: Invalidating cache for shuffle (\(oldCacheCount) cached items, \(newOrder.count) affirmations in new order)")
+        #endif
+        
+        // Stop any in-progress background synthesis
+        backgroundTask?.cancel()
+        backgroundTask = nil
+        
+        // Clear stale audio cache (indices no longer match affirmations)
+        audioCache.removeAll()
+        synthesizingIndices.removeAll()
+        
+        // Update affirmation order for correct on-demand synthesis
+        sessionAffirmations = newOrder
+        currentPlaybackIndex = 0
+        
+        // Preserve: currentVoiceId, currentVoiceSettings, forceSystemTTS
+        // These remain valid for the same session's voice configuration
+    }
+    
     func cancelAll() {
         #if DEBUG
         print("SessionTTSQueue: Cancelling all")

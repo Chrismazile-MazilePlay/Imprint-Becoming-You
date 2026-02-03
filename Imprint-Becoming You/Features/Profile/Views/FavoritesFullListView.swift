@@ -96,27 +96,22 @@ struct FavoritesFullListView: View {
             
             Image(systemName: "heart.slash")
                 .font(.system(size: 48))
-                .foregroundStyle(AppColors.textTertiary)
-                .accessibilityHidden(true)
+                .foregroundStyle(AppColors.textSecondary.opacity(0.5))
             
             Text("No Favorites Yet")
                 .font(AppTypography.title3)
                 .foregroundStyle(AppColors.textPrimary)
-                .accessibilityAddTraits(.isHeader)
             
-            Text("Tap the heart on any affirmation to save it here.")
+            Text("Heart affirmations during practice to add them here.")
                 .font(AppTypography.body)
                 .foregroundStyle(AppColors.textSecondary)
                 .multilineTextAlignment(.center)
+                .padding(.horizontal, AppTheme.Spacing.xl)
             
             Spacer()
         }
-        .padding(AppTheme.Spacing.xl)
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: dockAreaHeight)
-        }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("No favorites yet. Tap the heart on any affirmation to save it here.")
+        .accessibilityLabel("No favorites yet. Heart affirmations during practice to add them here.")
     }
     
     // MARK: - Favorites List
@@ -127,16 +122,13 @@ struct FavoritesFullListView: View {
                 ForEach(favorites) { affirmation in
                     AffirmationListCard(
                         text: affirmation.text,
-                        category: affirmation.goalCategory,
+                        category: GoalCategory(rawValue: affirmation.category),
                         context: .favorites(savedAt: affirmation.favoritedAt),
                         isFavorited: true,
                         onToggleFavorite: {
                             unfavorite(affirmation)
                         }
                     )
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("\(affirmation.text). Category: \(affirmation.category). Favorited.")
-                    .accessibilityHint("Double tap to remove from favorites")
                 }
             }
             .padding(.horizontal, AppTheme.Spacing.lg)
@@ -175,9 +167,13 @@ struct FavoritesFullListView: View {
         )
     }
     
+    /// Starts a favorites session using the synchronous event-driven pattern.
+    ///
+    /// Mirrors the saved session flow in `SavedSessionsFullListView`:
+    /// set loop config -> send event -> pop to root.
+    /// Affirmations are passed directly (already loaded), avoiding any `async`
+    /// suspension that could cause voice ID staleness.
     private func startFavoritesSession(mode: SessionMode, loopCount: Int, shuffle: Bool) {
-        let repository = dependencies.makeAffirmationRepository(modelContext: modelContext)
-        
         let config = LoopConfiguration(
             loopCount: loopCount,
             isShuffleEnabled: shuffle,
@@ -185,15 +181,14 @@ struct FavoritesFullListView: View {
         )
         store.setLoopConfiguration(config)
         
-        Task {
-            await store.loadFavoritesAsSession(
-                using: repository,
-                mode: mode,
-                shuffle: shuffle
-            )
-            // Pop to root and navigate to Practice
-            onStartSession()
-        }
+        store.send(.startFavoritesSession(
+            affirmations: favorites,
+            mode: mode,
+            shuffle: shuffle
+        ))
+        
+        // Pop to root and navigate to Practice
+        onStartSession()
     }
     
     private func unfavorite(_ affirmation: Affirmation) {

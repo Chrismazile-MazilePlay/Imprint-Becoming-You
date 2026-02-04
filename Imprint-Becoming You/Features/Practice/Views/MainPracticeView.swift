@@ -36,6 +36,12 @@ enum AppPage: Int, CaseIterable {
 /// horizontal swiping is completely disabled. User must exit the mode
 /// to navigate between pages.
 ///
+/// ## Dock Menu Behavior
+/// When dock selector menus (Mode or Binaural) are expanded on the Practice
+/// page, horizontal paging is disabled. This prevents accidental page
+/// navigation while interacting with dock controls. The `DockMenuDismissModifier`
+/// handles closing menus on touch, and the next swipe navigates normally.
+///
 /// ## Memory Management
 /// Coordinates with `MemoryManager` to release heavy resources (Kokoro ML pipelines)
 /// when app enters background for extended periods. This prevents iOS from
@@ -53,7 +59,7 @@ enum AppPage: Int, CaseIterable {
 /// - AI button (top-left) -> slides to Prompts page (left) [home mode only]
 /// - Profile button (top-right) -> slides to Profile page (right) [home mode only]
 /// - Categories button -> full-screen cover (no slide)
-/// - Swipe left/right -> Only works in home mode
+/// - Swipe left/right -> Works in home mode (simultaneous with vertical paging)
 struct MainPracticeView: View {
     
     // MARK: - Environment
@@ -87,6 +93,16 @@ struct MainPracticeView: View {
     /// Communicated to child pages to disable their ScrollViews.
     @State private var isHorizontallyDragging: Bool = false
     
+    /// Whether a dock selector menu (Mode or Binaural) is expanded.
+    /// Relayed from PracticePageView via binding. When true, horizontal
+    /// paging is disabled to prevent page navigation during menu interaction.
+    @State private var isDockMenuExpanded: Bool = false
+    
+    /// Signal to reset Profile page's scroll position to the top.
+    /// Set to `true` during full reset (extended background timeout).
+    /// ProfilePageView observes this and resets scroll, then clears the flag.
+    @State private var resetProfileScroll: Bool = false
+    
     // MARK: - Computed Properties
     
     /// Whether the horizontal pager gesture should be enabled.
@@ -94,12 +110,16 @@ struct MainPracticeView: View {
     /// Disabled when:
     /// - Active session is running (user focused on practice)
     /// - Profile has navigation depth > 0 (let NavigationStack handle back gesture)
+    /// - Dock selector menus are expanded (prevent navigation during menu interaction)
     private var isPagerGestureEnabled: Bool {
         // Disable during active sessions
         guard !store.isSessionActive else { return false }
         
         // Disable when Profile has navigation depth (NavigationStack needs the gesture)
         guard profileNavigationDepth == 0 else { return false }
+        
+        // Disable when dock menus are expanded (DockMenuDismissModifier closes them on touch)
+        guard !isDockMenuExpanded else { return false }
         
         return true
     }
@@ -175,20 +195,20 @@ struct MainPracticeView: View {
                 PracticePageView(
                     store: store,
                     onNavigateToProfile: { }, // Disabled in active mode
-                    onNavigateToPrompts: { }  // Disabled in active mode
+                    onNavigateToPrompts: { }, // Disabled in active mode
+                    isDockMenuExpanded: $isDockMenuExpanded
                 )
                 .ignoresSafeArea()
                 .transition(.opacity)
             } else if !store.isShowingSummary {
                 // HOME MODE: HorizontalPager with three pages
-                // Gesture is disabled when Profile has navigation depth,
-                // allowing NavigationStack's back gesture to work.
+                // Uses .simultaneousGesture() so both horizontal paging and
+                // VerticalPager's vertical swiping work concurrently.
+                // Direction locking in each pager routes events to the correct axis.
                 HorizontalPager(
                     currentPage: currentPageIndex,
                     pageCount: AppPage.allCases.count,
                     isGestureEnabled: isPagerGestureEnabled,
-                    bottomExclusionHeight: 120, // Dock area exclusion (Practice page only)
-                    practicePageIndex: AppPage.practice.rawValue,
                     isHorizontallyDragging: $isHorizontallyDragging
                 ) {
                     // Page 0: Prompts (Left)
@@ -201,7 +221,8 @@ struct MainPracticeView: View {
                     PracticePageView(
                         store: store,
                         onNavigateToProfile: { navigateToPage(.profile) },
-                        onNavigateToPrompts: { navigateToPage(.prompts) }
+                        onNavigateToPrompts: { navigateToPage(.prompts) },
+                        isDockMenuExpanded: $isDockMenuExpanded
                     )
                     
                     // Page 2: Profile (Right)
@@ -210,7 +231,8 @@ struct MainPracticeView: View {
                         onNavigateToCenter: { navigateToPage(.practice) },
                         navigationDepth: $profileNavigationDepth,
                         isHorizontallyDragging: isHorizontallyDragging,
-                        isActive: currentPage == .profile
+                        isActive: currentPage == .profile,
+                        resetScrollToTop: $resetProfileScroll
                     )
                 }
                 .ignoresSafeArea()
@@ -434,6 +456,9 @@ struct MainPracticeView: View {
                 // Navigate to Practice page
                 currentPage = .practice
                 
+                // Reset Profile scroll position (invisible since we're on Practice page)
+                resetProfileScroll = true
+                
                 // Full state reset via centralized event
                 store.send(.resetToHome)
                 return
@@ -578,13 +603,15 @@ struct MainPracticeView: View {
     // This preview shows that horizontal swiping is blocked
     struct ActiveModePreview: View {
         @State private var store = PracticeStore()
+        @State private var isDockMenuExpanded = false
         
         var body: some View {
             ZStack {
                 PracticePageView(
                     store: store,
                     onNavigateToProfile: {},
-                    onNavigateToPrompts: {}
+                    onNavigateToPrompts: {},
+                    isDockMenuExpanded: $isDockMenuExpanded
                 )
             }
             .onAppear {

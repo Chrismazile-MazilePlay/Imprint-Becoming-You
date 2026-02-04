@@ -66,6 +66,11 @@ struct ProfilePageView: View {
     /// Used to reset scroll position when navigating to this page.
     let isActive: Bool
     
+    /// Signal from parent to reset scroll position to the top.
+    /// Set to `true` during full reset (extended background timeout).
+    /// This view observes the change, scrolls to top, then clears the flag.
+    @Binding var resetScrollToTop: Bool
+    
     // MARK: - Navigation State
     
     /// Navigation path owned by this view
@@ -163,10 +168,17 @@ struct ProfilePageView: View {
             }
             .scrollDisabled(isHorizontallyDragging)
             .onChange(of: isActive) { _, nowActive in
-                // When this page becomes active, scroll to top and reload stats
+                // Reload stats when this page becomes active
                 if nowActive {
-                    proxy.scrollTo("profileTop", anchor: .top)
                     Task { await loadStats() }
+                }
+            }
+            .onChange(of: resetScrollToTop) { _, shouldReset in
+                // Reset scroll position when signaled by parent (extended background timeout).
+                // This fires while the user is on the Practice page, so the reset is invisible.
+                if shouldReset {
+                    proxy.scrollTo("profileTop", anchor: .top)
+                    resetScrollToTop = false
                 }
             }
         }
@@ -689,6 +701,7 @@ struct SettingsRow: View {
 #Preview("Profile Page") {
     struct PreviewWrapper: View {
         @State private var navigationDepth = 0
+        @State private var resetScroll = false
         
         var body: some View {
             ProfilePageView(
@@ -696,7 +709,8 @@ struct SettingsRow: View {
                 onNavigateToCenter: {},
                 navigationDepth: $navigationDepth,
                 isHorizontallyDragging: false,
-                isActive: true
+                isActive: true,
+                resetScrollToTop: $resetScroll
             )
             .previewEnvironment()
         }

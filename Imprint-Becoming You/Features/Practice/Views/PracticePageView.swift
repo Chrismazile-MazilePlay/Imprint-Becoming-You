@@ -30,8 +30,8 @@ import SwiftData
 /// ## Color Morphing
 /// Background colors use true RGB interpolation (not opacity crossfade) for smooth
 /// transitions. The system has two modes:
-/// - **Active navigation** (progress Ã¢â€°Â  0): Uses `interpolatedBackground` for real-time color blending
-/// - **At rest** (progress Ã¢â€°Ë† 0): Uses `staticBackground` with `displayedBackgroundCategory`
+/// - **Active navigation** (progress != 0): Uses `interpolatedBackground` for real-time color blending
+/// - **At rest** (progress ~= 0): Uses `staticBackground` with `displayedBackgroundCategory`
 ///
 /// When navigation completes, `displayedBackgroundCategory` is immediately updated
 /// to match the new index, ensuring seamless handoff between modes.
@@ -49,8 +49,15 @@ import SwiftData
 /// - Store's `continueFlow()` starts the next affirmation flow
 /// - DockProgressBars stay in sync via store state
 ///
-/// ## Gesture Priority
-/// Vertical gestures take strict priority over horizontal (parent TabView).
+/// ## Gesture Architecture
+/// Vertical gestures are handled by `VerticalPager` (child). Horizontal gestures
+/// are handled by `HorizontalPager` (parent) via `.simultaneousGesture()`.
+/// Direction locking in each pager routes events to the correct axis.
+///
+/// When dock menus (mode/binaural selectors) are expanded, this view relays
+/// that state to the parent via `isDockMenuExpanded` binding, which disables
+/// `HorizontalPager`'s gesture entirely. The `DockMenuDismissModifier` handles
+/// closing the menus on touch.
 struct PracticePageView: View {
     
     // MARK: - Properties
@@ -63,6 +70,11 @@ struct PracticePageView: View {
     /// Callback to navigate to prompts page
     let onNavigateToPrompts: () -> Void
     
+    /// Binding to communicate dock menu expansion state to parent.
+    /// When `true`, parent disables horizontal pager gesture to prevent
+    /// page navigation while dock selectors are open.
+    @Binding var isDockMenuExpanded: Bool
+    
     // MARK: - Environment
     
     @Environment(\.modelContext) private var modelContext
@@ -71,7 +83,7 @@ struct PracticePageView: View {
     
     // MARK: - State
     
-    /// Tracks the background category to display when at rest (progress ≈ 0).
+    /// Tracks the background category to display when at rest (progress ~= 0).
     /// Updated immediately (no animation) when index changes, because the
     /// progress-based interpolation already handles the visual transition.
     @State private var displayedBackgroundCategory: GoalCategory?
@@ -84,11 +96,13 @@ struct PracticePageView: View {
     init(
         store: PracticeStore,
         onNavigateToProfile: @escaping () -> Void,
-        onNavigateToPrompts: @escaping () -> Void
+        onNavigateToPrompts: @escaping () -> Void,
+        isDockMenuExpanded: Binding<Bool>
     ) {
         self.store = store
         self.onNavigateToProfile = onNavigateToProfile
         self.onNavigateToPrompts = onNavigateToPrompts
+        self._isDockMenuExpanded = isDockMenuExpanded
         self._dockAdapter = State(initialValue: PracticeDockAdapter(store: store))
     }
     
@@ -134,7 +148,6 @@ struct PracticePageView: View {
             }
             .ignoresSafeArea(edges: .bottom)
         }
-        .gesture(horizontalBlockingGesture)
         .onAppear {
             // Initialize background to current category
             displayedBackgroundCategory = store.currentAffirmation?.goalCategory
@@ -146,6 +159,20 @@ struct PracticePageView: View {
             // the correct color when progress returns to 0.
             displayedBackgroundCategory = affirmation(at: newIndex)?.goalCategory
         }
+        .onChange(of: dockAdapter.isModeSelectorExpanded) { _, _ in
+            updateDockMenuExpanded()
+        }
+        .onChange(of: dockAdapter.isBinauralSelectorExpanded) { _, _ in
+            updateDockMenuExpanded()
+        }
+    }
+    
+    // MARK: - Dock Menu State
+    
+    /// Relays dock selector expansion state to the parent binding.
+    /// When either selector is expanded, horizontal paging is disabled.
+    private func updateDockMenuExpanded() {
+        isDockMenuExpanded = dockAdapter.isModeSelectorExpanded || dockAdapter.isBinauralSelectorExpanded
     }
     
     // MARK: - Bindings
@@ -213,7 +240,7 @@ struct PracticePageView: View {
     ///
     /// Uses two rendering modes:
     /// - **At rest** (|progress| < 0.01): Shows static gradient for `displayedBackgroundCategory`
-    /// - **During navigation** (|progress| Ã¢â€°Â¥ 0.01): Interpolates between current and target colors
+    /// - **During navigation** (|progress| >= 0.01): Interpolates between current and target colors
     ///
     /// The handoff between modes is seamless because `displayedBackgroundCategory`
     /// is updated immediately when the index changes.
@@ -393,22 +420,6 @@ struct PracticePageView: View {
     
     // MARK: - Overlay Layers
     
-    // MARK: - Horizontal Blocking Gesture
-    
-    /// Blocks horizontal swipes from reaching parent TabView when in active mode
-    private var horizontalBlockingGesture: some Gesture {
-        DragGesture(minimumDistance: store.isSessionActive ||
-                    dockAdapter.isBinauralSelectorExpanded ||
-                    dockAdapter.isModeSelectorExpanded ? 0 : 10000)
-            .onChanged { _ in
-                // Consume the gesture - do nothing
-                // This prevents horizontal swipes from propagating to TabView
-            }
-            .onEnded { _ in
-                // Do nothing
-            }
-    }
-    
     // MARK: - Phase Mapping
     
     private var currentPhase: AffirmationPhase {
@@ -481,7 +492,8 @@ extension Color {
     PracticePageView(
         store: .preview,
         onNavigateToProfile: {},
-        onNavigateToPrompts: {}
+        onNavigateToPrompts: {},
+        isDockMenuExpanded: .constant(false)
     )
     .previewEnvironment()
 }
@@ -490,7 +502,8 @@ extension Color {
     PracticePageView(
         store: .previewReadAloud,
         onNavigateToProfile: {},
-        onNavigateToPrompts: {}
+        onNavigateToPrompts: {},
+        isDockMenuExpanded: .constant(false)
     )
     .previewEnvironment()
 }

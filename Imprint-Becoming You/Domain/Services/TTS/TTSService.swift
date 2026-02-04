@@ -33,6 +33,8 @@ import iOS_TTS
 /// ## Memory Management
 /// Use `releaseForBackground()` when entering background to free ML pipelines (~500MB-1GB).
 /// Call `warmUp()` again when returning to foreground.
+/// The synthesis idle timer automatically releases pipelines after 30s of
+/// inactivity, keeping the app's steady-state memory footprint minimal (~90-100MB).
 ///
 /// ## Audio Session Pre-Configuration
 /// The audio session is pre-configured during `warmUp()` on a background queue
@@ -103,6 +105,27 @@ final class TTSService: TTSServiceProtocol {
     /// the main thread for 50-200ms.
     private var lastConfiguredCategory: AVAudioSession.Category?
     
+    // MARK: - Synthesis Idle Timer
+    
+    /// Task that counts down to automatic pipeline memory release.
+    ///
+    /// Resets after every Kokoro synthesis completes. When the timer fires
+    /// (no synthesis for `synthesisIdleTimeout` seconds), pipeline memory
+    /// is automatically released to free ~800MB–1.5GB of CoreML buffers.
+    ///
+    /// This solves the memory retention problem in voice preview flows
+    /// (Voice Settings, Voice Modification, Onboarding) where synthesis
+    /// loads the pipeline but no explicit cleanup ever fires on navigation.
+    private var synthesisIdleTimer: Task<Void, Never>?
+    
+    /// Idle timeout before automatic pipeline memory release (in seconds).
+    ///
+    /// Balances competing needs:
+    /// - Short enough to free memory promptly after voice preview navigation (~30s)
+    /// - Long enough to keep pipeline warm during active voice browsing (2–5s gaps)
+    /// - Pipeline reload takes ~1–2s from CoreML cache, masked by UI indicators
+    private let synthesisIdleTimeout: TimeInterval = 30
+    
     // MARK: - Initialization
     
     init() {
@@ -145,6 +168,10 @@ final class TTSService: TTSServiceProtocol {
     }
     
     /// Internal warm-up implementation (separated for signpost measurement).
+    ///
+    /// Eagerly loads the preferred ML pipeline (~300-350MB) for fastest first
+    /// synthesis. Starts the synthesis idle timer so the pipeline auto-releases
+    /// after 30s if the user doesn't use TTS, returning memory to ~90-100MB.
     private func performWarmUp() async {
         #if DEBUG
         print("TTSService: Warming up Kokoro engine...")
@@ -152,6 +179,9 @@ final class TTSService: TTSServiceProtocol {
         
         // Reset background release flag
         _isReleasedForBackground = false
+        
+        // Cancel any pending idle timer — fresh warm-up should not be released
+        cancelSynthesisIdleTimer()
         
         // Pre-configure audio session on background queue (Issue 2.4)
         // This moves the potentially blocking setCategory() off the main thread
@@ -164,6 +194,11 @@ final class TTSService: TTSServiceProtocol {
             #if DEBUG
             print("TTSService: Kokoro engine ready")
             #endif
+            
+            // Start idle timer — if no synthesis occurs within 30s, the pipeline
+            // auto-releases to free ~300-350MB. This makes the eager warm-up
+            // self-correcting: instant TTS if needed, minimal memory if not.
+            resetSynthesisIdleTimer()
             
             // Post notification that Kokoro is ready
             NotificationCenter.default.post(
@@ -330,8 +365,11 @@ final class TTSService: TTSServiceProtocol {
         // Cancel any pending pre-synthesis
         cancelPreSynthesis()
         
+        // Cancel idle timer — explicit release supersedes timer
+        cancelSynthesisIdleTimer()
+        
         // Release the Kokoro engine
-        await kokoroEngine.releaseForBackground()
+        await kokoroEngine.releasePipelines()
         
         // Update state
         _isKokoroReady = false
@@ -364,9 +402,12 @@ final class TTSService: TTSServiceProtocol {
         // Cancel any pending pre-synthesis (no longer needed)
         cancelPreSynthesis()
         
+        // Cancel idle timer — explicit release supersedes timer
+        cancelSynthesisIdleTimer()
+        
         // Release ML pipelines but keep Kokoro logically "ready"
         // ensurePipeline() will reload on-demand during next session preparation
-        await kokoroEngine.releasePipelineMemory()
+        await kokoroEngine.releasePipelines()
         
         // NOTE: We intentionally do NOT set _isKokoroReady = false
         // or _isReleasedForBackground = true. Kokoro stays "ready"
@@ -374,6 +415,64 @@ final class TTSService: TTSServiceProtocol {
         
         #if DEBUG
         print("TTSService: Pipeline memory released (Kokoro still marked ready)")
+        #endif
+    }
+    
+    // MARK: - Synthesis Idle Timer
+    
+    /// Resets the idle timer after a Kokoro synthesis completes.
+    ///
+    /// Each call cancels any existing timer and starts a new countdown.
+    /// If no new synthesis occurs within `synthesisIdleTimeout`, the pipeline
+    /// memory is automatically released via `releasePipelineMemory()`.
+    ///
+    /// This ensures all synthesis consumers (session, voice preview, onboarding)
+    /// benefit from automatic cleanup without explicit per-view teardown.
+    private func resetSynthesisIdleTimer() {
+        synthesisIdleTimer?.cancel()
+        
+        let timeout = synthesisIdleTimeout
+        synthesisIdleTimer = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(timeout))
+                await self?.handleSynthesisIdleTimeout()
+            } catch {
+                // Task was cancelled — new synthesis started or explicit cleanup occurred
+            }
+        }
+    }
+    
+    /// Cancels the idle timer without releasing memory.
+    ///
+    /// Call when:
+    /// - Synthesis is starting (prevent premature release during active use)
+    /// - Explicit cleanup occurs (prevent redundant double-release)
+    /// - Warm-up begins (prevent releasing freshly loaded pipeline)
+    private func cancelSynthesisIdleTimer() {
+        synthesisIdleTimer?.cancel()
+        synthesisIdleTimer = nil
+    }
+    
+    /// Handles idle timeout by performing unified memory cleanup.
+    ///
+    /// Performs the same cleanup as session end to ensure consistent memory
+    /// floor (~90-100MB) regardless of which path triggers release:
+    /// - Cancels any in-flight pre-synthesis task (may hold WAV Data)
+    /// - Releases ML pipelines (~300-350MB weights + ~500MB-1GB prediction buffers)
+    /// - Keeps `isKokoroReady = true` so next synthesis transparently reloads
+    private func handleSynthesisIdleTimeout() async {
+        #if DEBUG
+        print("TTSService: Synthesis idle timeout (\(synthesisIdleTimeout)s) — releasing pipeline memory")
+        #endif
+        
+        // Cancel any lingering pre-synthesis (may hold WAV data in memory)
+        cancelPreSynthesis()
+        
+        // Release ML pipelines (the main memory savings)
+        await kokoroEngine.releasePipelines()
+        
+        #if DEBUG
+        print("TTSService: Pipeline memory released via idle timeout (Kokoro still marked ready)")
         #endif
     }
     
@@ -459,7 +558,7 @@ final class TTSService: TTSServiceProtocol {
                     try session.setCategory(
                         .playback,
                         mode: .default,
-                        options: [.duckOthers, .allowBluetooth]
+                        options: [.duckOthers]
                     )
                     
                     // Update state on main actor
@@ -509,7 +608,7 @@ final class TTSService: TTSServiceProtocol {
             try session.setCategory(
                 .playback,
                 mode: .default,
-                options: [.duckOthers, .allowBluetooth]
+                options: [.duckOthers]
             )
             lastConfiguredCategory = .playback
             isAudioSessionConfigured = true
@@ -542,15 +641,26 @@ final class TTSService: TTSServiceProtocol {
         print("TTSService: Resolved voice style: \(voiceStyle.rawValue), speed=\(speed), pitch=\(pitchShiftSemitones)")
         #endif
         
+        // Cancel idle timer — Kokoro synthesis is starting
+        cancelSynthesisIdleTimer()
+        
         do {
-            return try await kokoroEngine.synthesizeToData(
+            let audioData = try await kokoroEngine.synthesizeToData(
                 text: text,
                 voiceStyle: voiceStyle,
                 speed: speed,
                 pitchShiftSemitones: pitchShiftSemitones,
                 pitchRangeScale: pitchRangeScale
             )
+            
+            // Reset idle timer — synthesis complete, start countdown
+            resetSynthesisIdleTimer()
+            
+            return audioData
         } catch {
+            // Reset timer even on failure — pipeline was loaded and has buffers
+            resetSynthesisIdleTimer()
+            
             #if DEBUG
             print("TTSService: Kokoro synthesis failed, falling back to System TTS - \(error)")
             #endif
@@ -584,6 +694,9 @@ final class TTSService: TTSServiceProtocol {
         print("TTSService: Resolved voice style: \(voiceStyle.rawValue)")
         #endif
         
+        // Cancel idle timer — Kokoro synthesis is starting
+        cancelSynthesisIdleTimer()
+        
         do {
             let audioData = try await kokoroEngine.synthesizeToData(
                 text: text,
@@ -593,6 +706,9 @@ final class TTSService: TTSServiceProtocol {
                 pitchRangeScale: pitchRangeScale
             )
             
+            // Reset idle timer — synthesis complete, start countdown
+            resetSynthesisIdleTimer()
+            
             #if DEBUG
             print("TTSService: Kokoro synthesis complete, playing \(audioData.count) bytes")
             #endif
@@ -600,6 +716,9 @@ final class TTSService: TTSServiceProtocol {
             try await playAudioData(audioData)
             
         } catch {
+            // Reset timer even on failure — pipeline was loaded and has buffers
+            resetSynthesisIdleTimer()
+            
             #if DEBUG
             print("TTSService: Kokoro playback failed, falling back to System TTS - \(error)")
             #endif

@@ -96,7 +96,7 @@ extension PracticeStore {
         setSessionPreparationPhase(.waitingForKokoro)
         
         #if DEBUG
-        print("ÃƒÂ°Ã…Â¸Ã…Â½Ã‚Âµ PracticeStore: Starting session preparation for \(totalCount) affirmations")
+        print("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½Ãƒâ€šÃ‚Âµ PracticeStore: Starting session preparation for \(totalCount) affirmations")
         #endif
         
         // Build lightweight affirmation info for queue
@@ -122,7 +122,7 @@ extension PracticeStore {
                             self.setSessionPreparationPhase(phase)
                             
                             #if DEBUG
-                            print("ÃƒÂ°Ã…Â¸Ã…Â½Ã‚Âµ PracticeStore: Phase changed to \(phase)")
+                            print("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½Ãƒâ€šÃ‚Âµ PracticeStore: Phase changed to \(phase)")
                             #endif
                             
                             // Handle timeout phase (don't auto-complete)
@@ -146,7 +146,7 @@ extension PracticeStore {
                             
                             #if DEBUG
                             if prepared % 5 == 0 || prepared == total {
-                                print("ÃƒÂ°Ã…Â¸Ã…Â½Ã‚Âµ PracticeStore: Preparation progress \(prepared)/\(total) (\(Int(progress * 100))%)")
+                                print("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½Ãƒâ€šÃ‚Âµ PracticeStore: Preparation progress \(prepared)/\(total) (\(Int(progress * 100))%)")
                             }
                             #endif
                         }
@@ -164,7 +164,7 @@ extension PracticeStore {
                 
             } catch is CancellationError {
                 #if DEBUG
-                print("ÃƒÂ°Ã…Â¸Ã…Â½Ã‚Âµ PracticeStore: Preparation task cancelled (user action)")
+                print("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½Ãƒâ€šÃ‚Âµ PracticeStore: Preparation task cancelled (user action)")
                 #endif
                 
             } catch {
@@ -181,13 +181,13 @@ extension PracticeStore {
     func retrySessionPreparation() {
         guard let mode = pendingSessionMode else {
             #if DEBUG
-            print("ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â PracticeStore: No pending mode for retry")
+            print("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â PracticeStore: No pending mode for retry")
             #endif
             return
         }
         
         #if DEBUG
-        print("ÃƒÂ°Ã…Â¸Ã…Â½Ã‚Âµ PracticeStore: Retrying session preparation")
+        print("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½Ãƒâ€šÃ‚Âµ PracticeStore: Retrying session preparation")
         #endif
         
         // Reset the force system flag (we're trying Kokoro again)
@@ -215,13 +215,13 @@ extension PracticeStore {
     func continueWithSystemVoice() {
         guard let mode = pendingSessionMode else {
             #if DEBUG
-            print("ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â PracticeStore: No pending mode for system voice fallback")
+            print("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â PracticeStore: No pending mode for system voice fallback")
             #endif
             return
         }
         
         #if DEBUG
-        print("ÃƒÂ°Ã…Â¸Ã…Â½Ã‚Âµ PracticeStore: Continuing with System TTS")
+        print("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½Ãƒâ€šÃ‚Âµ PracticeStore: Continuing with System TTS")
         #endif
         
         // Set session-scoped flag to force System TTS
@@ -340,7 +340,7 @@ extension PracticeStore {
     func handleSessionPreparationCompleted() {
         guard let mode = pendingSessionMode else {
             #if DEBUG
-            print("ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â PracticeStore: Preparation completed but no pending mode")
+            print("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â PracticeStore: Preparation completed but no pending mode")
             #endif
             clearSessionPreparation()
             return
@@ -353,9 +353,9 @@ extension PracticeStore {
         
         #if DEBUG
         if hasRemaining {
-            print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ PracticeStore: Early start - starting session with \(preparedCount)/\(totalCount) ready")
+            print("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ PracticeStore: Early start - starting session with \(preparedCount)/\(totalCount) ready")
         } else {
-            print("ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ PracticeStore: TTS preparation complete, starting session in \(mode.rawValue) mode")
+            print("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ PracticeStore: TTS preparation complete, starting session in \(mode.rawValue) mode")
         }
         #endif
         
@@ -372,7 +372,7 @@ extension PracticeStore {
         // If there are remaining affirmations, continue synthesis in background
         if hasRemaining {
             #if DEBUG
-            print("ÃƒÂ°Ã…Â¸Ã…Â½Ã‚Âµ PracticeStore: Starting background synthesis for remaining \(totalCount - preparedCount) affirmations")
+            print("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½Ãƒâ€šÃ‚Âµ PracticeStore: Starting background synthesis for remaining \(totalCount - preparedCount) affirmations")
             #endif
             queueService.startBackgroundSynthesis(startingFrom: preparedCount)
         }
@@ -381,7 +381,7 @@ extension PracticeStore {
     /// Handles session preparation failure.
     func handleSessionPreparationFailed(_ error: PracticeError) {
         #if DEBUG
-        print("ÃƒÂ¢Ã‚ÂÃ…â€™ PracticeStore: TTS preparation failed: \(error)")
+        print("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ PracticeStore: TTS preparation failed: \(error)")
         #endif
         
         // Update phase to error
@@ -393,7 +393,7 @@ extension PracticeStore {
     /// Handles user cancellation of session preparation.
     func handleCancelSessionPreparation() {
         #if DEBUG
-        print("ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ¢â‚¬Ëœ PracticeStore: User cancelled session preparation")
+        print("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂºÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“ PracticeStore: User cancelled session preparation")
         #endif
         
         clearSessionPreparation()
@@ -415,6 +415,10 @@ extension PracticeStore {
         Task {
             await dependencies.ttsService.releasePipelineMemory()
         }
+        
+        // Release speech capture service to free SFSpeechRecognizer + AVAudioEngine (~7-15MB).
+        // Lazily recreated on next Read & Speak or Speak Only session.
+        releaseSpeechCaptureService()
         
         #if DEBUG
         print("[DEBUG] showSessionSummary: \(sessionResults.count) results")
@@ -451,8 +455,8 @@ extension PracticeStore {
     /// The order of operations is critical to prevent visual glitches:
     ///
     /// 1. **Reset display state FIRST** (immediate, no animation)
-    ///    - Sets `flow` to `.home` Ã¢â€ â€™ `isSessionActive` becomes `false`
-    ///    - Clears `sessionAffirmations` Ã¢â€ â€™ `store.affirmations` returns browse content
+    ///    - Sets `flow` to `.home` ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ `isSessionActive` becomes `false`
+    ///    - Clears `sessionAffirmations` ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ `store.affirmations` returns browse content
     ///    - PracticePageView now shows browse content (hidden behind summary)
     ///
     /// 2. **Animate summary dismiss**

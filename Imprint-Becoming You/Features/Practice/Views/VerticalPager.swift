@@ -436,8 +436,6 @@ struct VerticalPager<Content: View, Background: View>: View {
             }
             onNavigate?(direction)
         }
-        
-        HapticFeedback.selection()
     }
     
     // MARK: - Programmatic Auto-Advance

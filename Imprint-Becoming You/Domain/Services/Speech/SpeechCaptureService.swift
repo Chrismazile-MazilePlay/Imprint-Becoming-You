@@ -308,6 +308,7 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
         }
+        audioEngine = nil
         
         // Cancel recognition task
         recognitionTask?.cancel()
@@ -347,6 +348,7 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
         }
+        audioEngine = nil
         
         isCapturing = false
         currentTranscription = ""

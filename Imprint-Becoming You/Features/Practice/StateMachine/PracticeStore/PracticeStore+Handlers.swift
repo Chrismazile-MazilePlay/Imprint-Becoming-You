@@ -368,19 +368,19 @@ extension PracticeStore {
     /// Each swipe/skip fires a fire-and-forget `Task { await playerService.stop() }`
     /// via `cancelCurrentActivity()`. After 10 rapid skips, ~10 such Tasks queue
     /// on the `AudioPlayerService` actor. Without cleanup, the next loop's first
-    /// `playRawPCMData()` call must wait behind ALL of them — causing a visible delay.
+    /// `playRawPCMData()` call must wait behind ALL of them â€” causing a visible delay.
     ///
     /// ### Defense-in-Depth (3 layers):
     ///
-    /// 1. **`cancelCurrentActivity()`** — Best-effort teardown. Cancels the active
+    /// 1. **`cancelCurrentActivity()`** â€” Best-effort teardown. Cancels the active
     ///    flow task, stops TTS, fires a fire-and-forget `stop()` on the audio actor.
     ///    This handles the common case but leaves fire-and-forget Tasks in-flight.
     ///
-    /// 2. **`isAnimating` toggle** — Sets flow to `.idle` (isAnimating=false) BEFORE
+    /// 2. **`isAnimating` toggle** â€” Sets flow to `.idle` (isAnimating=false) BEFORE
     ///    resetting the index, so the dock timer cannot start prematurely.
     ///    `handleAnimatingChanged` restarts it when flow sets `.playing`.
     ///
-    /// 3. **Actor drain in `executeCurrentFlow()`** — The new flow's Task awaits
+    /// 3. **Actor drain in `executeCurrentFlow()`** â€” The new flow's Task awaits
     ///    `playerService.stop()` before the 300ms `flowStartDelay`. This serializes
     ///    behind ALL pending fire-and-forget operations, guaranteeing a clean audio
     ///    state before playback begins. No matter how many stale Tasks are queued,
@@ -417,7 +417,7 @@ extension PracticeStore {
         
         // LAYER 1: Best-effort teardown of all current activity.
         // Cancels flow task, stops TTS, fires fire-and-forget audio stop.
-        // Rapid skipping may have left fire-and-forget Tasks in-flight —
+        // Rapid skipping may have left fire-and-forget Tasks in-flight â€”
         // these are drained by Layer 3 (actor drain in executeCurrentFlow).
         cancelCurrentActivity()
         
@@ -429,7 +429,7 @@ extension PracticeStore {
         // LAYER 2: Set flow to idle to stop the dock timer.
         // The flow was .readAloud(.complete) which keeps isAnimating=true.
         // If we reset the index while isAnimating is still true,
-        // handleSegmentChanged would immediately start a new timer —
+        // handleSegmentChanged would immediately start a new timer â€”
         // creating a head start over TTS (the flowStartDelay gap).
         switch sessionMode {
         case .readAloud:
@@ -442,7 +442,7 @@ extension PracticeStore {
             break
         }
         
-        // Now safe to reset index — isAnimating is false, timer won't start
+        // Now safe to reset index â€” isAnimating is false, timer won't start
         setSessionState(index: 0)
         setSegmentProgress(0)
         
@@ -459,6 +459,14 @@ extension PracticeStore {
             }
             dependencies.sessionTTSQueueService.invalidateCacheForShuffle(newOrder: newOrder)
         }
+        
+        // Signal dock to restart segment timer for the new loop.
+        // Without this, the dock's segment generation counter stays stale
+        // from the previous loop, potentially leaving the timer in an
+        // inconsistent state for event-mode segments (Read & Speak, Speak Only).
+        // Matches the pattern in handleRepeatSessionWithConfig() and
+        // handleAutoAdvanceCompleted().
+        incrementSegmentGeneration()
         
         // LAYER 3 is inside executeCurrentFlow() — actor drain.
         // Start flow for first affirmation of the new loop.
@@ -763,7 +771,7 @@ extension PracticeStore {
             // This prevents the auto-advance from firing after manual navigation
             guard self.shouldContinueFlow(generation: generation) else {
                 #if DEBUG
-                print("Ã¢ÂÂ­Ã¯Â¸Â Score display: User navigated away, skipping auto-advance")
+                print("ÃƒÂ¢Ã‚ÂÃ‚Â­ÃƒÂ¯Ã‚Â¸Ã‚Â Score display: User navigated away, skipping auto-advance")
                 #endif
                 return
             }

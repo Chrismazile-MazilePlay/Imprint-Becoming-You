@@ -257,6 +257,16 @@ final class PracticeStore {
         return service
     }
     
+    /// Releases the speech capture service to free SFSpeechRecognizer
+    /// and AVAudioEngine memory (~7-15MB).
+    ///
+    /// The lazy getter recreates the service on next use.
+    /// `SpeechCaptureService.deinit` handles cleanup of the engine,
+    /// recognition task, and notification observers.
+    func releaseSpeechCaptureService() {
+        _speechCaptureService = nil
+    }
+    
     /// Active listening task.
     ///
     /// **Task Lifecycle:** Managed task - cancelled via `cancelListeningTask()` or `cancelAllManagedTasks()`.

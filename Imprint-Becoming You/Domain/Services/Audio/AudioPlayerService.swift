@@ -196,7 +196,7 @@ actor AudioPlayerService {
         }
         
         #if DEBUG
-        print("ðŸ”Š AudioPlayerService: Playing \(data.count) bytes via AVAudioPlayer")
+        print("Ã°Å¸â€Å  AudioPlayerService: Playing \(data.count) bytes via AVAudioPlayer")
         #endif
         
         // Create the player synchronously within actor context
@@ -220,16 +220,34 @@ actor AudioPlayerService {
         player.delegate = delegate
         player.volume = self.volume
         
-        // Ensure audio session is active.
-        // NOTE: Category is already configured by TTSService.preConfigureAudioSession()
-        // during warm-up. Only setActive() is needed here — it's a fast ~1-5ms call.
-        // Previously this called setCategory() on every playback with different options
-        // than TTSService, causing unnecessary 50-200ms reconfiguration overhead.
+        // Ensure audio session is active with correct category.
+        //
+        // TTSService.preConfigureAudioSession() sets `.playback` during warm-up,
+        // but SpeechCaptureService changes the category to `.playAndRecord` during
+        // listening phases. If the listening phase was interrupted (e.g., rapid skip
+        // or loop transition), the category may still be `.playAndRecord` when we
+        // try to play TTS in the next loop. This causes silent playback because
+        // `.playAndRecord` with `.measurement` mode doesn't route output correctly
+        // for non-recording playback.
+        //
+        // We check the current category and restore `.playback` if needed.
+        // `setCategory()` is a no-op if already correct (~0ms), and only incurs
+        // the 50-200ms cost when actually reconfiguring.
         do {
             let session = AVAudioSession.sharedInstance()
+            if session.category != .playback {
+                #if DEBUG
+                print("🔊 AudioPlayerService: Restoring audio session category from \(session.category.rawValue) to .playback")
+                #endif
+                try session.setCategory(
+                    .playback,
+                    mode: .default,
+                    options: [.duckOthers]
+                )
+            }
             try session.setActive(true)
         } catch {
-            throw AppError.audioPlaybackFailed(reason: "Failed to activate audio session: \(error.localizedDescription)")
+            throw AppError.audioPlaybackFailed(reason: "Failed to configure audio session: \(error.localizedDescription)")
         }
         
         // Start playback
@@ -240,7 +258,7 @@ actor AudioPlayerService {
         self.isPlaying = true
         
         #if DEBUG
-        print("ðŸ”Š AudioPlayerService: Playback started (duration: \(String(format: "%.2f", player.duration))s)")
+        print("Ã°Å¸â€Å  AudioPlayerService: Playback started (duration: \(String(format: "%.2f", player.duration))s)")
         #endif
         
         // Wait for completion using continuation
@@ -401,7 +419,7 @@ final class AudioPlayerCompletionDelegate: NSObject, AVAudioPlayerDelegate {
     
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
         #if DEBUG
-        print("âš ï¸ AudioPlayerCompletionDelegate: Decode error - \(error?.localizedDescription ?? "unknown")")
+        print("Ã¢Å¡Â Ã¯Â¸Â AudioPlayerCompletionDelegate: Decode error - \(error?.localizedDescription ?? "unknown")")
         #endif
         completion(false)
     }

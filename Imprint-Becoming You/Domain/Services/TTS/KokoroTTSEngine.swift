@@ -30,14 +30,18 @@ import CoreML
 ///
 /// ## Memory Management
 /// The ML pipelines consume significant memory (~300-350MB each).
-/// Use `releaseForBackground()` when the app enters background to free memory,
-/// and `warmUp()` again when returning to foreground.
+/// Use `releasePipelines()` to free memory. The caller (`TTSService`)
+/// determines whether Kokoro is logically disabled (background) or
+/// stays ready for lazy reload (session end, idle timer).
+///
+/// After first launch, CoreML caches compiled models on disk, so
+/// pipeline reloads take ~1-2s (vs ~7-8s for the initial compilation).
 ///
 /// ```swift
-/// // When entering background
-/// await kokoroEngine.releaseForBackground()
+/// // Release pipelines (from any context)
+/// await kokoroEngine.releasePipelines()
 ///
-/// // When returning to foreground
+/// // Warm up again (reloads from CoreML cache in ~1-2s)
 /// try await kokoroEngine.warmUp()
 /// ```
 actor KokoroTTSEngine {
@@ -97,11 +101,16 @@ actor KokoroTTSEngine {
     
     // MARK: - Public Methods
     
-    /// Validates resources and loads the preferred language pipeline.
+    /// Validates resources and eagerly loads the preferred language pipeline.
     ///
-    /// Only the specified language pipeline is loaded into memory (~300-350MB).
-    /// The other language loads on-demand when first requested via synthesis.
-    /// This saves ~330MB compared to loading both pipelines at startup.
+    /// Loads the specified language pipeline into memory (~300-350MB) to ensure
+    /// the fastest possible first synthesis. The CoreML compilation cache is
+    /// populated on first-ever load (~7-8s), making all subsequent pipeline
+    /// reloads fast (~1-2s) even after memory release.
+    ///
+    /// The synthesis idle timer in `TTSService` automatically releases the
+    /// pipeline after 30s of inactivity, so this eager load is self-correcting
+    /// if the user doesn't immediately use TTS.
     ///
     /// - Parameter preferredLanguage: The language to pre-load (default: US English)
     func warmUp(preferredLanguage: LanguageVariant = .americanEnglish) async throws {
@@ -118,7 +127,7 @@ actor KokoroTTSEngine {
         // Validate and cache all resource paths (one-time)
         try validateAndCacheResources()
         
-        // Load only the preferred language pipeline
+        // Eagerly load the preferred language pipeline
         _ = try await ensurePipeline(for: preferredLanguage)
         
         #if DEBUG
@@ -221,59 +230,23 @@ actor KokoroTTSEngine {
     
     // MARK: - Memory Management
     
-    /// Releases all ML pipelines to free memory.
+    /// Releases all ML pipelines to free CoreML prediction buffer memory.
     ///
-    /// Call when app enters background or receives memory warning.
-    /// After calling this, `isReady` will return `false` and the next
-    /// synthesis call will reload the needed pipeline on-demand.
+    /// Nils pipeline objects to trigger deallocation of both the model weights
+    /// (~300-350MB per pipeline) and accumulated CoreML prediction buffers
+    /// (~500MB-1GB). Total savings: ~800MB-1.5GB.
     ///
-    /// Each pipeline is ~300-350MB, so this can free up to ~700MB
-    /// if both were loaded.
-    func releaseForBackground() {
-        guard usPipeline != nil || gbPipeline != nil else {
-            #if DEBUG
-            print("KokoroTTSEngine: Already released or never initialized")
-            #endif
-            return
-        }
-        
-        #if DEBUG
-        let releasedUS = usPipeline != nil
-        let releasedGB = gbPipeline != nil
-        print("KokoroTTSEngine: Releasing ML pipelines for background... (US: \(releasedUS), GB: \(releasedGB))")
-        #endif
-        
-        // Nil out the pipelines to release memory.
-        // resourcesValidated remains true so ensurePipeline() can
-        // reload without re-validating file paths.
-        usPipeline = nil
-        gbPipeline = nil
-        
-        #if DEBUG
-        print("KokoroTTSEngine: ML pipelines released")
-        #endif
-    }
-    
-    /// Releases ML pipelines to free CoreML prediction buffer memory.
-    ///
-    /// Unlike `releaseForBackground()`, this is designed for **session-end cleanup**
-    /// where the engine should remain logically "ready". The next `synthesizeToData()`
-    /// call will transparently reload the needed pipeline via `ensurePipeline()`.
-    ///
-    /// ## Why This Exists
-    /// CoreML caches intermediate prediction buffers (BERT attention maps, Generator
-    /// Core tensors) inside `TTSPipeline` objects. These buffers total ~800MB-1.5GB
-    /// and are only released when the pipeline is deallocated. This method nils the
-    /// pipelines to trigger deallocation while keeping `resourcesValidated = true`
-    /// so lazy reloading works without re-validating file paths.
+    /// `resourcesValidated` remains `true` so `ensurePipeline()` can reload
+    /// on-demand without re-validating file paths. `isReady` also remains
+    /// `true` — the caller (`TTSService`) controls whether Kokoro is
+    /// logically disabled (background) or stays ready (session end / idle).
     ///
     /// ## Performance Impact
-    /// Pipeline reload takes ~7-8 seconds, which is absorbed by the session
-    /// preparation "Preparing..." UI on the next session start.
-    ///
-    /// - Note: `isReady` will return `false` after this call until the next
-    ///   `ensurePipeline()` or `warmUp()` reloads a pipeline.
-    func releasePipelineMemory() {
+    /// First-ever pipeline load compiles the CoreML model (~7-8s). After that,
+    /// CoreML's on-disk compilation cache makes all subsequent reloads ~1-2s.
+    /// This cost is absorbed by the session "Preparing..." UI or masked by
+    /// the "Synthesizing..." indicator on voice previews.
+    func releasePipelines() {
         guard usPipeline != nil || gbPipeline != nil else {
             #if DEBUG
             print("KokoroTTSEngine: No pipelines to release")
@@ -284,16 +257,14 @@ actor KokoroTTSEngine {
         #if DEBUG
         let releasedUS = usPipeline != nil
         let releasedGB = gbPipeline != nil
-        print("KokoroTTSEngine: Releasing ML pipelines for session cleanup (US: \(releasedUS), GB: \(releasedGB))")
+        print("KokoroTTSEngine: Releasing ML pipelines (US: \(releasedUS), GB: \(releasedGB))")
         #endif
         
-        // Nil out pipelines to free CoreML prediction buffers.
-        // resourcesValidated stays true - ensurePipeline() can reload on-demand.
         usPipeline = nil
         gbPipeline = nil
         
         #if DEBUG
-        print("KokoroTTSEngine: ML pipelines released (session cleanup)")
+        print("KokoroTTSEngine: ML pipelines released")
         #endif
     }
     

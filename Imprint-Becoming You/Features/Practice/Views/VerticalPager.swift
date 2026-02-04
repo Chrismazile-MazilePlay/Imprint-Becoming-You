@@ -505,7 +505,7 @@ private struct ContentTransitionModifier: ViewModifier {
         
         content
             .opacity(opacity)
-            .scaleEffect(scale)
+            //.scaleEffect(scale)
     }
 }
 

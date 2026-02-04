@@ -513,17 +513,23 @@ final class PagingScrollView: UIScrollView, UIGestureRecognizerDelegate {
     // MARK: - Simultaneous Gesture Recognition
     
     /// Allows the scroll view's pan gesture to recognize simultaneously with child
-    /// gesture recognizers (notably the VerticalPager's SwiftUI `DragGesture`).
+    /// pan gestures that are NOT on a `UIScrollView`.
     ///
-    /// Without this, UIKit's default behavior gives child gesture recognizers
-    /// exclusive priority over parent scroll view gestures. The VerticalPager's
-    /// `.highPriorityGesture(DragGesture(...))` would win every touch, blocking
-    /// horizontal swiping entirely on the Practice page.
+    /// ## Why selective?
     ///
-    /// With simultaneous recognition, both gesture recognizers fire together and
-    /// each filters by axis naturally:
-    /// - **UIScrollView**: Only scrolls horizontally (no vertical content, `isPagingEnabled`)
-    /// - **VerticalPager**: Direction-locks to vertical (`vertical > horizontal * 2`)
+    /// **Allow simultaneous with VerticalPager's `DragGesture`** (Practice page):
+    /// SwiftUI's `DragGesture` translates to a `UIPanGestureRecognizer` on the
+    /// hosting controller's view (NOT a `UIScrollView`). Both gestures fire and
+    /// each filters by direction: our pager handles horizontal, VerticalPager
+    /// handles vertical.
+    ///
+    /// **Block simultaneous with child `UIScrollView` pans** (Profile/Prompts):
+    /// These pages contain vertical `ScrollView`s whose internal pan gesture
+    /// lives on a `UIScrollView`. When blocked, `delaysContentTouches` (default
+    /// `true`) naturally routes touches by direction — horizontal touches go to
+    /// our pager, vertical touches go to the child `ScrollView`. This is standard
+    /// nested `UIScrollView` behavior and prevents the user from scrolling
+    /// vertically and paging horizontally at the same time.
     ///
     /// This method is called via ObjC message dispatch because `PagingScrollView`
     /// explicitly conforms to `UIGestureRecognizerDelegate`. UIScrollView internally
@@ -533,12 +539,18 @@ final class PagingScrollView: UIScrollView, UIGestureRecognizerDelegate {
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
     ) -> Bool {
-        // Allow our pan gesture to coexist with any other pan gesture (child
-        // VerticalPager, child ScrollViews, SwipeAction gestures). Direction
-        // filtering happens naturally at each layer: this scroll view only has
-        // horizontal content, so vertical drags produce no movement.
+        // Allow our pan gesture to coexist with non-UIScrollView pan gestures
+        // (e.g., VerticalPager's DragGesture on the Practice page). Both
+        // gestures fire and each filters by direction independently.
+        //
+        // Block simultaneous recognition with other UIScrollView pan gestures
+        // (e.g., Profile's/Prompts' vertical ScrollViews). When blocked,
+        // delaysContentTouches naturally routes horizontal touches to our pager
+        // and vertical touches to the child ScrollView — standard nested
+        // UIScrollView behavior.
         if gestureRecognizer === panGestureRecognizer,
-           otherGestureRecognizer is UIPanGestureRecognizer {
+           otherGestureRecognizer is UIPanGestureRecognizer,
+           !(otherGestureRecognizer.view is UIScrollView) {
             return true
         }
         return false

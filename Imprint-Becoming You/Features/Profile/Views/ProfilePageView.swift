@@ -89,7 +89,7 @@ struct ProfilePageView: View {
         NavigationStack(path: $navigationPath) {
             scrollContent
                 .background(AppColors.backgroundPrimary)
-                .fullScreenPopGesture() 
+                .fullScreenPopGesture()
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {

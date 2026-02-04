@@ -95,10 +95,10 @@ private struct FullScreenPopGestureFinder: UIViewRepresentable {
     /// 1. All child pan gestures (ScrollViews, SwipeActions) defer to ours
     ///    via `shouldBeRequiredToFailBy` returning `true`.
     /// 2. Our `gestureRecognizerShouldBegin` evaluates the swipe direction.
-    /// 3a. **Rightward horizontal**: Our gesture succeeds → deferred gestures
-    ///     fail → clean pop transition with no competing scroll/swipe.
-    /// 3b. **Not rightward / vertical / at root**: Our gesture fails → deferred
-    ///     gestures proceed → normal scrolling and SwipeAction behavior.
+    /// 3a. **Rightward horizontal**: Our gesture succeeds -> deferred gestures
+    ///     fail -> clean pop transition with no competing scroll/swipe.
+    /// 3b. **Not rightward / vertical / at root**: Our gesture fails -> deferred
+    ///     gestures proceed -> normal scrolling and SwipeAction behavior.
     ///
     /// The direction evaluation happens within the first few pixels of movement,
     /// so the deferral is imperceptible.
@@ -126,6 +126,15 @@ private struct FullScreenPopGestureFinder: UIViewRepresentable {
             let alreadyInstalled = navigationController.view.gestureRecognizers?
                 .contains(where: { $0 is FullScreenPopPanGesture }) ?? false
             guard !alreadyInstalled else { return }
+            
+            // Match the navigation controller's background to the app's
+            // background color. During the interactive pop transition, UIKit
+            // constructs a UITransitionView with the navigation controller's
+            // view.backgroundColor as the canvas behind both view controllers.
+            // If this doesn't match the app's true-black background (#000000),
+            // a visible color fringe appears at the edge of the sliding view
+            // where the default systemBackground (#1C1C1E) peeks through.
+            navigationController.view.backgroundColor = UIColor(named: "backgroundPrimary")
             
             // Copy targets from the built-in interactivePopGestureRecognizer.
             // These targets drive the native interactive pop transition animation
@@ -184,10 +193,10 @@ private struct FullScreenPopGestureFinder: UIViewRepresentable {
             // in the navigation controller's view hierarchy, including ones in
             // lazily-loaded destination views. No manual view walking needed.
             //
-            // - Rightward horizontal → our gesture succeeds, deferred pans fail
-            //   → clean pop with no competing scroll/swipe
-            // - Not rightward → our gesture fails, deferred pans proceed
-            //   → normal ScrollView and SwipeAction behavior
+            // - Rightward horizontal -> our gesture succeeds, deferred pans fail
+            //   -> clean pop with no competing scroll/swipe
+            // - Not rightward -> our gesture fails, deferred pans proceed
+            //   -> normal ScrollView and SwipeAction behavior
             //
             // Only defer UIPanGestureRecognizer subclasses. Tap gestures, long
             // press gestures, etc. should fire independently and immediately.

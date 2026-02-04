@@ -401,16 +401,39 @@ struct VerticalPager<Content: View, Background: View>: View {
     }
     
     /// Completes user-initiated navigation with animation.
+    ///
+    /// ## Animation Strategy
+    /// Uses a spring with slight bounce for natural deceleration, then waits
+    /// for the **full** animation duration before swapping the index. The index
+    /// swap and offset reset are wrapped in `withAnimation(.none)` to execute
+    /// atomically without triggering an implicit animation.
+    ///
+    /// ## Why this matters
+    /// Previously, the index swap occurred at 60% of the animation duration
+    /// while the spring was still running. This caused SwiftUI to interrupt
+    /// the active spring, instantly reset `dragOffset` to 0, and jump the
+    /// content to its new position — producing a visible "snap" instead of
+    /// a smooth deceleration into the resting state.
     private func completeUserNavigation(direction: NavigationDirection, screenHeight: CGFloat) {
         let targetOffset = direction == .next ? -screenHeight : screenHeight
         
-        withAnimation(.spring(duration: animationDuration, bounce: 0.0)) {
+        // Animate content off-screen with natural deceleration
+        withAnimation(.spring(duration: animationDuration, bounce: 0.12)) {
             dragOffset = targetOffset
         }
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + animationDuration * 0.6) {
-            dragOffset = 0
-            currentIndex += (direction == .next ? 1 : -1)
+        // Wait for animation to FULLY complete before swapping index.
+        // At this point content is entirely off-screen, so the reset is invisible.
+        DispatchQueue.main.asyncAfter(deadline: .now() + animationDuration + 0.03) {
+            // Atomic state swap with no animation -- prevents SwiftUI from
+            // trying to animate the cleanup (offset reset + index change)
+            // which would cause a visible position discontinuity.
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                dragOffset = 0
+                currentIndex += (direction == .next ? 1 : -1)
+            }
             onNavigate?(direction)
         }
         
@@ -505,7 +528,7 @@ private struct ContentTransitionModifier: ViewModifier {
         
         content
             .opacity(opacity)
-            //.scaleEffect(scale)
+            .scaleEffect(scale)
     }
 }
 

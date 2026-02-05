@@ -290,6 +290,9 @@ enum PracticeError: Error, Equatable, Sendable {
     /// Audio session error
     case audioSessionError(String)
     
+    /// Another app (call, Zoom, FaceTime) is using the microphone
+    case audioSessionBusy
+    
     /// Network error (for cloud TTS)
     case networkError(String)
     
@@ -311,6 +314,8 @@ enum PracticeError: Error, Equatable, Sendable {
             return "Unable to load affirmations: \(msg)"
         case .audioSessionError(let msg):
             return "Audio error: \(msg)"
+        case .audioSessionBusy:
+            return "The microphone is being used by another app. End your call or meeting to use speech practice."
         case .networkError(let msg):
             return "Network error: \(msg)"
         case .unknown(let msg):
@@ -323,6 +328,8 @@ enum PracticeError: Error, Equatable, Sendable {
         switch self {
         case .microphoneAccessDenied:
             return false // Requires user action in Settings
+        case .audioSessionBusy:
+            return false // Requires user to end call/meeting
         case .networkError:
             return true // Can retry
         default:

@@ -83,8 +83,8 @@ struct VerticalPager<Content: View, Background: View>: View {
     
     // MARK: - Configuration
     
-    private let navigationThreshold: CGFloat = 0.15
-    private let velocityThreshold: CGFloat = 400
+    private let navigationThreshold: CGFloat = 0.10
+    private let velocityThreshold: CGFloat = 300
     private let boundaryResistance: CGFloat = 0.3
     private let animationDuration: Double = 0.35
     
@@ -100,6 +100,14 @@ struct VerticalPager<Content: View, Background: View>: View {
     @State private var isVerticalDrag: Bool = false
     @State private var gestureDirectionLocked: Bool = false
     @State private var screenHeight: CGFloat = 0
+    
+    /// Cancellable task for the delayed index swap after navigation animation.
+    /// Replaced on each new navigation; cancelled when a new gesture begins.
+    @State private var navigationCompletionTask: Task<Void, Never>?
+    
+    /// Direction of the in-flight navigation whose completion is pending.
+    /// Non-nil only between animation start and the delayed index swap.
+    @State private var pendingNavigationDirection: NavigationDirection?
     
     // MARK: - Auto-Advance State
     
@@ -223,6 +231,9 @@ struct VerticalPager<Content: View, Background: View>: View {
     /// Called when returning from background to ensure content is properly centered.
     /// This clears any stale state from interrupted animations.
     private func resetAnimationState() {
+        // Finalize any in-flight navigation before resetting
+        commitPendingNavigation()
+        
         // Reset auto-advance state
         autoAdvanceDirection = nil
         autoAdvanceProgress = 0
@@ -333,6 +344,10 @@ struct VerticalPager<Content: View, Background: View>: View {
     }
     
     private func handleDragChanged(_ value: DragGesture.Value, screenHeight: CGFloat) {
+        // Finalize any in-flight navigation before processing new gesture.
+        // This ensures the index is correct before the new drag begins.
+        commitPendingNavigation()
+        
         // Cancel any pending auto-advance if user starts gesture
         if pendingAdvance != nil {
             pendingAdvance = nil
@@ -342,8 +357,8 @@ struct VerticalPager<Content: View, Background: View>: View {
         let vertical = abs(value.translation.height)
         
         // Lock gesture direction on first significant movement
-        if !gestureDirectionLocked && (horizontal > 15 || vertical > 15) {
-            isVerticalDrag = vertical > horizontal * 2
+        if !gestureDirectionLocked && (horizontal > 10 || vertical > 10) {
+            isVerticalDrag = vertical > horizontal * 1.2
             gestureDirectionLocked = true
         }
         
@@ -405,37 +420,74 @@ struct VerticalPager<Content: View, Background: View>: View {
     /// ## Animation Strategy
     /// Uses a spring with slight bounce for natural deceleration, then waits
     /// for the **full** animation duration before swapping the index. The index
-    /// swap and offset reset are wrapped in `withAnimation(.none)` to execute
+    /// swap and offset reset are wrapped in `withTransaction` to execute
     /// atomically without triggering an implicit animation.
     ///
-    /// ## Why this matters
-    /// Previously, the index swap occurred at 60% of the animation duration
-    /// while the spring was still running. This caused SwiftUI to interrupt
-    /// the active spring, instantly reset `dragOffset` to 0, and jump the
-    /// content to its new position — producing a visible "snap" instead of
-    /// a smooth deceleration into the resting state.
+    /// ## Rapid Swipe Safety
+    /// The delayed index swap uses a cancellable `Task` tracked by
+    /// `navigationCompletionTask`. If the user starts a new gesture before
+    /// the timer fires, `commitPendingNavigation()` cancels the task and
+    /// applies the index change immediately — ensuring every new gesture
+    /// starts from a correct, clean state. At most one pending completion
+    /// exists at any time.
     private func completeUserNavigation(direction: NavigationDirection, screenHeight: CGFloat) {
+        // Commit any prior in-flight navigation before starting a new one.
+        // Guarantees at most one pending completion exists at any time.
+        commitPendingNavigation()
+        
         let targetOffset = direction == .next ? -screenHeight : screenHeight
+        
+        // Track the pending direction so commitPendingNavigation() knows
+        // which index change to apply if it needs to finalize early.
+        pendingNavigationDirection = direction
         
         // Animate content off-screen with natural deceleration
         withAnimation(.spring(duration: animationDuration, bounce: 0.12)) {
             dragOffset = targetOffset
         }
         
-        // Wait for animation to FULLY complete before swapping index.
-        // At this point content is entirely off-screen, so the reset is invisible.
-        DispatchQueue.main.asyncAfter(deadline: .now() + animationDuration + 0.03) {
-            // Atomic state swap with no animation -- prevents SwiftUI from
-            // trying to animate the cleanup (offset reset + index change)
-            // which would cause a visible position discontinuity.
+        // Schedule the delayed index swap as a cancellable Task.
+        // If a new gesture arrives before this fires, commitPendingNavigation()
+        // cancels this task and applies the change immediately.
+        navigationCompletionTask = Task { @MainActor [animationDuration] in
+            try? await Task.sleep(for: .seconds(animationDuration + 0.03))
+            guard !Task.isCancelled else { return }
+            
+            // Content is now fully off-screen — swap is invisible
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
                 dragOffset = 0
                 currentIndex += (direction == .next ? 1 : -1)
             }
+            pendingNavigationDirection = nil
+            navigationCompletionTask = nil
             onNavigate?(direction)
         }
+    }
+    
+    /// Immediately finalizes any in-flight navigation whose completion timer
+    /// has not yet fired.
+    ///
+    /// Called at the start of every new gesture and on background return.
+    /// Cancels the pending timer and applies the index change now, so the
+    /// new interaction starts from a correct state.
+    private func commitPendingNavigation() {
+        guard let direction = pendingNavigationDirection else { return }
+        
+        // Cancel the delayed completion — we're applying it now
+        navigationCompletionTask?.cancel()
+        navigationCompletionTask = nil
+        
+        // Apply the index change immediately
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            dragOffset = 0
+            currentIndex += (direction == .next ? 1 : -1)
+        }
+        pendingNavigationDirection = nil
+        onNavigate?(direction)
     }
     
     // MARK: - Programmatic Auto-Advance

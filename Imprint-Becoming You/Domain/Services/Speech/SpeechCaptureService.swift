@@ -79,6 +79,9 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         case speechRecognizerUnavailable
         case audioEngineFailure(String)
         case recognitionFailure(String)
+        /// Another app (Zoom, FaceTime, phone call) holds the audio session,
+        /// preventing microphone access for speech recognition.
+        case audioSessionUnavailable
     }
     
     // MARK: - Properties
@@ -373,17 +376,44 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
     private func configureAudioSession() async throws {
         let session = AVAudioSession.sharedInstance()
         
-        do {
-            // Use playAndRecord to support both TTS and microphone
-            try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetooth])
-            try session.setActive(true, options: .notifyOthersOnDeactivation)
+        // Retry with increasing delays to handle transient audio session conflicts.
+        // When switching from TTS playback to recording, the system may need time to
+        // release the previous configuration. Additionally, competing apps (Zoom,
+        // FaceTime, phone calls) may temporarily hold the session.
+        let retryDelays: [UInt64] = [100, 250, 500] // milliseconds
+        var lastError: Error?
+        
+        for (attempt, delayMs) in retryDelays.enumerated() {
+            // Brief delay before each attempt — gives the system time to release
+            // the previous audio configuration after TTS playback ends.
+            try? await Task.sleep(nanoseconds: delayMs * 1_000_000)
             
-            #if DEBUG
-            print("[LOG] SpeechCaptureService: Audio session configured - Sample rate: \(session.sampleRate)")
-            #endif
-        } catch {
-            throw CaptureError.audioEngineFailure("Failed to configure audio session: \(error.localizedDescription)")
+            do {
+                // Use playAndRecord to support both TTS and microphone
+                try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetooth])
+                try session.setActive(true, options: .notifyOthersOnDeactivation)
+                
+                #if DEBUG
+                print("[LOG] SpeechCaptureService: Audio session configured (attempt \(attempt + 1)) - Sample rate: \(session.sampleRate)")
+                #endif
+                return // Success
+            } catch {
+                lastError = error
+                
+                #if DEBUG
+                print("[LOG] SpeechCaptureService: Audio session config attempt \(attempt + 1)/\(retryDelays.count) failed: \(error.localizedDescription)")
+                #endif
+            }
         }
+        
+        // All retries exhausted — determine if a competing app holds the session.
+        // OSStatus 561017449 ('!pri') = another app has audio session priority.
+        let errorDesc = lastError?.localizedDescription ?? ""
+        if errorDesc.contains("561017449") || errorDesc.contains("!pri") {
+            throw CaptureError.audioSessionUnavailable
+        }
+        
+        throw CaptureError.audioEngineFailure("Failed to configure audio session: \(errorDesc)")
     }
     
     /// Starts the audio engine and recognition pipeline

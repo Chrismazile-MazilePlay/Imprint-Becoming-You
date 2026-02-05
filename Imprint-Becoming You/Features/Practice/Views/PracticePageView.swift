@@ -325,12 +325,13 @@ struct PracticePageView: View {
                             .padding(.bottom, AppTheme.Spacing.lg)
                     }
                     
-                    // Affirmation text
-                    Text(affirmation.text)
-                        .font(AppTypography.affirmation)
-                        .foregroundStyle(AppColors.textPrimary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, AppTheme.Spacing.xl)
+                    // Affirmation text — auto-scrolls long texts in sync with TTS
+                    AutoScrollingAffirmationText(
+                        text: affirmation.text,
+                        progress: index == store.currentIndex ? store.flow.ttsProgress : nil,
+                        progressRange: ttsProgressRange,
+                        maxHeight: maxAffirmationTextHeight(in: geometry)
+                    )
                     
                     Spacer()
                     
@@ -339,7 +340,7 @@ struct PracticePageView: View {
                     actionButtons(for: affirmation, isCurrentPage: index == store.currentIndex)
                         .padding(.bottom, dockOffset)
                 }
-                .padding(.top, topContentOffset)
+                .padding(.top, topContentOffset + verticalCenteringOffset)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -349,13 +350,22 @@ struct PracticePageView: View {
     
     /// Offset from top to account for the floating HUD layer.
     ///
-    /// This ensures the affirmation text is vertically centered between:
-    /// - Top: Bottom edge of the HUD (exit button area)
-    /// - Bottom: Top edge of the Share/Save buttons
-    ///
-    /// The offset equals the HUD height to create balanced spacing with the bottom dock offset.
+    /// This is the base offset for the HUD area (exit button, navigation buttons).
     private var topContentOffset: CGFloat {
         AppTheme.Layout.hudContentOffset
+    }
+    
+    /// Additional top offset that compensates for the dock/HUD height asymmetry.
+    ///
+    /// The dock (bottom) is significantly taller than the HUD (top). Two equal
+    /// `Spacer()` views split the remaining space 50/50, which centers content
+    /// within the *available area* — but that area is shifted upward because
+    /// the dock consumes more space. This offset balances the asymmetry so
+    /// content centers on the actual screen rather than the available area.
+    ///
+    /// Math: top padding = HUD (80) + centering (123) = 203 = bottom padding (203)
+    private var verticalCenteringOffset: CGFloat {
+        max(dockOffset - topContentOffset, 0)
     }
     
     /// Offset from bottom to position buttons just above dock.
@@ -366,6 +376,42 @@ struct PracticePageView: View {
         } else {
             return AppTheme.Layout.homeDockOffset
         }
+    }
+    
+    /// The maximum TTS progress value for the current practice mode.
+    ///
+    /// Read Aloud caps progress at 0.95 while Read & Speak caps at 0.45.
+    /// Passed to `AutoScrollingAffirmationText` so the scroll range adapts
+    /// to ensure all text scrolls fully in both modes.
+    private var ttsProgressRange: Double {
+        switch store.flow {
+        case .readAndSpeak:
+            return 0.45
+        default:
+            return 0.95
+        }
+    }
+    
+    /// Maximum height available for the affirmation text before auto-scrolling activates.
+    ///
+    /// Computed from the available content area by subtracting all fixed elements:
+    /// - **Top**: HUD offset + vertical centering offset
+    /// - **Badge**: Category badge + bottom padding (~54pt)
+    /// - **Buttons**: Share/Favorite buttons + labels (~80pt)
+    /// - **Dock**: Bottom dock offset (varies by session state)
+    ///
+    /// Uses 85% of the remaining available height to maximize readable area
+    /// while preserving vertical breathing room above and below.
+    /// Short texts that fit within this height render at their natural size.
+    /// Only texts exceeding this threshold will clip and auto-scroll.
+    private func maxAffirmationTextHeight(in geometry: GeometryProxy) -> CGFloat {
+        let totalHeight = geometry.size.height
+        let effectiveTopOffset = topContentOffset + verticalCenteringOffset
+        // Badge (~30) + badge padding (24) + buttons (~80)
+        let fixedContentHeight: CGFloat = 134
+        let availableHeight = totalHeight - effectiveTopOffset - dockOffset - fixedContentHeight
+        let maxTextHeight = availableHeight * 0.85
+        return max(maxTextHeight, 120)
     }
     
     private func affirmation(at index: Int) -> Affirmation? {

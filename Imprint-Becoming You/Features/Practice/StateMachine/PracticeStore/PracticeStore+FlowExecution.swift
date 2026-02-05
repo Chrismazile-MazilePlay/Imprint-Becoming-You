@@ -42,7 +42,7 @@ extension PracticeStore {
         // fire-and-forget `Task { await playerService.stop() }`. These
         // Tasks queue on the AudioPlayerService actor. If we don't drain
         // them before attempting playback, the actor may still be processing
-        // stale stops when our `playRawPCMData` arrives — or worse, a
+        // stale stops when our `playRawPCMData` arrives â€” or worse, a
         // late-arriving stop() could kill our playback mid-stream.
         //
         // By awaiting `stop()` here, we serialize behind ALL pending
@@ -51,10 +51,10 @@ extension PracticeStore {
         //   2. No pending continuations exist
         //   3. No queued fire-and-forget Tasks are ahead of us
         //
-        // Cost: one actor hop (~10-50μs) — negligible vs the 300ms delay.
+        // Cost: one actor hop (~10-50Î¼s) â€” negligible vs the 300ms delay.
         await dependencies.audioPlayerService.stop()
         
-        // Re-validate after drain — another flow may have started while
+        // Re-validate after drain â€” another flow may have started while
         // we were waiting on the actor.
         guard shouldContinueFlow(generation: generation) else { return }
         
@@ -446,6 +446,8 @@ extension PracticeStore {
                         self.send(.permissionDenied(.microphone))
                     case .speechRecognitionPermissionDenied:
                         self.send(.permissionDenied(.speechRecognition))
+                    case .audioSessionUnavailable:
+                        self.send(.listeningFailed(.audioSessionBusy))
                     default:
                         self.send(.listeningFailed(.speechRecognitionError(String(describing: captureError))))
                     }

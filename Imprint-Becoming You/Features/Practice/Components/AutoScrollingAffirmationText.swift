@@ -11,15 +11,29 @@ import SwiftUI
 
 /// A text view that auto-scrolls long affirmations using a single smooth animation.
 ///
+/// ## Scroll Control
+///
+/// Two complementary inputs control scrolling, each with a distinct responsibility:
+///
+/// - **`scrollGeneration`** — *Position authority.* When this value changes (segment
+///   boundary), the scroll position is instantly reset to the top and a fresh scroll
+///   sequence begins if `isActive` is true. Sourced from `PracticeStore.flowGeneration`,
+///   which increments on every segment start. This guarantees the text is at the top
+///   regardless of background/foreground transitions, loops, or mode switches.
+///
+/// - **`isActive`** — *Animation gate.* Controls intra-segment scroll state: start
+///   scrolling when true, stop and smoothly reset when false. Handles phase transitions
+///   within a segment (e.g., TTS → preparing → listening in Read & Speak mode).
+///
 /// ## Behavior
 /// - **Short texts** (fit within `maxHeight`): Renders identically to a plain `Text` —
 ///   no clipping, scrolling, or visual artifacts. Completely transparent.
 /// - **Long texts** (overflow `maxHeight`): Displays in a fixed-height window with
 ///   always-active edge fades. Scrolls automatically when `isActive` is `true`.
-/// - **When deactivated** (`isActive` becomes `false`): Smoothly scrolls back to the
-///   top via a 0.25s easeOut animation.
-/// - **When reactivated** (`isActive` becomes `true`): Smoothly resets to top (if not
-///   already there), waits `scrollDelay`, then scrolls to bottom at constant speed.
+/// - **Segment boundary** (`scrollGeneration` changes): Instantly resets to top,
+///   starts fresh scroll if `isActive` is true.
+/// - **Deactivated** (`isActive` becomes `false`): Stops scroll, smoothly eases to top.
+/// - **Reactivated** (`isActive` becomes `true`): Starts scroll from current position.
 ///
 /// ## Scroll Pacing
 /// Uses a fixed **points-per-second** speed with a delay before scrolling starts.
@@ -40,7 +54,8 @@ import SwiftUI
 /// ```swift
 /// AutoScrollingAffirmationText(
 ///     text: affirmation.text,
-///     isActive: isScrollActive,  // true when mode's primary phase is active
+///     isActive: isScrollActive,
+///     scrollGeneration: store.flowGeneration,
 ///     maxHeight: 250
 /// )
 /// ```
@@ -51,16 +66,26 @@ struct AutoScrollingAffirmationText: View {
     /// The full affirmation text to display
     let text: String
     
-    /// Whether auto-scrolling is active.
+    /// Animation gate — controls intra-segment scroll state.
     ///
     /// Set to `true` during each mode's active content phase:
     /// - Read Aloud: TTS playing + complete (holds at bottom)
     /// - Read & Speak: TTS playing + user listening/speaking
     /// - Speak Only: user listening/speaking
     ///
-    /// When `isActive` becomes `false`, the scroll smoothly resets to the top.
-    /// When `isActive` becomes `true`, scrolling starts fresh from the top.
+    /// When `isActive` becomes `false`, the scroll stops and smoothly eases to top.
+    /// When `isActive` becomes `true`, a new scroll sequence begins (delay + linear).
+    /// Does NOT handle segment-boundary resets — that's `scrollGeneration`'s job.
     let isActive: Bool
+
+    /// Segment boundary token — sourced from `PracticeStore.flowGeneration`.
+    ///
+    /// When this value changes, the scroll position is instantly reset to the top
+    /// and a fresh scroll sequence begins (if `isActive` is true). This is the
+    /// **guaranteed** position reset that covers every segment-start path:
+    /// first start, auto-advance, loop restart, background resume, mode switch,
+    /// manual navigation, timeout retry, skip, saved session, and favorites.
+    var scrollGeneration: Int = 0
 
     /// Maximum visible height before scrolling activates.
     /// When the natural text height exceeds this value, the view clips
@@ -150,6 +175,12 @@ struct AutoScrollingAffirmationText: View {
             if needsScrolling {
                 // Long text: constrained height with always-active edge fade mask.
                 // The mask handles both clipping and fading in a single pass.
+                //
+                // allowsHitTesting(false) prevents user touches from interrupting
+                // the in-flight .linear scroll animation. Without this, the
+                // DockMenuDismissModifier's DragGesture(minimumDistance: 0)
+                // fires on any touch and causes SwiftUI to complete the animation
+                // instantly, jumping the text to the bottom.
                 scrollableTextContent
                     .frame(height: maxHeight, alignment: .top)
                     .mask { edgeFadeMask }
@@ -159,7 +190,25 @@ struct AutoScrollingAffirmationText: View {
             }
         }
         .background { textHeightMeasurer }
+        .onChange(of: scrollGeneration) { _, _ in
+            // Segment boundary — authoritative position reset.
+            // Guarantees text is at top on every segment start regardless of
+            // isActive state, background/foreground transitions, or loop restarts.
+            scrollTask?.cancel()
+            scrollTask = nil
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                displayOffset = 0
+            }
+            // If currently active, start a fresh scroll sequence
+            if isActive && needsScrolling {
+                startScrolling()
+            }
+        }
         .onChange(of: isActive) { _, active in
+            // Intra-segment animation gate — handles phase transitions
+            // within a segment (e.g., TTS → preparing → listening).
             if active {
                 startScrolling()
             } else {
@@ -179,19 +228,16 @@ struct AutoScrollingAffirmationText: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(text)
+        
     }
     
     // MARK: - Scroll Control
     
-    /// Starts the scroll sequence: smoothly resets to top, waits `scrollDelay`, then scrolls down.
+    /// Starts the scroll sequence: waits `scrollDelay`, then scrolls to bottom.
     ///
-    /// Performs a smooth 0.25s easeOut reset to `displayOffset = 0` as defense-in-depth.
-    /// In the common case, `stopScrolling()` already drove the offset to 0 — this is
-    /// a no-op. If timing is tight (loop restart or background resume where `isActive`
-    /// toggles rapidly), this gracefully completes any in-progress reset.
-    ///
-    /// The 3.0s scroll delay provides ample margin for the 0.25s reset to finish
-    /// before the linear scroll animation begins.
+    /// Position reset is NOT this method's responsibility — callers handle that:
+    /// - `onChange(of: scrollGeneration)` → instant reset (segment boundaries)
+    /// - `stopScrolling()` → smooth easeOut reset (intra-segment transitions)
     ///
     /// Uses a single `withAnimation(.linear)` call. SwiftUI interpolates at the
     /// display refresh rate (60/120fps) — perfectly smooth with zero jitter.
@@ -199,13 +245,6 @@ struct AutoScrollingAffirmationText: View {
     private func startScrolling() {
         scrollTask?.cancel()
         guard needsScrolling else { return }
-
-        // Smooth reset to top as defense-in-depth. If stopScrolling() already
-        // drove displayOffset to 0, this is invisible. If the previous easeOut
-        // hasn't quite finished (tight timing), this gracefully completes it.
-        withAnimation(.easeOut(duration: 0.25)) {
-            displayOffset = 0
-        }
 
         let delay = scrollDelay
         let speed = scrollSpeed

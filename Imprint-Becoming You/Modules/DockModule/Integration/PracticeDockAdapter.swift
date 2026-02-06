@@ -95,7 +95,12 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     }
     
     var availableModes: [DockMode] {
-        DockMode.allCases
+        // During an active session, hide "Read Only" — selecting it would end
+        // the session, and the exit button already provides that functionality.
+        if store.isSessionActive {
+            return DockMode.allCases.filter { $0 != .readOnly }
+        }
+        return DockMode.allCases
     }
     
     // MARK: - Binaural State

@@ -337,10 +337,12 @@ struct PracticePageView: View {
                             .padding(.bottom, AppTheme.Spacing.lg)
                     }
                     
-                    // Affirmation text — auto-scrolls long texts with fixed timing
+                    // Affirmation text — auto-scrolls long texts with fixed timing.
+                    // scrollGeneration guarantees position reset on every segment start.
                     AutoScrollingAffirmationText(
                         text: affirmation.text,
                         isActive: index == store.currentIndex && isScrollActive,
+                        scrollGeneration: store.flowGeneration,
                         maxHeight: maxAffirmationTextHeight(in: geometry)
                     )
                     

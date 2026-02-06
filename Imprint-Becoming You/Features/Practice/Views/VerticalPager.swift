@@ -233,20 +233,28 @@ struct VerticalPager<Content: View, Background: View>: View {
     private func resetAnimationState() {
         // Finalize any in-flight navigation before resetting
         commitPendingNavigation()
-        
-        // Reset auto-advance state
-        autoAdvanceDirection = nil
-        autoAdvanceProgress = 0
-        
-        // Clear pending advance to prevent double-animation
-        if pendingAdvance != nil {
-            pendingAdvance = nil
+
+        // Reset ALL animation state without animation.
+        // Using withTransaction(disablesAnimations) prevents SwiftUI from
+        // interpolating these changes, which would cause a visible layout
+        // shift when returning from background.
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            // Reset auto-advance state
+            autoAdvanceDirection = nil
+            autoAdvanceProgress = 0
+
+            // Clear pending advance to prevent double-animation
+            if pendingAdvance != nil {
+                pendingAdvance = nil
+            }
+
+            // Reset drag state
+            dragOffset = 0
+            isVerticalDrag = false
+            gestureDirectionLocked = false
         }
-        
-        // Reset drag state
-        dragOffset = 0
-        isVerticalDrag = false
-        gestureDirectionLocked = false
     }
     
     // MARK: - Auto-Advance Content Layers

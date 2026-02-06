@@ -35,17 +35,16 @@ struct FloatingHUDLayer: View {
     let onProfileTap: () -> Void
     let onPromptsTap: () -> Void
     
-    // MARK: - Safe Area Helper
-    
-    /// Gets the actual top safe area inset from the window.
-    /// This works regardless of SwiftUI's .ignoresSafeArea() modifiers.
-    private var topSafeAreaInset: CGFloat {
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let window = windowScene.windows.first else {
-            return 59 // Default for Dynamic Island devices
-        }
-        return window.safeAreaInsets.top
-    }
+    // MARK: - Safe Area State
+
+    /// Cached top safe area inset from the window.
+    ///
+    /// Stored as `@State` and set once in `.onAppear` instead of being a computed
+    /// property that reads UIKit on every body evaluation. This prevents the HUD's
+    /// top padding from flickering during background→foreground transitions, where
+    /// `UIApplication.shared.connectedScenes` can momentarily return `nil` and
+    /// cause a fallback value to be used for one render frame.
+    @State private var topSafeAreaInset: CGFloat = 59
     
     // MARK: - Computed State
     
@@ -77,8 +76,17 @@ struct FloatingHUDLayer: View {
             topButtons
                 .padding(.horizontal, AppTheme.Spacing.lg)
                 .padding(.top, topPadding)
-            
+
             Spacer()
+        }
+        .onAppear {
+            // Read the actual safe area inset once when the view appears.
+            // This value doesn't change during the app lifecycle (same device,
+            // same orientation), so reading it once is sufficient.
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let window = windowScene.windows.first {
+                topSafeAreaInset = window.safeAreaInsets.top
+            }
         }
     }
     

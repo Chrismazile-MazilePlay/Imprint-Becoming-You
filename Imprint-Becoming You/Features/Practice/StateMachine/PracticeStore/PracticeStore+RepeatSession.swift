@@ -53,10 +53,43 @@ extension PracticeStore {
         // ends (handleDismissSummary, handleExitSession, or handleResetToHome).
 
         // Reset session state for new playthrough
-        setSessionState(index: 0)
         setSessionResults([])
         setSegmentProgress(0)
         sessionStartTime = Date()
+
+        // For favorites sessions, filter out affirmations the user unfavorited
+        // during the summary. This ensures the repeat only includes affirmations
+        // the user still has favorited. TTS cache is keyed by UUID, so removing
+        // entries doesn't require re-synthesis.
+        if isFavoritesSession {
+            let stillFavorited = sessionAffirmations.filter { $0.isFavorited }
+
+            if stillFavorited.isEmpty {
+                // User unfavorited everything — cannot repeat.
+                // Dismiss summary and return to home.
+                withAnimation(.easeInOut(duration: PracticeTiming.summaryDismissDuration)) {
+                    setShowingSummary(false)
+                }
+                Task { [weak self] in
+                    try? await Task.sleep(for: .milliseconds(Int(PracticeTiming.summaryDismissDuration * 1000) + 50))
+                    self?.send(.exitSession)
+                }
+                HapticFeedback.notification(.warning)
+                return
+            }
+
+            // Replace session affirmations with only the still-favorited ones
+            clearOriginalSessionAffirmationIds()
+            setSessionState(affirmations: stillFavorited, index: 0)
+
+            // Update TTS queue to reflect the filtered list
+            let filteredOrder = stillFavorited.enumerated().map { index, affirmation in
+                SessionAffirmationInfo(affirmation: affirmation, index: index)
+            }
+            dependencies.sessionTTSQueueService.updateAffirmationOrder(filteredOrder)
+        } else {
+            setSessionState(index: 0)
+        }
 
         // Shuffle if enabled — cache remains valid (keyed by UUID, not index)
         if shuffle {

@@ -87,10 +87,27 @@ extension PracticeStore {
             }
             
         case .pauseSession:
-            // Pause when app enters background - cancel active work and set to idle
-            // Setting to idle makes isAnimating=false, which the dock observes
+            // Pause when app enters background — cancel active work and set to idle.
+            // Uses non-animated idle reset instead of resetToIdle() because:
+            // 1. No user is watching during backgrounding — animation is wasted
+            // 2. Animated flow changes can be "in flight" when the view hierarchy
+            //    re-renders on foreground return, causing visible layout shifts
             cancelCurrentActivity()
-            resetToIdle()  // Critical: sets isAnimating=false so resume triggers fresh start
+            setSegmentProgress(0)
+            var pauseTransaction = Transaction()
+            pauseTransaction.disablesAnimations = true
+            withTransaction(pauseTransaction) {
+                switch flow {
+                case .home:
+                    break
+                case .readAloud:
+                    setFlow(.readAloud(.idle))
+                case .readAndSpeak:
+                    setFlow(.readAndSpeak(.idle))
+                case .speakOnly:
+                    setFlow(.speakOnly(.idle))
+                }
+            }
             releaseSpeechCaptureService()  // Free audio engine buffers (~7-15MB)
             AppLogger.debug("Session paused (app backgrounded)", category: .practice)
             

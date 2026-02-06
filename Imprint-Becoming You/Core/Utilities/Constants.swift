@@ -157,20 +157,19 @@ enum Constants {
 
         // MARK: - Status Messages
 
-        /// Status message shown during Kokoro warm-up phase (before synthesis starts).
-        static let warmupMessage = "Warming up your voice..."
-
-        /// Progress-driven status messages for the synthesis phase.
+        /// Progress-driven status messages for the entire session loading flow
+        /// (Kokoro warm-up through synthesis completion).
         ///
         /// Each entry is a `(threshold, message)` pair. The message displays when
-        /// fractional synthesis progress ≥ threshold. Ordered highest-first for
-        /// reverse lookup — the first match wins.
-        static let synthesisProgressMessages: [(threshold: Float, message: String)] = [
+        /// `fractionalProgress` ≥ threshold. Ordered highest-first for reverse
+        /// lookup — the first match wins. The 0.00 entry doubles as the Kokoro
+        /// warm-up message, ensuring a seamless transition into synthesis.
+        static let sessionLoadProgressMessages: [(threshold: Float, message: String)] = [
             (0.95, "Putting the finishing touches..."),
             (0.80, "Almost there..."),
             (0.50, "Building your session..."),
-            (0.20, "Crafting your affirmations..."),
-            (0.00, "Warming up your voice...")
+            (0.20, "Preparing your affirmations..."),
+            (0.00, "Warming up session engine...")
         ]
     }
     

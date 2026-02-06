@@ -317,20 +317,19 @@ struct SessionPreparationView: View {
 
     /// Status message derived from the current phase and fractional progress.
     ///
-    /// During synthesis, messages advance based on actual progress thresholds
-    /// rather than cycling on a timer.
+    /// Both `.waitingForKokoro` and `.synthesizing` share the same progress-driven
+    /// lookup, ensuring a seamless message transition between phases. The 0.00
+    /// threshold ("Warming up voice engine...") persists from warmup into early
+    /// synthesis, avoiding a jarring text flash on phase change.
     private var currentStatusMessage: String {
         switch phase {
-        case .waitingForKokoro:
-            return Constants.SessionPreparation.warmupMessage
-
-        case .synthesizing:
-            for entry in Constants.SessionPreparation.synthesisProgressMessages {
+        case .waitingForKokoro, .synthesizing:
+            for entry in Constants.SessionPreparation.sessionLoadProgressMessages {
                 if fractionalProgress >= entry.threshold {
                     return entry.message
                 }
             }
-            return Constants.SessionPreparation.warmupMessage
+            return Constants.SessionPreparation.sessionLoadProgressMessages.last!.message
 
         case .complete:
             return "Ready!"

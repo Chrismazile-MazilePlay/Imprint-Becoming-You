@@ -407,12 +407,12 @@ struct MainPracticeView: View {
                 store.send(.pauseSession)
                 
                 #if DEBUG
-                print("[DEBUG] MainPracticeView: Paused session on background")
+                AppLogger.debug("Paused session on background", category: .practice)
                 #endif
             }
             
             #if DEBUG
-            print("[DEBUG] MainPracticeView: App entered background")
+            AppLogger.debug("App entered background", category: .practice)
             MemoryManager.shared.logMemoryUsage()
             #endif
             
@@ -428,7 +428,7 @@ struct MainPracticeView: View {
             backgroundedAt = nil
             
             #if DEBUG
-            print("[DEBUG] MainPracticeView: Returned from background after \(Int(timeInBackground))s")
+            AppLogger.debug("Returned from background after \(Int(timeInBackground))s", category: .practice)
             MemoryManager.shared.logMemoryUsage()
             #endif
             
@@ -438,10 +438,10 @@ struct MainPracticeView: View {
             // ===============================================================
             if timeInBackground >= Constants.Background.memoryReleaseThreshold {
                 #if DEBUG
-                print("[DEBUG] MainPracticeView: Memory threshold reached (\(Int(timeInBackground))s)")
+                AppLogger.debug("Memory threshold reached (\(Int(timeInBackground))s)", category: .practice)
                 let memoryMB = MemoryManager.shared.currentMemoryUsageMB()
-                print("[DEBUG] MainPracticeView: Current memory usage: \(memoryMB)MB")
-                print("[DEBUG] MainPracticeView: MemoryManager released = \(MemoryManager.shared.hasReleasedForBackground)")
+                AppLogger.debug("Current memory usage: \(memoryMB)MB", category: .practice)
+                AppLogger.debug("MemoryManager released = \(MemoryManager.shared.hasReleasedForBackground)", category: .practice)
                 #endif
             }
             
@@ -451,7 +451,7 @@ struct MainPracticeView: View {
             // ===============================================================
             if timeInBackground >= Constants.Background.sessionTimeout {
                 #if DEBUG
-                print("[DEBUG] MainPracticeView: Full reset after \(Int(timeInBackground))s in background")
+                AppLogger.debug("Full reset after \(Int(timeInBackground))s in background", category: .practice)
                 #endif
                 
                 // Navigate to Practice page
@@ -472,7 +472,7 @@ struct MainPracticeView: View {
             // ===============================================================
             if store.isShowingSummary {
                 #if DEBUG
-                print("[DEBUG] MainPracticeView: Keeping summary open after short background (\(Int(timeInBackground))s)")
+                AppLogger.debug("Keeping summary open after short background (\(Int(timeInBackground))s)", category: .practice)
                 #endif
                 return
             }
@@ -483,7 +483,7 @@ struct MainPracticeView: View {
             // ===============================================================
             if store.isSessionActive {
                 #if DEBUG
-                print("[DEBUG] MainPracticeView: Resuming session after \(Int(timeInBackground))s in background")
+                AppLogger.debug("Resuming session after \(Int(timeInBackground))s in background", category: .practice)
                 #endif
                 store.send(.resumeSession)
                 return
@@ -569,7 +569,7 @@ struct MainPracticeView: View {
         store.selectedVoiceId = storedVoiceId
         
         #if DEBUG
-        print("MainPracticeView: Set voice to \(storedVoiceId ?? "default")")
+        AppLogger.debug("Set voice to \(storedVoiceId ?? "default")", category: .practice)
         #endif
     }
     
@@ -587,7 +587,7 @@ struct MainPracticeView: View {
         } catch {
             savedSessionCount = 0
             #if DEBUG
-            print("[WARN] MainPracticeView: Failed to get saved session count: \(error)")
+            AppLogger.warning("Failed to get saved session count: \(error)", category: .practice)
             #endif
         }
     }

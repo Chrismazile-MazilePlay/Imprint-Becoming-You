@@ -133,7 +133,7 @@ enum AffirmationDeletionHelper {
         context.delete(affirmation)
         
         #if DEBUG
-        print("[OK] AffirmationDeletionHelper: Deleted affirmation \(affirmation.id)")
+        AppLogger.info("Deleted affirmation \(affirmation.id)", category: .data)
         #endif
         
         return .allowed
@@ -169,7 +169,7 @@ enum AffirmationDeletionHelper {
         }
         
         #if DEBUG
-        print("[OK] AffirmationDeletionHelper: Batch delete - \(deleted) deleted, \(skipped) skipped")
+        AppLogger.info("Batch delete - \(deleted) deleted, \(skipped) skipped", category: .data)
         #endif
         
         return (deleted, skipped, reasons)
@@ -207,7 +207,7 @@ enum AffirmationDeletionHelper {
         }
         
         #if DEBUG
-        print("[OK] AffirmationDeletionHelper: Cleaned up \(deletable.count) expired affirmations (\(allExpired.count - deletable.count) protected/seeded)")
+        AppLogger.info("Cleaned up \(deletable.count) expired affirmations (\(allExpired.count - deletable.count) protected/seeded)", category: .data)
         #endif
         
         return deletable.count

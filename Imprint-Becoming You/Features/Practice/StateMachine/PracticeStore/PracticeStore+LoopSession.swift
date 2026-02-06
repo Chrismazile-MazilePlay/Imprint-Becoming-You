@@ -25,7 +25,7 @@ extension PracticeStore {
         setSessionAffirmationsForShuffle(shuffled)
         
         #if DEBUG
-        print("[OK] PracticeStore: Shuffled session affirmations for new loop")
+        AppLogger.info("Shuffled session affirmations for new loop", category: .practice)
         #endif
     }
 }
@@ -61,17 +61,17 @@ extension PracticeStore {
         // Load affirmations from saved session
         guard let repo = savedSessionRepository else {
             #if DEBUG
-            print("[WARN] PracticeStore: No saved session repository")
+            AppLogger.warning("No saved session repository", category: .practice)
             #endif
             return
         }
-        
+
         do {
             let affirmations = try repo.fetchAffirmations(byIds: savedSession.affirmationIds)
-            
+
             guard !affirmations.isEmpty else {
                 #if DEBUG
-                print("[WARN] PracticeStore: Saved session has no valid affirmations")
+                AppLogger.warning("Saved session has no valid affirmations", category: .practice)
                 #endif
                 setError(.dataLoadError("This saved session's affirmations are no longer available."))
                 clearSavedSessionContext()
@@ -86,7 +86,7 @@ extension PracticeStore {
             try? repo.recordPlayback(sessionId: savedSession.id)
             
             #if DEBUG
-            print("[OK] PracticeStore: Starting saved session '\(savedSession.name)' with \(affirmations.count) affirmations")
+            AppLogger.info("Starting saved session '\(savedSession.name)' with \(affirmations.count) affirmations", category: .practice)
             #endif
             
             // Start the session with TTS preparation for modes that use it
@@ -94,7 +94,7 @@ extension PracticeStore {
             
         } catch {
             #if DEBUG
-            print("[ERROR] PracticeStore: Failed to load saved session affirmations: \(error)")
+            AppLogger.error("Failed to load saved session affirmations: \(error)", category: .practice)
             #endif
             setError(.dataLoadError("Failed to load saved session: \(error.localizedDescription)"))
             clearSavedSessionContext()
@@ -120,18 +120,18 @@ extension PracticeStore {
     func handleSaveSession(name: String) {
         guard !isPlayingSavedSession else {
             #if DEBUG
-            print("[WARN] PracticeStore: Cannot save while playing a saved session")
+            AppLogger.warning("Cannot save while playing a saved session", category: .practice)
             #endif
             return
         }
         
         guard let repo = savedSessionRepository else {
             #if DEBUG
-            print("[WARN] PracticeStore: No saved session repository")
+            AppLogger.warning("No saved session repository", category: .practice)
             #endif
             return
         }
-        
+
         // Check free tier limit (defense in depth - UI also checks)
         do {
             let currentCount = try repo.count()
@@ -139,14 +139,14 @@ extension PracticeStore {
                 // TODO: Check if user is premium before blocking
                 // For now, enforce the limit for all users
                 #if DEBUG
-                print("[WARN] PracticeStore: At saved session limit (\(currentCount)/\(Constants.FreeTier.maxSavedSessions))")
+                AppLogger.warning("At saved session limit (\(currentCount)/\(Constants.FreeTier.maxSavedSessions))", category: .practice)
                 #endif
                 setError(.dataLoadError("You've reached the maximum number of saved sessions."))
                 return
             }
         } catch {
             #if DEBUG
-            print("[WARN] PracticeStore: Failed to check session count: \(error)")
+            AppLogger.warning("Failed to check session count: \(error)", category: .practice)
             #endif
             // Continue anyway - UI should have validated
         }
@@ -158,7 +158,7 @@ extension PracticeStore {
         
         guard !affirmationIds.isEmpty else {
             #if DEBUG
-            print("[WARN] PracticeStore: No affirmations to save")
+            AppLogger.warning("No affirmations to save", category: .practice)
             #endif
             return
         }
@@ -167,14 +167,14 @@ extension PracticeStore {
         do {
             if try repo.exists(withAffirmationIds: affirmationIds) {
                 #if DEBUG
-                print("[WARN] PracticeStore: Session with same affirmations already exists")
+                AppLogger.warning("Session with same affirmations already exists", category: .practice)
                 #endif
                 setError(.dataLoadError("A session with these same affirmations already exists."))
                 return
             }
         } catch {
             #if DEBUG
-            print("[WARN] PracticeStore: Failed to check for duplicate session: \(error)")
+            AppLogger.warning("Failed to check for duplicate session: \(error)", category: .practice)
             #endif
         }
         
@@ -198,12 +198,12 @@ extension PracticeStore {
             HapticFeedback.notification(.success)
             
             #if DEBUG
-            print("[OK] PracticeStore: Saved session '\(name)' with \(affirmationIds.count) affirmations")
+            AppLogger.info("Saved session '\(name)' with \(affirmationIds.count) affirmations", category: .practice)
             #endif
             
         } catch {
             #if DEBUG
-            print("[ERROR] PracticeStore: Failed to save session: \(error)")
+            AppLogger.error("Failed to save session: \(error)", category: .practice)
             #endif
             setError(.dataLoadError("Failed to save session: \(error.localizedDescription)"))
         }

@@ -384,7 +384,7 @@ extension PracticeStore {
             } catch {
                 guard generation == self.flowGeneration else { return }
                 
-                if let captureError = error as? SpeechCaptureService.CaptureError {
+                if let captureError = error as? SpeechCaptureError {
                     switch captureError {
                     case .microphonePermissionDenied:
                         self.send(.permissionDenied(.microphone))

@@ -45,7 +45,7 @@ final class SessionPlaybackCoordinator {
     private let queueService: any SessionTTSQueueServiceProtocol
 
     /// Audio player for raw PCM playback
-    private let audioPlayerService: AudioPlayerService
+    private let audioPlayerService: any AudioPlayerServiceProtocol
 
     /// TTS service for fallback direct synthesis (browse mode / cache miss)
     private let ttsService: any TTSServiceProtocol
@@ -60,7 +60,7 @@ final class SessionPlaybackCoordinator {
     ///   - ttsService: TTS service for fallback synthesis
     init(
         queueService: any SessionTTSQueueServiceProtocol,
-        audioPlayerService: AudioPlayerService,
+        audioPlayerService: any AudioPlayerServiceProtocol,
         ttsService: any TTSServiceProtocol
     ) {
         self.queueService = queueService
@@ -176,7 +176,7 @@ final class SessionPlaybackCoordinator {
                     try session.setActive(true)
                 } catch {
                     #if DEBUG
-                    print("SessionPlaybackCoordinator: Audio session pre-config failed: \(error.localizedDescription)")
+                    AppLogger.debug("Audio session pre-config failed: \(error.localizedDescription)", category: .audio)
                     #endif
                 }
                 continuation.resume()

@@ -17,7 +17,7 @@ import SwiftUI
 /// ## Performance Benefits
 /// - Extracts RGBA values once at initialization (not per frame)
 /// - Caches common blend values (0, 0.5, 1.0) for fast lookup
-/// - Eliminates 540 UIColor allocations/second (60fps Ã— 9 bars)
+/// - Eliminates 540 UIColor allocations/second (60fps × 9 bars)
 ///
 /// ## Usage
 /// ```swift
@@ -152,7 +152,7 @@ public struct ClassicBarsWaveformStyle: DockWaveformStyle {
 ///
 /// Color interpolation uses pre-computed RGBA values via `ColorCache` to avoid
 /// creating `UIColor` bridge objects on every animation frame. This eliminates
-/// ~540 allocations/second (60fps Ã— 9 bars).
+/// ~540 allocations/second (60fps × 9 bars).
 struct ClassicBarsWaveformView: View {
     
     // MARK: - Properties

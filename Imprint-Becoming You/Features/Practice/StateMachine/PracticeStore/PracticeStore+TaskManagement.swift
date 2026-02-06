@@ -167,7 +167,7 @@ extension PracticeStore {
             "listeningTask: \(listeningTask != nil ? "active" : "nil")",
             "prepTask: \(sessionPreparationTask != nil ? "active" : "nil")"
         ]
-        print("[DEBUG] PracticeStore Tasks (\(activeCount) active): \(taskStates.joined(separator: ", "))")
+        AppLogger.debug("PracticeStore Tasks (\(activeCount) active): \(taskStates.joined(separator: ", "))", category: .practice)
         #endif
     }
 }

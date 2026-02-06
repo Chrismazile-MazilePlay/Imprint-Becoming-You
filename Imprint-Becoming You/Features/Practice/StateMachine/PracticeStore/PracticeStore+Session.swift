@@ -10,49 +10,49 @@ import SwiftUI
 // MARK: - Session Queue Generation
 
 extension PracticeStore {
-    
+
     func generateSessionQueue(forMode mode: SessionMode) {
         guard let repo = repository else {
             #if DEBUG
-            print("[WARN] PracticeStore: No repository for session queue generation")
+            AppLogger.warning("No repository for session queue generation", category: .practice)
             #endif
             clearOriginalSessionAffirmationIds()
             setSessionState(affirmations: Array(browseAffirmations.prefix(Constants.Session.sessionSize)))
             prepareAndStartSession(mode: mode)
             return
         }
-        
+
         let recentlyBrowsedIds = Set(browseAffirmations.prefix(20).map { $0.id })
-        
+
         do {
             let freshQueue = try repo.fetchSessionQueue(
                 forCategories: loadedCategories,
                 excluding: recentlyBrowsedIds,
                 limit: Constants.Session.sessionSize
             )
-            
+
             let queue = freshQueue.isEmpty
                 ? Array(browseAffirmations.prefix(Constants.Session.sessionSize))
                 : freshQueue
-            
+
             clearOriginalSessionAffirmationIds()
             setSessionState(affirmations: queue)
-            
+
             #if DEBUG
-            print("[OK] PracticeStore: Generated session queue with \(queue.count) fresh affirmations")
+            AppLogger.info("Generated session queue with \(queue.count) fresh affirmations", category: .practice)
             #endif
-            
+
         } catch {
             #if DEBUG
-            print("[WARN] PracticeStore: Session queue generation failed: \(error)")
+            AppLogger.warning("Session queue generation failed: \(error)", category: .practice)
             #endif
             clearOriginalSessionAffirmationIds()
             setSessionState(affirmations: Array(browseAffirmations.prefix(Constants.Session.sessionSize)))
         }
-        
+
         prepareAndStartSession(mode: mode)
     }
-    
+
     /// Prepares TTS for session affirmations before starting.
     ///
     /// For modes that use TTS (Read Aloud, Read & Speak), this:
@@ -80,10 +80,10 @@ extension PracticeStore {
             startSession(mode: mode)
             return
         }
-        
+
         // Cancel any existing preparation
         sessionPreparationTask?.cancel()
-        
+
         // Set pending mode and show preparation UI
         setPendingSessionMode(mode)
         let totalCount = sessionAffirmations.count
@@ -94,23 +94,23 @@ extension PracticeStore {
             target: totalCount
         )
         setSessionPreparationPhase(.waitingForKokoro)
-        
+
         #if DEBUG
-        print("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½Ãƒâ€šÃ‚Âµ PracticeStore: Starting session preparation for \(totalCount) affirmations")
+        AppLogger.debug("Starting session preparation for \(totalCount) affirmations", category: .practice)
         #endif
-        
+
         // Build lightweight affirmation info for queue
         let affirmationInfos = sessionAffirmations.enumerated().map { index, affirmation in
             SessionAffirmationInfo(affirmation: affirmation, index: index)
         }
-        
+
         let voiceId = selectedVoiceId
         let queueService = dependencies.sessionTTSQueueService
         let forceSystem = forceSystemTTSForSession
-        
+
         sessionPreparationTask = Task { [weak self] in
             guard let self = self else { return }
-            
+
             do {
                 try await queueService.prepareSession(
                     affirmations: affirmationInfos,
@@ -120,11 +120,11 @@ extension PracticeStore {
                         Task { @MainActor [weak self] in
                             guard let self = self, self.isPreparingSession else { return }
                             self.setSessionPreparationPhase(phase)
-                            
+
                             #if DEBUG
-                            print("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½Ãƒâ€šÃ‚Âµ PracticeStore: Phase changed to \(phase)")
+                            AppLogger.debug("Phase changed to \(phase)", category: .practice)
                             #endif
-                            
+
                             // Handle timeout phase (don't auto-complete)
                             if phase == .kokoroTimeout {
                                 // UI will show fallback options
@@ -135,7 +135,7 @@ extension PracticeStore {
                     onProgress: { [weak self] prepared, total in
                         Task { @MainActor [weak self] in
                             guard let self = self, self.isPreparingSession else { return }
-                            
+
                             let progress = total > 0 ? Float(prepared) / Float(total) : 0
                             self.setSessionPreparation(
                                 isActive: true,
@@ -143,37 +143,37 @@ extension PracticeStore {
                                 preparedCount: prepared,
                                 target: total
                             )
-                            
+
                             #if DEBUG
                             if prepared % 5 == 0 || prepared == total {
-                                print("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½Ãƒâ€šÃ‚Âµ PracticeStore: Preparation progress \(prepared)/\(total) (\(Int(progress * 100))%)")
+                                AppLogger.debug("Preparation progress \(prepared)/\(total) (\(Int(progress * 100))%)", category: .practice)
                             }
                             #endif
                         }
                     }
                 )
-                
+
                 // If we get here, all affirmations were synthesized (or we're in timeout state)
                 guard !Task.isCancelled else { return }
-                
+
                 // Check if we completed successfully (not timeout)
                 if queueService.preparationPhase == .complete {
                     self.send(.sessionPreparationCompleted)
                 }
                 // If timeout, the UI handles showing fallback options
-                
+
             } catch is CancellationError {
                 #if DEBUG
-                print("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½Ãƒâ€šÃ‚Âµ PracticeStore: Preparation task cancelled (user action)")
+                AppLogger.debug("Preparation task cancelled (user action)", category: .practice)
                 #endif
-                
+
             } catch {
                 guard !Task.isCancelled else { return }
                 self.send(.sessionPreparationFailed(.ttsError(error.localizedDescription)))
             }
         }
     }
-    
+
     /// Retries session preparation after a Kokoro timeout.
     ///
     /// Called when user taps "Retry" in the fallback UI.
@@ -181,33 +181,33 @@ extension PracticeStore {
     func retrySessionPreparation() {
         guard let mode = pendingSessionMode else {
             #if DEBUG
-            print("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â PracticeStore: No pending mode for retry")
+            AppLogger.warning("No pending mode for retry", category: .practice)
             #endif
             return
         }
-        
+
         #if DEBUG
-        print("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½Ãƒâ€šÃ‚Âµ PracticeStore: Retrying session preparation")
+        AppLogger.debug("Retrying session preparation", category: .practice)
         #endif
-        
+
         // Reset the force system flag (we're trying Kokoro again)
         forceSystemTTSForSession = false
-        
+
         // Cancel current preparation
         sessionPreparationTask?.cancel()
         dependencies.sessionTTSQueueService.cancelAll()
-        
+
         // Retry Kokoro initialization
         Task { [weak self] in
             guard let self = self else { return }
-            
+
             await self.dependencies.ttsService.retryKokoroInitialization()
-            
+
             // Restart preparation
             self.prepareAndStartSession(mode: mode)
         }
     }
-    
+
     /// Continues session preparation using System TTS.
     ///
     /// Called when user taps "Continue with System Voice" in the fallback UI.
@@ -215,26 +215,26 @@ extension PracticeStore {
     func continueWithSystemVoice() {
         guard let mode = pendingSessionMode else {
             #if DEBUG
-            print("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â PracticeStore: No pending mode for system voice fallback")
+            AppLogger.warning("No pending mode for system voice fallback", category: .practice)
             #endif
             return
         }
-        
+
         #if DEBUG
-        print("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½Ãƒâ€šÃ‚Âµ PracticeStore: Continuing with System TTS")
+        AppLogger.debug("Continuing with System TTS", category: .practice)
         #endif
-        
+
         // Set session-scoped flag to force System TTS
         forceSystemTTSForSession = true
-        
+
         // Cancel current preparation
         sessionPreparationTask?.cancel()
         dependencies.sessionTTSQueueService.cancelAll()
-        
+
         // Restart preparation with System TTS
         prepareAndStartSession(mode: mode)
     }
-    
+
     func startSession(mode: SessionMode) {
         // Signal MemoryManager that a session is active.
         // This prevents aggressive background release of the audio cache
@@ -243,17 +243,17 @@ extension PracticeStore {
 
         // Reset session-scoped flags
         setHasSessionBeenSaved(false)
-        
+
         setSessionState(index: 0)
         setSessionResults([])
         sessionMode = mode
         sessionStartTime = Date()
-        
+
         // Reset loop iteration to 1 when starting fresh
         var config = loopConfiguration
         config.resetIteration()
         setLoopConfiguration(config)
-        
+
         withAnimation(AppTheme.Animation.standard) {
             switch mode {
             case .readOnly:
@@ -266,7 +266,7 @@ extension PracticeStore {
                 setFlow(.speakOnly(.idle))
             }
         }
-        
+
         startFlowForCurrentAffirmation()
     }
 }
@@ -274,44 +274,44 @@ extension PracticeStore {
 // MARK: - Browse Batch Tracking
 
 extension PracticeStore {
-    
+
     func trackUniqueBrowseView() {
         guard let affirmation = currentAffirmation else { return }
-        
+
         if !viewedBrowseAffirmationIds.contains(affirmation.id) {
             viewedBrowseAffirmationIds.insert(affirmation.id)
             setBrowseState(consumed: browseBatchConsumed + 1)
             checkBrowseBatchRefresh()
         }
     }
-    
+
     func recordAffirmationForSession() {
         guard let affirmation = currentAffirmation else { return }
         guard !sessionResults.contains(where: { $0.affirmationId == affirmation.id }) else { return }
-        
+
         let isFromScoringMode = (sessionMode == .readThenSpeak || sessionMode == .speakOnly)
         let result = SessionAffirmationResult(affirmation: affirmation, isFromScoringMode: isFromScoringMode)
         appendSessionResult(result)
     }
-    
+
     func checkBrowseBatchRefresh() {
         guard browseBatchConsumed >= Constants.Session.regenerationTriggerIndex else { return }
         guard !isBrowseBatchRefreshInProgress else { return }
         guard let repo = repository else { return }
         guard !loadedCategories.isEmpty else { return }
-        
+
         isBrowseBatchRefreshInProgress = true
         let categories = loadedCategories
-        
+
         Task { @MainActor [weak self] in
             guard let self = self else { return }
-            
+
             do {
                 let newAffirmations = try repo.fetchQueue(
                     forCategories: categories,
                     limit: Constants.Session.batchSize
                 )
-                
+
                 self.appendToBrowseQueue(newAffirmations)
                 self.isBrowseBatchRefreshInProgress = false
             } catch {
@@ -319,7 +319,7 @@ extension PracticeStore {
             }
         }
     }
-    
+
     func appendToBrowseQueue(_ newAffirmations: [Affirmation]) {
         let existingIds = Set(browseAffirmations.map { $0.id })
         let uniqueNew = newAffirmations.filter { !existingIds.contains($0.id) }
@@ -343,9 +343,9 @@ extension PracticeStore {
 // MARK: - Session Summary
 
 extension PracticeStore {
-    
+
     // MARK: - Session Preparation Handlers
-    
+
     /// Handles successful session preparation completion.
     ///
     /// If user tapped "Start Now" early for a large session, this will:
@@ -355,73 +355,73 @@ extension PracticeStore {
     func handleSessionPreparationCompleted() {
         guard let mode = pendingSessionMode else {
             #if DEBUG
-            print("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â PracticeStore: Preparation completed but no pending mode")
+            AppLogger.warning("Preparation completed but no pending mode", category: .practice)
             #endif
             clearSessionPreparation()
             return
         }
-        
+
         let queueService = dependencies.sessionTTSQueueService
         let preparedCount = queueService.preparedCount
         let totalCount = queueService.totalCount
         let hasRemaining = preparedCount < totalCount
-        
+
         #if DEBUG
         if hasRemaining {
-            print("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ PracticeStore: Early start - starting session with \(preparedCount)/\(totalCount) ready")
+            AppLogger.debug("Early start - starting session with \(preparedCount)/\(totalCount) ready", category: .practice)
         } else {
-            print("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ PracticeStore: TTS preparation complete, starting session in \(mode.rawValue) mode")
+            AppLogger.debug("TTS preparation complete, starting session in \(mode.rawValue) mode", category: .practice)
         }
         #endif
-        
+
         // Cancel the preparation task (if still running)
         sessionPreparationTask?.cancel()
         sessionPreparationTask = nil
-        
+
         // Clear preparation UI state
         clearSessionPreparation()
-        
+
         // Start the session
         startSession(mode: mode)
-        
+
         // If there are remaining affirmations, continue synthesis in background
         if hasRemaining {
             #if DEBUG
-            print("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½Ãƒâ€šÃ‚Âµ PracticeStore: Starting background synthesis for remaining \(totalCount - preparedCount) affirmations")
+            AppLogger.debug("Starting background synthesis for remaining \(totalCount - preparedCount) affirmations", category: .practice)
             #endif
             queueService.startBackgroundSynthesis(startingFrom: preparedCount)
         }
     }
-    
+
     /// Handles session preparation failure.
     func handleSessionPreparationFailed(_ error: PracticeError) {
         #if DEBUG
-        print("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ PracticeStore: TTS preparation failed: \(error)")
+        AppLogger.error("TTS preparation failed: \(error)", category: .practice)
         #endif
-        
+
         // Update phase to error
         setSessionPreparationPhase(.error(message: error.localizedDescription))
-        
+
         // Don't auto-start - let user choose to retry or cancel
     }
-    
+
     /// Handles user cancellation of session preparation.
     func handleCancelSessionPreparation() {
         #if DEBUG
-        print("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂºÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“ PracticeStore: User cancelled session preparation")
+        AppLogger.debug("User cancelled session preparation", category: .practice)
         #endif
-        
+
         clearSessionPreparation()
         dependencies.sessionTTSQueueService.cancelAll()
-        
+
         // Reset session-scoped System TTS flag
         forceSystemTTSForSession = false
-        
+
         // Clear session state since we're not starting
         setSessionState(affirmations: [], index: 0)
         clearOriginalSessionAffirmationIds()
     }
-    
+
     func showSessionSummary() {
         cancelCurrentActivity()
 
@@ -440,44 +440,44 @@ extension PracticeStore {
         // Release speech capture service to free SFSpeechRecognizer + AVAudioEngine (~7-15MB).
         // Lazily recreated on next Read & Speak or Speak Only session.
         releaseSpeechCaptureService()
-        
+
         #if DEBUG
-        print("[DEBUG] showSessionSummary: \(sessionResults.count) results")
+        AppLogger.debug("showSessionSummary: \(sessionResults.count) results", category: .practice)
         for (i, result) in sessionResults.enumerated() {
-            print("  [\(i)] affirmation=\(result.affirmationId), loopScores=\(result.loopScores)")
+            AppLogger.debug("  [\(i)] affirmation=\(result.affirmationId), loopScores=\(result.loopScores)", category: .practice)
         }
         #endif
-        
+
         Task { [weak self] in
             guard let self = self else { return }
-            
+
             try? await Task.sleep(for: PracticeTiming.sessionCompletePause)
             guard !Task.isCancelled else { return }
-            
+
             self.setNavigationLocked(true)
-            
+
             withAnimation(.easeInOut(duration: PracticeTiming.summaryTransitionDuration)) {
                 self.setShowingSummary(true)
             }
-            
+
             Task { [weak self] in
                 guard let self = self else { return }
                 try? await Task.sleep(for: .milliseconds(Int(PracticeTiming.summaryTransitionDuration * 1000)))
                 self.setNavigationLocked(false)
             }
-            
+
             HapticFeedback.notification(.success)
         }
     }
-    
+
     /// Handles dismissing the summary and returning to home.
     ///
     /// ## State Reset Order
     /// The order of operations is critical to prevent visual glitches:
     ///
     /// 1. **Reset display state FIRST** (immediate, no animation)
-    ///    - Sets `flow` to `.home` ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ `isSessionActive` becomes `false`
-    ///    - Clears `sessionAffirmations` ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ `store.affirmations` returns browse content
+    ///    - Sets `flow` to `.home` → `isSessionActive` becomes `false`
+    ///    - Clears `sessionAffirmations` → `store.affirmations` returns browse content
     ///    - PracticePageView now shows browse content (hidden behind summary)
     ///
     /// 2. **Animate summary dismiss**
@@ -510,29 +510,29 @@ extension PracticeStore {
         // Clear TTS audio cache and session state to free memory.
         // cancelAll() internally resumes the synthesis idle timer.
         dependencies.sessionTTSQueueService.cancelAll()
-        
+
         // Close any open menus immediately
         isModeSelectorExpanded = false
         isBinauralSelectorExpanded = false
-        
+
         // 2. THEN animate the summary dismiss
         //    PracticePageView is already showing browse content (hidden behind summary)
         withAnimation(.easeInOut(duration: PracticeTiming.summaryDismissDuration)) {
             setShowingSummary(false)
         }
-        
+
         // 3. Clean up remaining state AFTER animation completes
         Task { @MainActor [weak self] in
             guard let self = self else { return }
             try? await Task.sleep(for: .milliseconds(Int(PracticeTiming.summaryDismissDuration * 1000) + 50))
-            
+
             // Now safe to clear results and session-scoped flags
             self.setSessionResults([])
             self.forceSystemTTSForSession = false
             self.setHasSessionBeenSaved(false)
         }
     }
-    
+
     /// Handles repeat session with current loop/shuffle configuration.
     ///
     /// ## Timing Design
@@ -610,26 +610,26 @@ extension PracticeStore {
             self.startFlowForCurrentAffirmation()
         }
     }
-    
+
     func handleToggleFavoriteInSummary(affirmationId: UUID) {
         let affirmation = sessionAffirmations.first { $0.id == affirmationId }
             ?? browseAffirmations.first { $0.id == affirmationId }
-        
+
         guard let affirmation = affirmation else {
             #if DEBUG
-            print("[ERROR] handleToggleFavoriteInSummary: Could not find affirmation \(affirmationId)")
+            AppLogger.error("handleToggleFavoriteInSummary: Could not find affirmation \(affirmationId)", category: .practice)
             #endif
             return
         }
-        
+
         let newState = !affirmation.isFavorited
         affirmation.isFavorited = newState
         affirmation.favoritedAt = newState ? Date() : nil
-        
+
         #if DEBUG
-        print("[OK] handleToggleFavoriteInSummary: affirmation=\(affirmationId.uuidString.prefix(8)) now=\(newState)")
+        AppLogger.info("handleToggleFavoriteInSummary: affirmation=\(affirmationId.uuidString.prefix(8)) now=\(newState)", category: .practice)
         #endif
-        
+
         if let index = sessionResults.firstIndex(where: { $0.affirmationId == affirmationId }) {
             updateSessionResult(at: index, isFavorited: newState)
         }

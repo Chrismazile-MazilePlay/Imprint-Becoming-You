@@ -47,42 +47,15 @@ import os.signpost
 /// }
 /// ```
 @MainActor
-final class SpeechCaptureService: NSObject, @unchecked Sendable {
-    
-    // MARK: - Types
-    
-    /// Updates emitted by the capture stream
-    enum CaptureUpdate: Sendable {
-        /// New transcription text (partial or final)
-        case transcription(text: String, isFinal: Bool)
-        
-        /// Audio level update (0.0 - 1.0 normalized)
-        case audioLevel(Float)
-        
-        /// Silence detected for specified duration
-        case silenceDetected(duration: TimeInterval)
-        
-        /// Error occurred during capture
-        case error(CaptureError)
-        
-        /// Capture started successfully
-        case started
-        
-        /// Capture stopped
-        case stopped
-    }
-    
-    /// Errors that can occur during capture
-    enum CaptureError: Error, Sendable {
-        case microphonePermissionDenied
-        case speechRecognitionPermissionDenied
-        case speechRecognizerUnavailable
-        case audioEngineFailure(String)
-        case recognitionFailure(String)
-        /// Another app (Zoom, FaceTime, phone call) holds the audio session,
-        /// preventing microphone access for speech recognition.
-        case audioSessionUnavailable
-    }
+final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unchecked Sendable {
+
+    // MARK: - Type Aliases
+
+    /// Backward-compatible alias for `SpeechCaptureUpdate`.
+    typealias CaptureUpdate = SpeechCaptureUpdate
+
+    /// Backward-compatible alias for `SpeechCaptureError`.
+    typealias CaptureError = SpeechCaptureError
     
     // MARK: - Properties
     
@@ -133,7 +106,7 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         super.init()
         
         #if DEBUG
-        print("[LOG] SpeechCaptureService: Initialized with locale \(Locale.current.identifier)")
+        AppLogger.debug("Initialized with locale \(Locale.current.identifier)", category: .speech)
         #endif
     }
     
@@ -181,7 +154,7 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
                 service.streamContinuation = continuation
                 
                 #if DEBUG
-                print("[LOG] SpeechCaptureService: Stream continuation set")
+                AppLogger.debug("Stream continuation set", category: .speech)
                 #endif
             }
             
@@ -190,7 +163,7 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
                 Task { @MainActor in
                     service.streamContinuation = nil
                     #if DEBUG
-                    print("[LOG] SpeechCaptureService: Stream terminated")
+                    AppLogger.debug("Stream terminated", category: .speech)
                     #endif
                 }
             }
@@ -233,13 +206,13 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
     func startCapture() async throws {
         guard !isCapturing else {
             #if DEBUG
-            print("[LOG] SpeechCaptureService: Already capturing, ignoring start request")
+            AppLogger.debug("Already capturing, ignoring start request", category: .speech)
             #endif
             return
         }
         
         #if DEBUG
-        print("[LOG] SpeechCaptureService: Starting capture...")
+        AppLogger.debug("Starting capture...", category: .speech)
         #endif
         
         // Begin signpost interval for capture
@@ -286,7 +259,7 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         emit(.started)
         
         #if DEBUG
-        print("[LOG] SpeechCaptureService: Capture started successfully")
+        AppLogger.debug("Capture started successfully", category: .speech)
         #endif
     }
     
@@ -296,7 +269,7 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         guard isCapturing else { return currentTranscription }
         
         #if DEBUG
-        print("[LOG] SpeechCaptureService: Stopping capture...")
+        AppLogger.debug("Stopping capture...", category: .speech)
         #endif
         
         // Stop silence monitoring
@@ -339,7 +312,7 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         }
 
         #if DEBUG
-        print("[LOG] SpeechCaptureService: Capture stopped. Final: \"\(currentTranscription)\"")
+        AppLogger.debug("Capture stopped. Final: \"\(currentTranscription)\"", category: .speech)
         #endif
 
         return currentTranscription
@@ -350,7 +323,7 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         guard isCapturing else { return }
 
         #if DEBUG
-        print("[LOG] SpeechCaptureService: Cancelling capture...")
+        AppLogger.debug("Cancelling capture...", category: .speech)
         #endif
 
         silenceTimer?.cancel()
@@ -438,13 +411,13 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
                             try session.setActive(true, options: .notifyOthersOnDeactivation)
                             
                             #if DEBUG
-                            print("[LOG] SpeechCaptureService: Audio session configured (attempt \(attempt + 1)) - Sample rate: \(session.sampleRate)")
+                            AppLogger.debug("Audio session configured (attempt \(attempt + 1)) - Sample rate: \(session.sampleRate)", category: .speech)
                             #endif
                             
                             continuation.resume()
                         } catch {
                             #if DEBUG
-                            print("[LOG] SpeechCaptureService: Audio session config attempt \(attempt + 1)/\(retryDelays.count) failed: \(error.localizedDescription)")
+                            AppLogger.debug("Audio session config attempt \(attempt + 1)/\(retryDelays.count) failed: \(error.localizedDescription)", category: .speech)
                             #endif
                             continuation.resume(throwing: error)
                         }
@@ -508,7 +481,7 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
                     }
                     
                     #if DEBUG
-                    print("[LOG] SpeechCaptureService: Recording format - \(Int(recordingFormat.sampleRate)) Hz, \(recordingFormat.channelCount) ch")
+                    AppLogger.debug("Recording format - \(Int(recordingFormat.sampleRate)) Hz, \(recordingFormat.channelCount) ch", category: .speech)
                     #endif
                     
                     // Create recognition request
@@ -579,7 +552,7 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
             // Ignore "no speech detected" errors (code 1110)
             if nsError.code == 1110 {
                 #if DEBUG
-                print("[LOG] SpeechCaptureService: No speech detected (expected)")
+                AppLogger.debug("No speech detected (expected)", category: .speech)
                 #endif
                 return
             }
@@ -587,15 +560,13 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
             // Ignore rate limit errors (code 1101) - just log once
             if nsError.code == 1101 {
                 #if DEBUG
-                print("[LOG] SpeechCaptureService: Rate limited by iOS speech service (1101)")
+                AppLogger.debug("Rate limited by iOS speech service (1101)", category: .speech)
                 #endif
                 return
             }
             
-            #if DEBUG
-            print("[ERROR] SpeechCaptureService: Recognition error - \(error.localizedDescription)")
-            #endif
-            
+            AppLogger.error("Recognition error - \(error.localizedDescription)", category: .speech, error: error)
+
             emit(.error(.recognitionFailure(error.localizedDescription)))
             return
         }
@@ -614,9 +585,9 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         
         #if DEBUG
         if result.isFinal {
-            print("[LOG] SpeechCaptureService: Final transcription - \"\(transcription)\"")
+            AppLogger.debug("Final transcription - \"\(transcription)\"", category: .speech)
         } else if !transcription.isEmpty {
-            print("[LOG] SpeechCaptureService: Partial - \"\(transcription)\"")
+            AppLogger.debug("Partial - \"\(transcription)\"", category: .speech)
         }
         #endif
     }
@@ -728,7 +699,7 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         case .routeConfigurationChange: reasonName = "routeConfigurationChange"
         @unknown default: reasonName = "unknown(\(reason.rawValue))"
         }
-        print("[LOG] SpeechCaptureService: Route change - \(reasonName)")
+        AppLogger.debug("Route change - \(reasonName)", category: .speech)
         #endif
         
         // CRITICAL FIX: Let AVAudioEngine handle route changes automatically!
@@ -738,14 +709,14 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         case .newDeviceAvailable:
             // New device connected (e.g., AirPods) - engine handles this automatically
             #if DEBUG
-            print("[LOG] SpeechCaptureService: Device connected - audio engine handles seamlessly")
+            AppLogger.debug("Device connected - audio engine handles seamlessly", category: .speech)
             #endif
             // Do NOT cancel! Let engine continue with new device.
             
         case .oldDeviceUnavailable:
             // Device disconnected (e.g., AirPods removed) - may need to verify engine
             #if DEBUG
-            print("[LOG] SpeechCaptureService: Device disconnected - verifying engine state")
+            AppLogger.debug("Device disconnected - verifying engine state", category: .speech)
             #endif
             
             if isCapturing {
@@ -759,14 +730,12 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
                     let engineRunning = self.audioEngine?.isRunning ?? false
                     if !engineRunning {
                         // Engine stopped after device removal - emit error
-                        #if DEBUG
-                        print("[WARN] SpeechCaptureService: Engine stopped after device disconnect")
-                        #endif
+                        AppLogger.warning("Engine stopped after device disconnect", category: .speech)
                         self.streamContinuation?.yield(.error(.audioEngineFailure("Audio device disconnected")))
                         self.cancelCapture()
                     } else {
                         #if DEBUG
-                        print("[LOG] SpeechCaptureService: Engine still running after device change")
+                        AppLogger.debug("Engine still running after device change", category: .speech)
                         #endif
                     }
                 }
@@ -776,7 +745,7 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
             // IGNORE: This is triggered by our own setCategory() call.
             // Restarting here causes infinite restart loops!
             #if DEBUG
-            print("[LOG] SpeechCaptureService: Ignoring categoryChange (self-triggered)")
+            AppLogger.debug("Ignoring categoryChange (self-triggered)", category: .speech)
             #endif
             
         default:
@@ -794,7 +763,7 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         }
         
         #if DEBUG
-        print("[LOG] SpeechCaptureService: Interruption - \(type == .began ? "began" : "ended")")
+        AppLogger.debug("Interruption - \(type == .began ? "began" : "ended")", category: .speech)
         #endif
         
         switch type {
@@ -845,25 +814,6 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
     }
 }
 
-// MARK: - Convenience Extensions
-
-extension SpeechCaptureService.CaptureUpdate {
-    
-    /// Whether this is a transcription update
-    var isTranscription: Bool {
-        if case .transcription = self { return true }
-        return false
-    }
-    
-    /// Extracts transcription text if this is a transcription update
-    var transcriptionText: String? {
-        if case .transcription(let text, _) = self { return text }
-        return nil
-    }
-    
-    /// Whether this is a final transcription
-    var isFinalTranscription: Bool {
-        if case .transcription(_, let isFinal) = self { return isFinal }
-        return false
-    }
-}
+// NOTE: Convenience extensions for CaptureUpdate (isTranscription,
+// transcriptionText, isFinalTranscription) are now on the top-level
+// SpeechCaptureUpdate type in SpeechCaptureServiceProtocol.swift.

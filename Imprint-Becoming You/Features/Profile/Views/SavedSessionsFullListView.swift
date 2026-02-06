@@ -340,7 +340,7 @@ struct SavedSessionsFullListView: View {
             HapticFeedback.notification(.success)
         } catch {
             #if DEBUG
-            print("[ERROR] SavedSessionsFullListView: Failed to rename session: \(error)")
+            AppLogger.error("Failed to rename session: \(error)", category: .practice)
             #endif
         }
     }
@@ -357,7 +357,7 @@ struct SavedSessionsFullListView: View {
             HapticFeedback.notification(.success)
         } catch {
             #if DEBUG
-            print("[ERROR] SavedSessionsFullListView: Failed to delete session: \(error)")
+            AppLogger.error("Failed to delete session: \(error)", category: .practice)
             #endif
         }
     }
@@ -487,7 +487,7 @@ struct SavedSessionInfoView: View {
             affirmations = orderedAffirmations
         } catch {
             #if DEBUG
-            print("[ERROR] SavedSessionInfoView: Failed to fetch affirmations: \(error)")
+            AppLogger.error("Failed to fetch affirmations: \(error)", category: .practice)
             #endif
         }
     }

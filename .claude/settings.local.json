@@ -3,7 +3,18 @@
     "allow": [
       "Bash(xargs:*)",
       "Bash(find:*)",
-      "Bash(xcodebuild:*)"
+      "Bash(xcodebuild:*)",
+      "Bash(wc -l:*)",
+      "Bash(for dir in \"/Users/chrismazile/Desktop/MazilePlay-Apps/Imprint-Becoming You/Imprint-Becoming You/Features\"/*)",
+      "Bash(do)",
+      "Bash([ -d \"$dir\" ])",
+      "Bash([ -d \"$dir/Components\" ])",
+      "Bash([ -d \"$dir/ViewModels\" ])",
+      "Bash([ -d \"$dir/Views\" ])",
+      "Bash([ -d \"$dir/StateMachine\" ])",
+      "Bash(done)",
+      "Bash(test:*)",
+      "Bash(python3:*)"
     ]
   }
 }

@@ -35,7 +35,7 @@ private let calibrationLog = Logger(subsystem: "com.imprint.audio", category: "V
 /// )
 /// ```
 @MainActor
-final class VoiceCalibrationService {
+final class VoiceCalibrationService: VoiceCalibrationServiceProtocol {
     
     // MARK: - Properties
     

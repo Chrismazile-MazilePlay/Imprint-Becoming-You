@@ -168,12 +168,14 @@ final class DependencyContainer: Sendable {
     ///
     /// Separate from `audioService` - this handles TTS audio playback
     /// while `audioService` handles binaural beats and ambient audio.
-    private var _audioPlayerService: AudioPlayerService?
-    var audioPlayerService: AudioPlayerService {
+    private var _audioPlayerService: (any AudioPlayerServiceProtocol)?
+    var audioPlayerService: any AudioPlayerServiceProtocol {
         if let existing = _audioPlayerService {
             return existing
         }
-        let service = AudioPlayerService()
+        let service: AudioPlayerServiceProtocol = isPreview
+            ? MockAudioPlayerService()
+            : AudioPlayerService()
         _audioPlayerService = service
         return service
     }
@@ -448,6 +450,11 @@ final class DependencyContainer: Sendable {
     /// Registers a custom audio service (useful for testing)
     func register(audioService: any AudioServiceProtocol) {
         _audioService = audioService
+    }
+
+    /// Registers a custom audio player service
+    func register(audioPlayerService: any AudioPlayerServiceProtocol) {
+        _audioPlayerService = audioPlayerService
     }
     
     /// Registers a custom speech analysis service

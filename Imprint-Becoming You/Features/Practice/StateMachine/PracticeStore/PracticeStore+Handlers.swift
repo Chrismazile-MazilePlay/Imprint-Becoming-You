@@ -436,7 +436,7 @@ extension PracticeStore {
         // LAYER 2: Set flow to idle to stop the dock timer.
         // The flow was .readAloud(.complete) which keeps isAnimating=true.
         // If we reset the index while isAnimating is still true,
-        // handleSegmentChanged would immediately start a new timer Ã¢â‚¬â€
+        // handleSegmentChanged would immediately start a new timer —
         // creating a head start over TTS.
         switch sessionMode {
         case .readAloud:
@@ -449,7 +449,7 @@ extension PracticeStore {
             break
         }
         
-        // Now safe to reset index Ã¢â‚¬â€ isAnimating is false, timer won't start
+        // Now safe to reset index — isAnimating is false, timer won't start
         setSessionState(index: 0)
         setSegmentProgress(0)
         
@@ -778,7 +778,7 @@ extension PracticeStore {
             // This prevents the auto-advance from firing after manual navigation
             guard self.shouldContinueFlow(generation: generation) else {
                 #if DEBUG
-                print("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€šÃ‚Â­ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Score display: User navigated away, skipping auto-advance")
+                AppLogger.debug("Score display: User navigated away, skipping auto-advance", category: .practice)
                 #endif
                 return
             }

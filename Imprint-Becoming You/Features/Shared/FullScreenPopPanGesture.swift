@@ -114,7 +114,7 @@ private struct FullScreenPopGestureFinder: UIViewRepresentable {
         func install(from view: UIView) {
             guard let navigationController = view.findNavigationController() else {
                 #if DEBUG
-                print("[WARN] FullScreenPopGesture: UINavigationController not found in responder chain")
+                AppLogger.warning("UINavigationController not found in responder chain", category: .ui)
                 #endif
                 return
             }
@@ -142,7 +142,7 @@ private struct FullScreenPopGestureFinder: UIViewRepresentable {
             guard let interactivePopGesture = navigationController.interactivePopGestureRecognizer,
                   let targets = interactivePopGesture.value(forKey: "targets") else {
                 #if DEBUG
-                print("[WARN] FullScreenPopGesture: Cannot access interactivePopGestureRecognizer targets")
+                AppLogger.warning("Cannot access interactivePopGestureRecognizer targets", category: .ui)
                 #endif
                 return
             }

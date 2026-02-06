@@ -254,7 +254,7 @@ public struct DockSegmentsView: View {
     /// Used when returning from background, retrying, or any interruption.
     private func handleGenerationChanged() {
         #if DEBUG
-        print("[DEBUG] DockSegmentsView: Generation changed, resetting timer")
+        AppLogger.debug("Generation changed, resetting timer", category: .ui)
         #endif
         
         // Stop existing timer and reset all state

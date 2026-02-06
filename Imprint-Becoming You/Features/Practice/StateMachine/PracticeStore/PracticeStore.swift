@@ -245,10 +245,10 @@ final class PracticeStore {
     
     /// Speech capture service backing storage
     @ObservationIgnored
-    private var _speechCaptureService: SpeechCaptureService?
-    
+    private var _speechCaptureService: (any SpeechCaptureServiceProtocol)?
+
     /// Speech capture service for recognition (lazily created)
-    var speechCaptureService: SpeechCaptureService {
+    var speechCaptureService: any SpeechCaptureServiceProtocol {
         if let existing = _speechCaptureService {
             return existing
         }

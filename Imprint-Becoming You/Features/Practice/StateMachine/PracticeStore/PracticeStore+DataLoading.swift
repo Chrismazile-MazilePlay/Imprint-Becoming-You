@@ -81,7 +81,7 @@ extension PracticeStore {
         
         guard !affirmations.isEmpty else {
             #if DEBUG
-            print("[WARN] PracticeStore: No favorites to start session")
+            AppLogger.warning("No favorites to start session", category: .practice)
             #endif
             setError(.dataLoadError("No favorites yet. Heart some affirmations first!"))
             return
@@ -114,7 +114,7 @@ extension PracticeStore {
         }
         
         #if DEBUG
-        print("[OK] PracticeStore: Starting favorites session with \(affirmations.count) affirmations, mode: \(mode.displayName), voiceId: \(selectedVoiceId ?? "nil")")
+        AppLogger.info("Starting favorites session with \(affirmations.count) affirmations, mode: \(mode.displayName), voiceId: \(selectedVoiceId ?? "nil")", category: .practice)
         #endif
         
         // Use preparation flow for TTS modes (identical path to saved sessions)
@@ -168,7 +168,7 @@ extension PracticeStore {
             }
         } catch {
             #if DEBUG
-            print("[LOG] PracticeStore: Failed to record \(type) engagement")
+            AppLogger.debug("Failed to record \(type) engagement", category: .practice)
             #endif
         }
     }

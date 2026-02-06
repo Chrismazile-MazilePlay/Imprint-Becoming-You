@@ -22,84 +22,84 @@ import os
 /// player.attachTo(engine: audioEngine)
 /// try await player.playFile(named: "cached-audio.mp3")
 /// ```
-actor AudioPlayerService {
-    
+actor AudioPlayerService: AudioPlayerServiceProtocol {
+
     // MARK: - Properties
-    
+
     /// Player node for audio playback
     private var playerNode: AVAudioPlayerNode
-    
+
     /// Audio file currently loaded
     private var currentAudioFile: AVAudioFile?
-    
+
     /// Whether playback is currently active
     private(set) var isPlaying: Bool = false
-    
+
     /// Whether playback is paused
     private(set) var isPaused: Bool = false
-    
+
     /// Current playback volume (0.0 - 1.0)
     private var volume: Float = 1.0
-    
+
     /// Delegate for playback events
     weak var delegate: AudioPlayerDelegate?
-    
+
     /// Continuation for playback completion
     private var playbackContinuation: CheckedContinuation<Void, Error>?
-    
+
     /// Reference to attached engine
     private weak var attachedEngine: AVAudioEngine?
-    
+
     /// Cache manager for file access
     private let cacheManager: AudioCacheManager
-    
+
     /// AVAudioPlayer instance for data playback (separate from AVAudioEngine)
     private var dataPlayer: AVAudioPlayer?
-    
+
     /// Delegate for data player completion (must be retained)
     private var dataPlayerDelegate: AudioPlayerCompletionDelegate?
-    
+
     /// Continuation for data playback completion
     private var dataPlaybackContinuation: CheckedContinuation<Void, Error>?
-    
+
     /// Thread-safe reference for synchronous stop from any isolation context.
     ///
     /// Protects the active `AVAudioPlayer` reference used by `immediateStop()`.
     /// Written inside actor isolation, read by `nonisolated immediateStop()`.
     private let _immediatePlayerRef = OSAllocatedUnfairLock<AVAudioPlayer?>(initialState: nil)
-    
+
     // MARK: - Initialization
-    
+
     /// Creates a new audio player service
     /// - Parameter cacheManager: The cache manager to use for file access
     init(cacheManager: AudioCacheManager = .shared) {
         self.playerNode = AVAudioPlayerNode()
         self.cacheManager = cacheManager
     }
-    
+
     // MARK: - Engine Attachment
-    
+
     /// Attaches the player to an audio engine
     /// - Parameter engine: The audio engine to attach to
     func attachTo(engine: AVAudioEngine) {
         engine.attach(playerNode)
-        
+
         // Connect with a flexible format - will reconnect when playing
         let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)!
         engine.connect(playerNode, to: engine.mainMixerNode, format: format)
-        
+
         attachedEngine = engine
     }
-    
+
     /// Detaches from the audio engine
     func detachFrom(engine: AVAudioEngine) {
         stop()
         engine.detach(playerNode)
         attachedEngine = nil
     }
-    
+
     // MARK: - Playback Control
-    
+
     /// Plays an audio file from the cache
     /// - Parameter fileName: Name of the cached file
     /// - Throws: `AppError.audioPlaybackFailed` if playback fails
@@ -107,17 +107,17 @@ actor AudioPlayerService {
         guard let fileURL = await cacheManager.fileURL(forFileName: fileName) else {
             throw AppError.audioPlaybackFailed(reason: "File not found: \(fileName)")
         }
-        
+
         try await playFile(at: fileURL)
     }
-    
+
     /// Plays an audio file from a URL
     /// - Parameter url: URL of the audio file
     /// - Throws: `AppError.audioPlaybackFailed` if playback fails
     func playFile(at url: URL) async throws {
         // Stop any current playback
         stop()
-        
+
         // Load the audio file
         let audioFile: AVAudioFile
         do {
@@ -125,15 +125,15 @@ actor AudioPlayerService {
         } catch {
             throw AppError.audioPlaybackFailed(reason: "Failed to load audio file: \(error.localizedDescription)")
         }
-        
+
         currentAudioFile = audioFile
-        
+
         // Reconnect player node with correct format if needed
         if let engine = attachedEngine {
             engine.disconnectNodeOutput(playerNode)
             engine.connect(playerNode, to: engine.mainMixerNode, format: audioFile.processingFormat)
         }
-        
+
         // Schedule the file for playback with explicit callback type
         // Using .dataPlayedBack ensures callback fires when audio reaches output hardware
         playerNode.scheduleFile(audioFile, at: nil, completionCallbackType: .dataPlayedBack) { [weak self] _ in
@@ -141,21 +141,21 @@ actor AudioPlayerService {
                 await self?.handlePlaybackComplete()
             }
         }
-        
+
         // Apply volume
         playerNode.volume = volume
-        
+
         // Start playback
         playerNode.play()
         isPlaying = true
         isPaused = false
-        
+
         // Wait for completion
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             playbackContinuation = continuation
         }
     }
-    
+
     /// Plays audio data directly (assumes encoded format like MP3)
     /// - Parameter data: Audio data to play
     /// - Throws: `AppError.audioPlaybackFailed` if playback fails
@@ -164,14 +164,14 @@ actor AudioPlayerService {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("mp3")
-        
+
         // Perform file write
         do {
             try data.write(to: tempURL, options: .atomic)
         } catch {
             throw AppError.audioPlaybackFailed(reason: "Failed to write temp file: \(error.localizedDescription)")
         }
-        
+
         // Play the file and clean up after
         do {
             try await playFile(at: tempURL)
@@ -183,7 +183,7 @@ actor AudioPlayerService {
             throw error
         }
     }
-    
+
     /// Plays audio data directly using AVAudioPlayer (from Kokoro TTS)
     ///
     /// Uses `AVAudioPlayer(data:)` which handles the audio format automatically.
@@ -199,15 +199,15 @@ actor AudioPlayerService {
         // continuations with success — the previous caller completes normally
         // rather than receiving a CancellationError.
         stop()
-        
+
         guard !data.isEmpty else {
             throw AppError.audioPlaybackFailed(reason: "No audio data to play")
         }
-        
+
         #if DEBUG
-        print("ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ…Â  AudioPlayerService: Playing \(data.count) bytes via AVAudioPlayer")
+        AppLogger.debug("Playing \(data.count) bytes via AVAudioPlayer", category: .audio)
         #endif
-        
+
         // Create the player synchronously within actor context
         let player: AVAudioPlayer
         do {
@@ -215,11 +215,11 @@ actor AudioPlayerService {
         } catch {
             throw AppError.audioPlaybackFailed(reason: "Failed to create audio player: \(error.localizedDescription)")
         }
-        
+
         // Store reference
         self.dataPlayer = player
         _immediatePlayerRef.withLock { $0 = player }
-        
+
         // Create delegate with weak self capture - callback dispatches back to actor
         let delegate = AudioPlayerCompletionDelegate { [weak self] success in
             Task {
@@ -229,7 +229,7 @@ actor AudioPlayerService {
         self.dataPlayerDelegate = delegate
         player.delegate = delegate
         player.volume = self.volume
-        
+
         // Ensure audio session is active with correct category.
         //
         // TTSService.preConfigureAudioSession() sets `.playback` during warm-up,
@@ -246,31 +246,31 @@ actor AudioPlayerService {
         // When the category is already `.playback` the background dispatch returns
         // almost immediately (~0ms) since `setActive()` is the only work.
         try await ensurePlaybackCategory()
-        
+
         // Start playback
         guard player.play() else {
             throw AppError.audioPlaybackFailed(reason: "Failed to start playback")
         }
-        
+
         self.isPlaying = true
-        
+
         #if DEBUG
-        print("ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ…Â  AudioPlayerService: Playback started (duration: \(String(format: "%.2f", player.duration))s)")
+        AppLogger.debug("Playback started (duration: \(String(format: "%.2f", player.duration))s)", category: .audio)
         #endif
-        
+
         // Wait for completion using continuation
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             self.dataPlaybackContinuation = continuation
         }
     }
-    
+
     /// Handles completion of data playback (called from delegate callback)
     private func handleDataPlaybackComplete(success: Bool) {
         dataPlayer = nil
         dataPlayerDelegate = nil
         _immediatePlayerRef.withLock { $0 = nil }
         isPlaying = false
-        
+
         if success {
             dataPlaybackContinuation?.resume(returning: ())
         } else {
@@ -278,7 +278,7 @@ actor AudioPlayerService {
         }
         dataPlaybackContinuation = nil
     }
-    
+
     /// Immediately silences audio from any isolation context.
     ///
     /// Bypasses actor isolation to stop `AVAudioPlayer` synchronously,
@@ -338,30 +338,30 @@ actor AudioPlayerService {
         dataPlaybackContinuation?.resume(throwing: CancellationError())
         dataPlaybackContinuation = nil
     }
-    
+
     /// Stops playback and cleans up actor state.
     func stop() {
         // Stop AVAudioEngine playback
         playerNode.stop()
-        
+
         // Stop AVAudioPlayer playback (for data/TTS)
         dataPlayer?.stop()
         dataPlayer = nil
         dataPlayerDelegate = nil
         _immediatePlayerRef.withLock { $0 = nil }
-        
+
         isPlaying = false
         isPaused = false
         currentAudioFile = nil
-        
+
         // Cancel any waiting continuations
         playbackContinuation?.resume(returning: ())
         playbackContinuation = nil
-        
+
         dataPlaybackContinuation?.resume(returning: ())
         dataPlaybackContinuation = nil
     }
-    
+
     /// Pauses playback
     func pause() {
         guard isPlaying && !isPaused else { return }
@@ -369,7 +369,7 @@ actor AudioPlayerService {
         dataPlayer?.pause()
         isPaused = true
     }
-    
+
     /// Resumes paused playback
     func resume() {
         guard isPaused else { return }
@@ -377,7 +377,7 @@ actor AudioPlayerService {
         dataPlayer?.play()
         isPaused = false
     }
-    
+
     /// Sets the playback volume
     /// - Parameter newVolume: Volume level (0.0 - 1.0)
     func setVolume(_ newVolume: Float) {
@@ -385,7 +385,7 @@ actor AudioPlayerService {
         playerNode.volume = volume
         dataPlayer?.volume = volume
     }
-    
+
     // MARK: - Audio Session
 
     /// Ensures the audio session is in `.playback` category before playback.
@@ -413,7 +413,7 @@ actor AudioPlayerService {
                     let session = AVAudioSession.sharedInstance()
                     if session.category != .playback {
                         #if DEBUG
-                        print("🔊 AudioPlayerService: Restoring category from \(session.category.rawValue) to .playback (background)")
+                        AppLogger.debug("Restoring category from \(session.category.rawValue) to .playback (background)", category: .audio)
                         #endif
                         try session.setCategory(
                             .playback,
@@ -440,7 +440,7 @@ actor AudioPlayerService {
         if let dataPlayer = dataPlayer, dataPlayer.isPlaying {
             return dataPlayer.currentTime
         }
-        
+
         // Then check engine player
         guard let nodeTime = playerNode.lastRenderTime,
               let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else {
@@ -448,36 +448,36 @@ actor AudioPlayerService {
         }
         return Double(playerTime.sampleTime) / playerTime.sampleRate
     }
-    
+
     /// Total duration of current audio in seconds
     var duration: TimeInterval {
         // Check data player first
         if let dataPlayer = dataPlayer {
             return dataPlayer.duration
         }
-        
+
         // Then check audio file
         guard let audioFile = currentAudioFile else { return 0 }
         return Double(audioFile.length) / audioFile.processingFormat.sampleRate
     }
-    
+
     /// Playback progress (0.0 - 1.0)
     var progress: Double {
         guard duration > 0 else { return 0 }
         return currentTime / duration
     }
-    
+
     // MARK: - Private Methods
-    
+
     /// Handles playback completion
     private func handlePlaybackComplete() {
         isPlaying = false
         isPaused = false
-        
+
         // Resume continuation
         playbackContinuation?.resume(returning: ())
         playbackContinuation = nil
-        
+
         // Notify delegate
         Task { @MainActor in
             await delegate?.audioPlaybackDidComplete()
@@ -491,10 +491,10 @@ actor AudioPlayerService {
 protocol AudioPlayerDelegate: AnyObject, Sendable {
     /// Called when playback completes
     @MainActor func audioPlaybackDidComplete()
-    
+
     /// Called when playback is interrupted
     @MainActor func audioPlaybackWasInterrupted()
-    
+
     /// Called when an error occurs
     @MainActor func audioPlaybackDidFail(with error: AppError)
 }
@@ -511,20 +511,20 @@ extension AudioPlayerDelegate {
 
 /// Helper class to handle AVAudioPlayer delegate callbacks for data playback.
 final class AudioPlayerCompletionDelegate: NSObject, AVAudioPlayerDelegate {
-    
+
     private let completion: @Sendable (Bool) -> Void
-    
+
     init(completion: @escaping @Sendable (Bool) -> Void) {
         self.completion = completion
     }
-    
+
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         completion(flag)
     }
-    
+
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
         #if DEBUG
-        print("ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â AudioPlayerCompletionDelegate: Decode error - \(error?.localizedDescription ?? "unknown")")
+        AppLogger.warning("AudioPlayerCompletionDelegate: Decode error - \(error?.localizedDescription ?? "unknown")", category: .audio)
         #endif
         completion(false)
     }
@@ -534,37 +534,37 @@ final class AudioPlayerCompletionDelegate: NSObject, AVAudioPlayerDelegate {
 
 /// Alternative player for streaming audio (future ElevenLabs streaming support)
 actor StreamingAudioPlayer {
-    
+
     // MARK: - Properties
-    
+
     private var playerNode: AVAudioPlayerNode
     private var converter: AVAudioConverter?
     private var isPlaying: Bool = false
     private weak var attachedEngine: AVAudioEngine?
-    
+
     // MARK: - Initialization
-    
+
     init() {
         playerNode = AVAudioPlayerNode()
     }
-    
+
     // MARK: - Engine Attachment
-    
+
     func attachTo(engine: AVAudioEngine) {
         engine.attach(playerNode)
         let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)!
         engine.connect(playerNode, to: engine.mainMixerNode, format: format)
         attachedEngine = engine
     }
-    
+
     func detachFrom(engine: AVAudioEngine) {
         stop()
         engine.detach(playerNode)
         attachedEngine = nil
     }
-    
+
     // MARK: - Streaming
-    
+
     /// Streams audio data as it's received
     /// - Parameter chunk: Audio data chunk
     func streamChunk(_ chunk: Data) async throws {
@@ -574,12 +574,12 @@ actor StreamingAudioPlayer {
         // 2. Converting to PCM
         // 3. Scheduling buffers for playback
     }
-    
+
     func start() {
         playerNode.play()
         isPlaying = true
     }
-    
+
     func stop() {
         playerNode.stop()
         isPlaying = false

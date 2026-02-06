@@ -85,7 +85,7 @@ extension PracticeStore {
         }
 
         #if DEBUG
-        print("[OK] PracticeStore: Repeating session with mode=\(mode.displayName), loops=\(loopCount), shuffle=\(shuffle), voiceId: \(selectedVoiceId ?? "nil")")
+        AppLogger.info("Repeating session with mode=\(mode.displayName), loops=\(loopCount), shuffle=\(shuffle), voiceId: \(selectedVoiceId ?? "nil")", category: .practice)
         #endif
 
         // Dismiss summary first, then restart flow after animation completes

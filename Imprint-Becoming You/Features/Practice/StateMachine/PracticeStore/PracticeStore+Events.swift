@@ -114,6 +114,14 @@ extension PracticeStore {
         case .resumeSession:
             // Resume when app returns from background - restart flow from beginning of current segment
             if isSessionActive {
+                // Block resume while a modal is presented.
+                // The modal's action buttons (Try Again / Skip / Exit) handle
+                // resumption — starting TTS behind a modal is disorienting.
+                guard !isShowingTimeoutAlert && !isShowingPermissionAlert else {
+                    AppLogger.debug("Session resume blocked — modal is showing", category: .practice)
+                    return
+                }
+
                 AppLogger.debug("Session resumed (app foregrounded)", category: .practice)
 
                 // Re-suppress idle timer as a safety measure. The timer should

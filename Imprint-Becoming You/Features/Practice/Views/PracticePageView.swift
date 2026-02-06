@@ -341,7 +341,6 @@ struct PracticePageView: View {
                     AutoScrollingAffirmationText(
                         text: affirmation.text,
                         isActive: index == store.currentIndex && isScrollActive,
-                        resetsOnStop: !isReadAloudMode,
                         maxHeight: maxAffirmationTextHeight(in: geometry)
                     )
                     
@@ -392,33 +391,39 @@ struct PracticePageView: View {
     
     /// Whether auto-scrolling should be active for the current flow state.
     ///
-    /// Returns `true` during each mode's primary phase:
-    /// - **Read Aloud**: TTS playing
-    /// - **Read & Speak**: TTS playing
+    /// Returns `true` during each mode's active content phase:
+    /// - **Read Aloud**: TTS playing + complete (holds scroll at bottom)
+    /// - **Read & Speak**: TTS playing + user listening/speaking
     /// - **Speak Only**: user listening/speaking
     ///
-    /// Identical timing across all modes — the component's internal timer
-    /// handles delay and speed uniformly.
+    /// Read Aloud includes `.complete` so the text holds at the bottom after
+    /// TTS ends — the scroll animation has finished and keeping `isActive=true`
+    /// is a no-op. When the flow transitions to `.idle` (loop restart, background
+    /// pause, or mode switch), `isActive` becomes `false` and the component
+    /// smoothly resets to the top.
+    ///
+    /// In Read & Speak mode, scrolling activates during both the TTS phase
+    /// (user follows along) and the listening phase (user speaks while reading).
+    /// The scroll resets to top between phases (during `.preparingToListen`),
+    /// giving the user a fresh start when they begin speaking.
+    ///
+    /// Identical timing across all modes — the component's internal delay
+    /// and speed are applied uniformly.
     private var isScrollActive: Bool {
         switch store.flow {
         case .readAloud(.playing):
             return true
+        case .readAloud(.complete):
+            return true
         case .readAndSpeak(.ttsPlaying):
+            return true
+        case .readAndSpeak(.listening):
             return true
         case .speakOnly(.listening):
             return true
         default:
             return false
         }
-    }
-    
-    /// Whether the current flow is Read Aloud mode.
-    ///
-    /// Read Aloud keeps the scroll position after TTS ends so the user
-    /// can continue reading during the hold/complete phase.
-    private var isReadAloudMode: Bool {
-        if case .readAloud = store.flow { return true }
-        return false
     }
     
     /// Maximum height available for the affirmation text before auto-scrolling activates.

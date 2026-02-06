@@ -16,14 +16,16 @@ import SwiftUI
 ///   no clipping, scrolling, or visual artifacts. Completely transparent.
 /// - **Long texts** (overflow `maxHeight`): Displays in a fixed-height window with
 ///   always-active edge fades. Scrolls automatically when `isActive` is `true`.
-/// - **When deactivated** (`isActive` becomes `false`): If `resetsOnStop` is true,
-///   smoothly scrolls back to the top. Otherwise stays at the current position.
+/// - **When deactivated** (`isActive` becomes `false`): Smoothly scrolls back to the
+///   top via a 0.25s easeOut animation.
+/// - **When reactivated** (`isActive` becomes `true`): Smoothly resets to top (if not
+///   already there), waits `scrollDelay`, then scrolls to bottom at constant speed.
 ///
 /// ## Scroll Pacing
 /// Uses a fixed **points-per-second** speed with a delay before scrolling starts.
 /// No mode-specific configuration — every mode gets identical timing:
-/// - **1.2 second delay** before scroll starts
-/// - **30 pt/s** scroll speed
+/// - **3.0 second delay** before scroll starts
+/// - **15 pt/s** scroll speed
 ///
 /// Scrolling uses a single `withAnimation(.linear)` call that SwiftUI interpolates
 /// at the display refresh rate (60/120fps) — perfectly smooth with zero jitter.
@@ -39,7 +41,6 @@ import SwiftUI
 /// AutoScrollingAffirmationText(
 ///     text: affirmation.text,
 ///     isActive: isScrollActive,  // true when mode's primary phase is active
-///     resetsOnStop: false,       // true by default
 ///     maxHeight: 250
 /// )
 /// ```
@@ -52,18 +53,15 @@ struct AutoScrollingAffirmationText: View {
     
     /// Whether auto-scrolling is active.
     ///
-    /// Set to `true` during each mode's primary phase:
-    /// - Read Aloud: TTS playing
-    /// - Read & Speak: TTS playing
+    /// Set to `true` during each mode's active content phase:
+    /// - Read Aloud: TTS playing + complete (holds at bottom)
+    /// - Read & Speak: TTS playing + user listening/speaking
     /// - Speak Only: user listening/speaking
-    let isActive: Bool
-    
-    /// Whether the scroll position resets to the top when `isActive` becomes `false`.
     ///
-    /// - `true` (default): Read & Speak / Speak Only — resets so user can re-read from top
-    /// - `false`: Read Aloud — stays scrolled during the hold/complete phase
-    var resetsOnStop: Bool = true
-    
+    /// When `isActive` becomes `false`, the scroll smoothly resets to the top.
+    /// When `isActive` becomes `true`, scrolling starts fresh from the top.
+    let isActive: Bool
+
     /// Maximum visible height before scrolling activates.
     /// When the natural text height exceeds this value, the view clips
     /// and enables auto-scroll. Short texts below this height render
@@ -185,7 +183,15 @@ struct AutoScrollingAffirmationText: View {
     
     // MARK: - Scroll Control
     
-    /// Starts the scroll sequence: waits `scrollDelay`, then animates to max offset.
+    /// Starts the scroll sequence: smoothly resets to top, waits `scrollDelay`, then scrolls down.
+    ///
+    /// Performs a smooth 0.25s easeOut reset to `displayOffset = 0` as defense-in-depth.
+    /// In the common case, `stopScrolling()` already drove the offset to 0 — this is
+    /// a no-op. If timing is tight (loop restart or background resume where `isActive`
+    /// toggles rapidly), this gracefully completes any in-progress reset.
+    ///
+    /// The 3.0s scroll delay provides ample margin for the 0.25s reset to finish
+    /// before the linear scroll animation begins.
     ///
     /// Uses a single `withAnimation(.linear)` call. SwiftUI interpolates at the
     /// display refresh rate (60/120fps) — perfectly smooth with zero jitter.
@@ -193,15 +199,22 @@ struct AutoScrollingAffirmationText: View {
     private func startScrolling() {
         scrollTask?.cancel()
         guard needsScrolling else { return }
-        
+
+        // Smooth reset to top as defense-in-depth. If stopScrolling() already
+        // drove displayOffset to 0, this is invisible. If the previous easeOut
+        // hasn't quite finished (tight timing), this gracefully completes it.
+        withAnimation(.easeOut(duration: 0.25)) {
+            displayOffset = 0
+        }
+
         let delay = scrollDelay
         let speed = scrollSpeed
-        
+
         scrollTask = Task { @MainActor in
             // Wait for delay before starting scroll
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled else { return }
-            
+
             // Single linear animation — SwiftUI handles all frame interpolation
             let duration = maxScrollOffset / speed
             withAnimation(.linear(duration: duration)) {
@@ -210,14 +223,15 @@ struct AutoScrollingAffirmationText: View {
         }
     }
     
-    /// Stops any pending/active scroll and optionally resets to the top.
+    /// Stops any pending/active scroll and smoothly resets to the top.
+    ///
+    /// Cancels the scroll Task (stopping both the delay and the linear animation),
+    /// then animates `displayOffset` back to 0 with a 0.25s easeOut.
     private func stopScrolling() {
         scrollTask?.cancel()
         scrollTask = nil
-        if resetsOnStop {
-            withAnimation(.easeOut(duration: 0.25)) {
-                displayOffset = 0
-            }
+        withAnimation(.easeOut(duration: 0.25)) {
+            displayOffset = 0
         }
     }
     

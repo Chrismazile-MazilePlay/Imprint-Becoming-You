@@ -258,6 +258,31 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
     ///
     /// The adapter should start the configured practice session.
     func play()
+    
+    // MARK: - Error Bar State
+    
+    /// Whether the error bar is currently visible above the dock.
+    ///
+    /// When `true`, the error bar panel is expanded with `errorBarMessage`.
+    /// Setting to `false` collapses the error bar.
+    var isErrorBarVisible: Bool { get set }
+    
+    /// The message displayed in the error bar.
+    ///
+    /// Only relevant when `isErrorBarVisible` is `true`.
+    var errorBarMessage: String { get }
+    
+    /// Shows an error message in the dock error bar with auto-dismiss.
+    ///
+    /// The error bar collapses mode/binaural selectors before appearing,
+    /// then auto-dismisses after 3 seconds. Tapping mode or binaural buttons
+    /// immediately dismisses it.
+    ///
+    /// - Parameter message: The user-facing error message to display
+    func showError(_ message: String)
+    
+    /// Immediately dismisses the error bar.
+    func dismissErrorBar()
 }
 
 // MARK: - Default Implementations
@@ -269,10 +294,11 @@ public extension DockAdapterProtocol {
         DockMode.allCases
     }
     
-    /// Default implementation closes both selectors.
+    /// Default implementation closes both selectors and error bar.
     func closeAllSelectors() {
         isModeSelectorExpanded = false
         isBinauralSelectorExpanded = false
+        isErrorBarVisible = false
     }
     
     /// Default session segments returns nil (no session active).
@@ -295,4 +321,19 @@ public extension DockAdapterProtocol {
     var progress: DockProgress? {
         nil
     }
+    
+    /// Default error bar state — not visible.
+    var isErrorBarVisible: Bool {
+        get { false }
+        set { }
+    }
+    
+    /// Default error bar message — empty.
+    var errorBarMessage: String { "" }
+    
+    /// Default show error — no-op.
+    func showError(_ message: String) { }
+    
+    /// Default dismiss error bar — no-op.
+    func dismissErrorBar() { }
 }

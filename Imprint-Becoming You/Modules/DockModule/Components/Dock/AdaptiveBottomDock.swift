@@ -11,7 +11,7 @@ import SwiftUI
 
 /// The unified morphing bottom dock that adapts its content based on configuration.
 ///
-/// This component is a **pure dock row** — it renders only the dock content and has
+/// This component is a **pure dock row** â€” it renders only the dock content and has
 /// no knowledge of expanded menus. Menu handling is delegated to `AdaptiveDockContainer`.
 ///
 /// ## Configurations
@@ -260,6 +260,10 @@ private extension AdaptiveBottomDock {
             if adapter.isBinauralSelectorExpanded {
                 adapter.isBinauralSelectorExpanded = false
             }
+            // Dismiss error bar immediately when mode button tapped
+            if adapter.isErrorBarVisible {
+                adapter.dismissErrorBar()
+            }
             adapter.isModeSelectorExpanded.toggle()
         }
         
@@ -279,6 +283,10 @@ private extension AdaptiveBottomDock {
         )) {
             if adapter.isModeSelectorExpanded {
                 adapter.isModeSelectorExpanded = false
+            }
+            // Dismiss error bar immediately when binaural button tapped
+            if adapter.isErrorBarVisible {
+                adapter.dismissErrorBar()
             }
             adapter.isBinauralSelectorExpanded.toggle()
         }

@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import AVFoundation
 
 // MARK: - Session TTS Queue Service
 
@@ -32,7 +31,9 @@ import AVFoundation
 /// which manages concurrency internally. Results are cached on the main actor.
 ///
 /// ## Memory Management
-/// Audio data is stored in memory for the session duration (~500KB x N).
+/// Audio data is stored in memory for the session duration.
+/// Kokoro outputs Float32 PCM at 24kHz — a 30s affirmation uses ~2.88MB,
+/// a 60s affirmation ~5.76MB. For a typical 7-affirmation session: ~20-40MB.
 /// Cache is cleared when `cancelAll()` or `clearQueue()` is called.
 /// `clearQueue()` is specifically for background memory release without
 /// fully resetting the service state.
@@ -52,9 +53,9 @@ import AVFoundation
 final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
     
     // MARK: - Dependencies
-    
-    /// TTS service for audio synthesis
-    private let ttsService: any TTSServiceProtocol
+
+    /// Synthesis engine for audio generation and Kokoro lifecycle
+    private let synthesisEngine: any TTSSynthesisEngineProtocol
     
     // MARK: - Configuration
     
@@ -71,22 +72,16 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
     private let kokoroWarmupTimeout: TimeInterval
     
     // MARK: - State
-    
-    /// Cached audio data keyed by session index
-    private var audioCache: [Int: Data] = [:]
-    
+
+    /// Cached audio data keyed by affirmation UUID
+    private let cache = TTSAudioCache()
+
     /// Affirmation info for the current session
     private var sessionAffirmations: [SessionAffirmationInfo] = []
-    
-    /// Voice ID for current session
-    private var currentVoiceId: String?
-    
-    /// Voice settings for current session (cached at session start).
-    /// Settings remain consistent even if user changes them mid-session.
-    private var currentVoiceSettings: VoiceSettings = .default
-    
-    /// Whether to force System TTS for this session
-    private var forceSystemTTS: Bool = false
+
+    /// Immutable voice configuration for the current session.
+    /// Loaded once at session start via `SessionVoiceConfiguration.load()`.
+    private var voiceConfig: SessionVoiceConfiguration = .default
     
     /// Current queue state
     private var state: SessionTTSQueueState = .idle
@@ -97,8 +92,8 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
     /// Active background synthesis task
     private var backgroundTask: Task<Void, Never>?
     
-    /// Set of indices currently being synthesized
-    private var synthesizingIndices: Set<Int> = []
+    /// Set of affirmation UUIDs currently being synthesized
+    private var synthesizingIDs: Set<UUID> = []
     
     /// Current playback index (for priority calculation)
     private var currentPlaybackIndex: Int = 0
@@ -119,7 +114,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
     }
     
     var preparedCount: Int {
-        audioCache.count
+        cache.count
     }
     
     var totalCount: Int {
@@ -143,13 +138,13 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
     // MARK: - Initialization
     
     init(
-        ttsService: any TTSServiceProtocol,
+        synthesisEngine: any TTSSynthesisEngineProtocol,
         maxConcurrency: Int = Constants.SessionPreparation.maxConcurrency,
         readyToStartThreshold: Int = Constants.SessionPreparation.readyToStartThreshold,
         largeSessionThreshold: Int = Constants.SessionPreparation.largeSessionThreshold,
         kokoroWarmupTimeout: TimeInterval = Constants.SessionPreparation.kokoroWarmupTimeout
     ) {
-        self.ttsService = ttsService
+        self.synthesisEngine = synthesisEngine
         self.maxConcurrency = maxConcurrency
         self.readyToStartThreshold = readyToStartThreshold
         self.largeSessionThreshold = largeSessionThreshold
@@ -180,22 +175,23 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         // Cancel any existing session
         cancelAll()
         
+        // Suppress idle timer for the duration of the session.
+        // During playback, audio comes from cache via AudioPlayerService,
+        // bypassing TTSService — so the idle timer would fire mid-session
+        // and release ~800MB–1.5GB of CoreML buffers.
+        synthesisEngine.suppressIdleTimer()
+        
         // Store session info
         sessionAffirmations = affirmations
-        currentVoiceId = voiceId
         currentPlaybackIndex = 0
-        self.forceSystemTTS = forceSystemTTS
-        
-        // Cache voice settings at session start
-        // Settings are stored by full Voice.id, so this lookup works correctly
-        if let voiceId = voiceId {
-            currentVoiceSettings = VoiceSettingsManager.shared.settings(for: voiceId)
-            #if DEBUG
-            print("SessionTTSQueue: Loaded voice settings for \(voiceId): speed=\(currentVoiceSettings.speed), pitch=\(currentVoiceSettings.pitchShiftSemitones)")
-            #endif
-        } else {
-            currentVoiceSettings = .default
-        }
+
+        // Snapshot voice configuration at session start.
+        // Settings are immutable for the session duration.
+        voiceConfig = .load(voiceId: voiceId, forceSystemTTS: forceSystemTTS)
+
+        #if DEBUG
+        print("SessionTTSQueue: Voice config — id: \(voiceId ?? "default"), speed: \(voiceConfig.voiceSettings.speed), pitch: \(voiceConfig.voiceSettings.pitchShiftSemitones), systemTTS: \(forceSystemTTS)")
+        #endif
         
         guard !affirmations.isEmpty else {
             _preparationPhase = .complete
@@ -205,7 +201,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         }
         
         // Phase 1: Wait for Kokoro (unless forcing System TTS)
-        if !forceSystemTTS {
+        if !voiceConfig.forceSystemTTS {
             _preparationPhase = .waitingForKokoro
             state = .waitingForKokoro
             Task { @MainActor in onPhaseChange(.waitingForKokoro) }
@@ -214,7 +210,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
             print("SessionTTSQueue: Phase 1 - Waiting for Kokoro TTS engine...")
             #endif
             
-            let kokoroReady = await waitForKokoroReady()
+            let kokoroReady = await synthesisEngine.waitForKokoroReady(timeout: kokoroWarmupTimeout)
             
             if !kokoroReady {
                 // Timeout - transition to error state
@@ -265,46 +261,14 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         #endif
     }
     
-    /// Waits for Kokoro TTS engine to become ready.
-    ///
-    /// Returns immediately if Kokoro is already ready, otherwise polls
-    /// every 100ms until timeout.
-    ///
-    /// - Returns: `true` if Kokoro became ready, `false` if timeout
-    private func waitForKokoroReady() async -> Bool {
-        // Check if already ready
-        if ttsService.isKokoroReady {
-            return true
-        }
-        
-        // Poll for readiness
-        let startTime = Date()
-        let checkInterval: Duration = .milliseconds(100)
-        
-        while Date().timeIntervalSince(startTime) < kokoroWarmupTimeout {
-            try? await Task.sleep(for: checkInterval)
-            
-            if ttsService.isKokoroReady {
-                return true
-            }
-            
-            // Check if cancelled
-            if Task.isCancelled || state == .cancelled {
-                return false
-            }
-        }
-        
-        return false
-    }
-    
     // MARK: - Protocol Methods
     
-    func getAudio(for index: Int) -> Data? {
-        return audioCache[index]
+    func getAudio(for id: UUID) -> Data? {
+        cache.get(id)
     }
-    
-    func isReady(_ index: Int) -> Bool {
-        return audioCache[index] != nil
+
+    func isReady(_ id: UUID) -> Bool {
+        cache.contains(id)
     }
     
     func notifyPlaying(index: Int) {
@@ -319,78 +283,223 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
     }
     
     func synthesizeOnDemand(index: Int) async throws -> Data {
-        // Return cached if available
-        if let cached = audioCache[index] {
-            return cached
-        }
-        
         // Bounds check
         guard index >= 0 && index < sessionAffirmations.count else {
             throw TTSError.synthesisFailedError(message: "Index out of bounds: \(index)")
         }
-        
+
+        let info = sessionAffirmations[index]
+
+        // Return cached if available (keyed by affirmation UUID)
+        if let cached = cache.get(info.id) {
+            return cached
+        }
+
         // Wait if currently being synthesized by background task
-        if synthesizingIndices.contains(index) {
+        if synthesizingIDs.contains(info.id) {
             // Poll for completion (max 5 seconds)
             for _ in 0..<100 {
                 try await Task.sleep(for: .milliseconds(50))
-                if let cached = audioCache[index] {
+                if let cached = cache.get(info.id) {
                     return cached
                 }
             }
             throw TTSError.synthesisFailedError(message: "Timeout waiting for synthesis of index \(index)")
         }
-        
+
         // Synthesize on-demand if not cached and not in progress
-        let info = sessionAffirmations[index]
         let audioData = try await synthesizeAffirmation(info)
-        audioCache[index] = audioData
-        
+        cache.set(info.id, data: audioData)
+
         #if DEBUG
         print("SessionTTSQueue: On-demand synthesis complete for index \(index)")
         #endif
-        
+
         return audioData
     }
     
-    func invalidateCacheForShuffle(newOrder: [SessionAffirmationInfo]) {
+    func updateAffirmationOrder(_ newOrder: [SessionAffirmationInfo]) {
         #if DEBUG
-        let oldCacheCount = audioCache.count
-        print("SessionTTSQueue: Invalidating cache for shuffle (\(oldCacheCount) cached items, \(newOrder.count) affirmations in new order)")
+        print("SessionTTSQueue: Updating affirmation order (\(cache.count) cached items preserved, \(newOrder.count) affirmations)")
         #endif
-        
-        // Stop any in-progress background synthesis
-        backgroundTask?.cancel()
-        backgroundTask = nil
-        
-        // Clear stale audio cache (indices no longer match affirmations)
-        audioCache.removeAll()
-        synthesizingIndices.removeAll()
-        
-        // Update affirmation order for correct on-demand synthesis
+
+        // Update affirmation order — cache remains valid because
+        // audio is keyed by UUID, not positional index.
         sessionAffirmations = newOrder
         currentPlaybackIndex = 0
-        
-        // Preserve: currentVoiceId, currentVoiceSettings, forceSystemTTS
-        // These remain valid for the same session's voice configuration
     }
-    
+
+    func preSynthesizeFromIndex(_ startIndex: Int) {
+        // Cancel any existing background task
+        backgroundTask?.cancel()
+
+        let total = sessionAffirmations.count
+        guard startIndex < total else { return }
+
+        // Set state to .synthesizingBackground so reprioritizeQueue() can detect
+        // active background work and restart synthesis from the user's current
+        // position on rapid skip. Without this, notifyPlaying() → reprioritizeQueue()
+        // would see a non-.synthesizingBackground state and skip reprioritization,
+        // causing desync between TTS audio and the displayed affirmation.
+        state = .synthesizingBackground(prepared: preparedCount, total: total)
+
+        #if DEBUG
+        print("SessionTTSQueue: Pre-synthesizing from index \(startIndex) (\(total) total, concurrency: \(Constants.SessionPreparation.backgroundConcurrency))")
+        #endif
+
+        backgroundTask = Task { [weak self] in
+            guard let self else { return }
+
+            // Collect uncached indices (using UUID for cache lookup)
+            let indicesToSynthesize = (startIndex..<total).filter { index in
+                let info = self.sessionAffirmations[index]
+                return !self.cache.contains(info.id) && !self.synthesizingIDs.contains(info.id)
+            }
+
+            guard !indicesToSynthesize.isEmpty else {
+                #if DEBUG
+                print("SessionTTSQueue: Pre-synthesis skipped — all indices cached")
+                #endif
+                return
+            }
+
+            // Use bounded TaskGroup for parallel synthesis.
+            // Uses backgroundConcurrency (default: 2) instead of the full
+            // maxConcurrency (3) used during initial preparation, leaving
+            // headroom for on-demand synthesis from active playback.
+            await withTaskGroup(of: (Int, Data?).self) { group in
+                var nextSlot = 0
+                let concurrency = Constants.SessionPreparation.backgroundConcurrency
+
+                // Seed initial concurrent tasks
+                while nextSlot < min(concurrency, indicesToSynthesize.count) {
+                    let index = indicesToSynthesize[nextSlot]
+                    let info = self.sessionAffirmations[index]
+                    self.synthesizingIDs.insert(info.id)
+
+                    group.addTask { [self] in
+                        do {
+                            try Task.checkCancellation()
+                            let data = try await self.synthesizeAffirmation(info)
+                            return (index, data)
+                        } catch {
+                            return (index, nil)
+                        }
+                    }
+                    nextSlot += 1
+                }
+
+                // Process results and add next task as each completes
+                for await (index, audioData) in group {
+                    let info = self.sessionAffirmations[index]
+                    self.synthesizingIDs.remove(info.id)
+
+                    guard !Task.isCancelled else {
+                        group.cancelAll()
+                        return
+                    }
+
+                    if let audioData {
+                        self.cache.set(info.id, data: audioData)
+
+                        // Update state so reprioritizeQueue() continues to detect
+                        // active background work during rapid skipping.
+                        self.state = .synthesizingBackground(
+                            prepared: self.preparedCount,
+                            total: self.sessionAffirmations.count
+                        )
+                    } else {
+                        #if DEBUG
+                        print("SessionTTSQueue: Pre-synthesis failed for index \(index)")
+                        #endif
+                    }
+
+                    // Add next task if available
+                    if nextSlot < indicesToSynthesize.count {
+                        let nextIndex = indicesToSynthesize[nextSlot]
+                        let nextInfo = self.sessionAffirmations[nextIndex]
+                        self.synthesizingIDs.insert(nextInfo.id)
+
+                        group.addTask { [self] in
+                            do {
+                                try Task.checkCancellation()
+                                let data = try await self.synthesizeAffirmation(nextInfo)
+                                return (nextIndex, data)
+                            } catch {
+                                return (nextIndex, nil)
+                            }
+                        }
+                        nextSlot += 1
+                    }
+                }
+            }
+
+            if !Task.isCancelled && self.state != .cancelled {
+                self.state = .complete
+
+                #if DEBUG
+                print("SessionTTSQueue: Pre-synthesis complete (\(self.cache.count) cached)")
+                #endif
+            }
+        }
+    }
+
+    func synthesizeFirstThenBackground(_ startIndex: Int) async {
+        guard startIndex >= 0 && startIndex < sessionAffirmations.count else { return }
+
+        let info = sessionAffirmations[startIndex]
+        guard !cache.contains(info.id) else {
+            // Already cached, just kick off background for the rest
+            preSynthesizeFromIndex(startIndex + 1)
+            return
+        }
+
+        #if DEBUG
+        print("SessionTTSQueue: Awaiting synthesis of index \(startIndex) before flow start")
+        #endif
+
+        // Synchronously synthesize the first affirmation so it's cached
+        // before startFlowForCurrentAffirmation() calls speakText()
+        do {
+            let audioData = try await synthesizeAffirmation(info)
+            cache.set(info.id, data: audioData)
+
+            #if DEBUG
+            print("SessionTTSQueue: Index \(startIndex) ready, starting background for rest")
+            #endif
+        } catch {
+            #if DEBUG
+            print("SessionTTSQueue: First affirmation synthesis failed: \(error.localizedDescription)")
+            #endif
+            // Non-fatal: speakText() will fall through to synthesizeOnDemand()
+        }
+
+        // Background-synthesize remaining indices
+        if startIndex + 1 < sessionAffirmations.count {
+            preSynthesizeFromIndex(startIndex + 1)
+        }
+    }
+
     func cancelAll() {
         #if DEBUG
         print("SessionTTSQueue: Cancelling all")
+        cache.logMemoryUsage()
         #endif
-        
+
         state = .cancelled
         _preparationPhase = .complete
         backgroundTask?.cancel()
         backgroundTask = nil
-        synthesizingIndices.removeAll()
-        audioCache.removeAll()
+        synthesizingIDs.removeAll()
+        cache.clear()
         sessionAffirmations.removeAll()
-        currentVoiceId = nil
-        currentVoiceSettings = .default  // Reset voice settings
-        forceSystemTTS = false
+        voiceConfig = .default
         currentPlaybackIndex = 0
+
+        // Resume idle timer now that session is over.
+        // This allows the timer to auto-release pipelines after the
+        // standard 30s timeout if no further synthesis occurs.
+        synthesisEngine.resumeIdleTimer()
     }
     
     // MARK: - Memory Management
@@ -404,19 +513,18 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
     /// This can free ~500KB x N bytes where N is the number of cached affirmations.
     func clearQueue() {
         #if DEBUG
-        let cacheSize = audioCache.values.reduce(0) { $0 + $1.count }
-        print("SessionTTSQueue: Clearing queue (\(audioCache.count) items, ~\(cacheSize / 1024)KB)")
+        print("SessionTTSQueue: Clearing queue (\(cache.count) items, ~\(cache.memorySizeBytes / 1024)KB)")
         #endif
-        
+
         // Cancel background synthesis
         backgroundTask?.cancel()
         backgroundTask = nil
-        
+
         // Clear audio cache (main memory savings)
-        audioCache.removeAll()
-        synthesizingIndices.removeAll()
-        
-        // Note: We preserve sessionAffirmations, currentVoiceId, currentVoiceSettings, etc.
+        cache.clear()
+        synthesizingIDs.removeAll()
+
+        // Note: We preserve sessionAffirmations and voiceConfig
         // so the session structure is maintained. If playback resumes,
         // audio will be re-synthesized on demand with the same settings.
     }
@@ -425,51 +533,52 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
     
     func startBackgroundSynthesis(startingFrom startIndex: Int) {
         backgroundTask?.cancel()
-        
+
         // Update state to background mode
         state = .synthesizingBackground(prepared: preparedCount, total: sessionAffirmations.count)
-        
+
         backgroundTask = Task { [weak self] in
             guard let self = self else { return }
-            
+
             let indices = self.buildPriorityQueue(from: startIndex)
-            
+
             for index in indices {
                 guard !Task.isCancelled else { return }
                 guard self.state != .cancelled else { return }
-                guard self.audioCache[index] == nil else { continue }
-                guard !self.synthesizingIndices.contains(index) else { continue }
-                
+
+                let info = self.sessionAffirmations[index]
+                guard !self.cache.contains(info.id) else { continue }
+                guard !self.synthesizingIDs.contains(info.id) else { continue }
+
                 do {
-                    let info = self.sessionAffirmations[index]
                     let audioData = try await self.synthesizeAffirmation(info)
-                    
+
                     guard !Task.isCancelled else { return }
                     guard self.state != .cancelled else { return }
-                    
-                    self.audioCache[index] = audioData
-                    
+
+                    self.cache.set(info.id, data: audioData)
+
                     self.state = .synthesizingBackground(
                         prepared: self.preparedCount,
                         total: self.sessionAffirmations.count
                     )
-                    
+
                     #if DEBUG
                     print("SessionTTSQueue: Background synthesized index \(index) (\(self.preparedCount)/\(self.sessionAffirmations.count))")
                     #endif
-                    
+
                 } catch {
                     #if DEBUG
                     print("SessionTTSQueue: Background synthesis failed for index \(index): \(error)")
                     #endif
                 }
-                
+
                 try? await Task.sleep(for: .milliseconds(Constants.SessionPreparation.backgroundThrottleMs))
             }
-            
+
             if !Task.isCancelled && self.state != .cancelled {
                 self.state = .complete
-                
+
                 #if DEBUG
                 print("SessionTTSQueue: Background synthesis complete (\(self.preparedCount)/\(self.sessionAffirmations.count))")
                 #endif
@@ -483,72 +592,73 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         affirmations: [SessionAffirmationInfo],
         onProgress: @escaping @Sendable (Int, Int) -> Void
     ) async throws {
-        
+
         try await withThrowingTaskGroup(of: (Int, Data).self) { group in
             var nextIndex = 0
             var completedCount = 0
             let total = affirmations.count
-            
+
             // Seed initial concurrent tasks
             while nextIndex < min(maxConcurrency, total) {
                 let info = affirmations[nextIndex]
                 let index = nextIndex
-                
+
                 group.addTask { [self] in
                     try Task.checkCancellation()
                     let data = try await self.synthesizeAffirmation(info)
                     return (index, data)
                 }
-                
-                synthesizingIndices.insert(nextIndex)
+
+                synthesizingIDs.insert(info.id)
                 nextIndex += 1
             }
-            
+
             // Process results as they complete
             for try await (index, audioData) in group {
                 try Task.checkCancellation()
-                
+
                 guard state != .cancelled else {
                     group.cancelAll()
                     throw CancellationError()
                 }
-                
-                audioCache[index] = audioData
-                synthesizingIndices.remove(index)
+
+                let completedInfo = affirmations[index]
+                cache.set(completedInfo.id, data: audioData)
+                synthesizingIDs.remove(completedInfo.id)
                 completedCount += 1
-                
+
                 let currentPrepared = completedCount
                 Task { @MainActor in
                     onProgress(currentPrepared, total)
                 }
-                
+
                 state = .preparingParallel(prepared: completedCount, total: total)
-                
+
                 #if DEBUG
                 print("SessionTTSQueue: Completed \(completedCount)/\(total) (index \(index))")
                 #endif
-                
+
                 if completedCount == readyToStartThreshold && total > largeSessionThreshold {
                     #if DEBUG
                     print("SessionTTSQueue: Early start threshold reached (\(completedCount)/\(total))")
                     #endif
                 }
-                
+
                 if nextIndex < total {
                     let info = affirmations[nextIndex]
                     let idx = nextIndex
-                    
+
                     group.addTask { [self] in
                         try Task.checkCancellation()
                         let data = try await self.synthesizeAffirmation(info)
                         return (idx, data)
                     }
-                    
-                    synthesizingIndices.insert(nextIndex)
+
+                    synthesizingIDs.insert(info.id)
                     nextIndex += 1
                 }
             }
-            
+
             #if DEBUG
             print("SessionTTSQueue: All \(total) affirmations synthesized")
             #endif
@@ -558,47 +668,36 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
     // MARK: - Private Methods
     
     private func synthesizeAffirmation(_ info: SessionAffirmationInfo) async throws -> Data {
-        synthesizingIndices.insert(info.index)
-        defer { synthesizingIndices.remove(info.index) }
-        
-        // Use System TTS if forced, otherwise use Kokoro with voice settings
-        if forceSystemTTS {
-            return try await ttsService.synthesizeWithSystemTTS(text: info.text)
-        } else {
-            return try await ttsService.synthesize(
-                text: info.text,
-                voiceId: currentVoiceId,
-                speed: currentVoiceSettings.speed,
-                pitchShiftSemitones: currentVoiceSettings.pitchShiftFloat,
-                pitchRangeScale: currentVoiceSettings.pitchRangeScale
-            )
-        }
+        synthesizingIDs.insert(info.id)
+        defer { synthesizingIDs.remove(info.id) }
+
+        return try await synthesisEngine.synthesize(text: info.text, config: voiceConfig)
     }
     
     private func buildPriorityQueue(from startIndex: Int) -> [Int] {
         var queue: [Int] = []
         let total = sessionAffirmations.count
-        
+
         for i in max(startIndex, currentPlaybackIndex)..<total {
-            if audioCache[i] == nil {
+            if !cache.contains(sessionAffirmations[i].id) {
                 queue.append(i)
             }
         }
-        
+
         for i in stride(from: currentPlaybackIndex - 1, through: 0, by: -1) {
-            if audioCache[i] == nil && !queue.contains(i) {
+            if !cache.contains(sessionAffirmations[i].id) && !queue.contains(i) {
                 queue.append(i)
             }
         }
-        
+
         return queue
     }
-    
+
     private func reprioritizeQueue(from newIndex: Int) {
         guard case .synthesizingBackground = state else { return }
-        
+
         let nextNeededIndex = newIndex + 1
-        if nextNeededIndex < sessionAffirmations.count && audioCache[nextNeededIndex] == nil {
+        if nextNeededIndex < sessionAffirmations.count && !cache.contains(sessionAffirmations[nextNeededIndex].id) {
             startBackgroundSynthesis(startingFrom: nextNeededIndex)
         }
     }
@@ -610,7 +709,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
 extension SessionTTSQueueService {
     
     static var preview: SessionTTSQueueService {
-        SessionTTSQueueService(ttsService: MockTTSService())
+        SessionTTSQueueService(synthesisEngine: MockTTSSynthesisEngine())
     }
 }
 #endif

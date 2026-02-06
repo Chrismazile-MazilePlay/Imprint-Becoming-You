@@ -32,41 +32,45 @@ extension PracticeStore {
     func handleRepeatSessionWithConfig(mode: SessionMode, loopCount: Int, shuffle: Bool) {
         // Close any open menus
         send(.closeSelectors)
-        
+
         // Set up loop configuration with user's choices
         var config = LoopConfiguration()
         config.loopCount = loopCount
         config.isShuffleEnabled = shuffle
         config.resetIteration()
         setLoopConfiguration(config)
-        
+
         // Reset session-scoped flags so next session uses proper voice
         forceSystemTTSForSession = false
-        
-        // Invalidate stale completion handlers before state reset
+
+        // Cancel any lingering flow tasks or audio from the previous session.
         cancelCurrentActivity()
         flowGeneration += 1
-        
+
+        // NOTE: Idle timer is already suppressed — showSessionSummary() no longer
+        // resumes it. The timer stays suppressed through the summary lifecycle
+        // and into the repeat session. It's only resumed when the session fully
+        // ends (handleDismissSummary, handleExitSession, or handleResetToHome).
+
         // Reset session state for new playthrough
         setSessionState(index: 0)
         setSessionResults([])
         setSegmentProgress(0)
         sessionStartTime = Date()
-        
-        // Handle shuffle â€” invalidate cache but preserve voice settings
+
+        // Shuffle if enabled — cache remains valid (keyed by UUID, not index)
         if shuffle {
             shuffleSessionAffirmations()
-            
+
             // Update TTS queue with new affirmation order.
-            // Clears cached audio (indices no longer match) but preserves
-            // voice settings. On-demand synthesis handles each affirmation
-            // during playback via speakText's fallback chain.
+            // Cache is keyed by affirmation UUID, so it remains fully valid
+            // after reordering — no invalidation needed.
             let newOrder = sessionAffirmations.enumerated().map { index, affirmation in
                 SessionAffirmationInfo(affirmation: affirmation, index: index)
             }
-            dependencies.sessionTTSQueueService.invalidateCacheForShuffle(newOrder: newOrder)
+            dependencies.sessionTTSQueueService.updateAffirmationOrder(newOrder)
         }
-        
+
         // Update session mode and set flow to idle for the new mode
         sessionMode = mode
         switch mode {
@@ -79,29 +83,35 @@ extension PracticeStore {
         default:
             setFlow(.home)
         }
-        
+
         #if DEBUG
         print("[OK] PracticeStore: Repeating session with mode=\(mode.displayName), loops=\(loopCount), shuffle=\(shuffle), voiceId: \(selectedVoiceId ?? "nil")")
         #endif
-        
+
         // Dismiss summary first, then restart flow after animation completes
         withAnimation(.easeInOut(duration: PracticeTiming.summaryDismissDuration)) {
             setShowingSummary(false)
         }
-        
-        // After summary dismissal, start flow directly (no preparation needed).
-        // TTS cache is reused â€” no loading screen.
-        // incrementSegmentGeneration ensures dock timer starts in sync with flow.
+
+        // Guard against rapid re-tap: capture flowGeneration so the delayed
+        // callback becomes a no-op if the user taps repeat again before delay.
+        let repeatGeneration = flowGeneration
         Task { [weak self] in
             guard let self = self else { return }
             try? await Task.sleep(for: .milliseconds(Int(PracticeTiming.summaryDismissDuration * 1000) + 50))
             guard !Task.isCancelled else { return }
-            
+            guard self.flowGeneration == repeatGeneration else { return }
+
+            // Pre-configure audio session to .playback to eliminate
+            // the 50-200ms HAL reconfiguration delay on first playback.
+            await self.playbackCoordinator.preConfigureAudioSession()
+            guard self.flowGeneration == repeatGeneration else { return }
+
             // Signal dock to start segment timer in sync with flow start
             self.incrementSegmentGeneration()
             self.startFlowForCurrentAffirmation()
         }
-        
+
         HapticFeedback.notification(.success)
     }
 }

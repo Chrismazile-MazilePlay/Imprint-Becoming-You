@@ -384,14 +384,15 @@ struct MainPracticeView: View {
     /// | Condition | Action |
     /// |-----------|--------|
     /// | Background >= 10 min (any state) | Full reset to home |
-    /// | Background >= 5 min (any state) | Release Kokoro ML models |
     /// | Background < 10 min (active session) | Resume segment from beginning |
-    /// | Background < 10 min (summary) | Dismiss summary |
+    /// | Background < 10 min (summary) | Keep summary open (cache preserved for repeat) |
     /// | Background < 10 min (other) | No action |
     ///
     /// ## Memory Management
-    /// When returning from background after extended period, the MemoryManager
-    /// automatically re-warms Kokoro TTS if it was released.
+    /// MemoryManager uses a tiered session-aware strategy:
+    /// - Active session/summary: Pipeline release deferred 45s, audio cache preserved.
+    /// - No session: Stale caches cleared immediately, pipeline released after 5s.
+    /// - Memory warnings: Hard release everything immediately.
     ///
     /// The host (MainPracticeView) is the single decision point for resets.
     /// PracticeStore executes the reset via events.
@@ -466,13 +467,13 @@ struct MainPracticeView: View {
             
             // ===============================================================
             // DECISION: Short background (<10 min) during summary
-            // ACTION: Dismiss summary (prevents stale SwiftData)
+            // ACTION: Keep summary open — cache preserved for repeat/save
+            // Extended background (>10 min) triggers .resetToHome above.
             // ===============================================================
             if store.isShowingSummary {
                 #if DEBUG
-                print("[DEBUG] MainPracticeView: Dismissing summary after short background")
+                print("[DEBUG] MainPracticeView: Keeping summary open after short background (\(Int(timeInBackground))s)")
                 #endif
-                store.send(.dismissSummary)
                 return
             }
             

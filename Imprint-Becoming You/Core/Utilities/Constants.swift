@@ -113,8 +113,16 @@ enum Constants {
         /// Used for progress estimation and buffer calculations.
         static let expectedSynthesisRate: Double = 3.0
         
+        /// Maximum concurrent tasks for background pre-synthesis.
+        /// Lower than `maxConcurrency` (3) to leave ANE headroom for
+        /// on-demand synthesis from active playback. 2 concurrent tasks
+        /// fills the cache ~2x faster than serial while avoiding contention.
+        static let backgroundConcurrency = 2
+
         /// Minimum delay between background synthesis tasks (milliseconds).
         /// Prevents overwhelming the system during background synthesis.
+        /// Note: Only used by `startBackgroundSynthesis()` (early-start path).
+        /// `preSynthesizeFromIndex()` now uses bounded TaskGroup instead.
         static let backgroundThrottleMs: Int = 50
         
         /// Progress bar animation update interval (60fps).
@@ -174,12 +182,31 @@ enum Constants {
     /// - Lower memory overhead from shorter-lived tasks
     enum Background {
         /// Time in background after which active sessions are reset to home.
-        /// Summary view is always dismissed on background return regardless of duration.
+        /// Summary view is also reset after this duration.
         static let sessionTimeout: TimeInterval = 600 // 10 minutes
-        
+
         /// Time in background after which we release heavy resources (Kokoro ML models).
         /// This is shorter than session timeout to free memory proactively.
         static let memoryReleaseThreshold: TimeInterval = 300 // 5 minutes
+
+        /// Grace period before releasing Kokoro pipeline during active sessions (seconds).
+        ///
+        /// If the user returns within this window, both the audio cache AND pipeline
+        /// are warm — zero-latency resume. After this period, the pipeline is
+        /// soft-released (`releasePipelineMemory()`) but the audio cache is preserved.
+        ///
+        /// iOS typically kills high-memory background apps within 30-60 seconds.
+        /// 45 seconds covers the common "quick app switch" scenario while staying
+        /// within iOS's tolerance window. Memory warnings bypass this entirely.
+        static let sessionPipelineGracePeriod: TimeInterval = 45
+
+        /// Grace period for non-session background pipeline release (seconds).
+        ///
+        /// When no session is active, there is no audio cache to preserve,
+        /// so a shorter grace period is appropriate. The stale TTS queue and
+        /// repository cache are cleared immediately; only the pipeline release
+        /// is delayed by this amount.
+        static let nonSessionPipelineGracePeriod: TimeInterval = 5
         
         /// Time in background before considering app as "cold started".
         /// After this duration, app may need full re-initialization.

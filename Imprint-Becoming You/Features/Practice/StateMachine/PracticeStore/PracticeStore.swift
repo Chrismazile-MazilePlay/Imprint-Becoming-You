@@ -298,23 +298,33 @@ final class PracticeStore {
     var selectedVoiceId: String? = nil
     
     // MARK: - Dependencies
-    
+
     /// Service dependencies (injected via DependencyContainer).
     let dependencies: DependencyContainer
-    
+
     /// Repository for affirmation data access
     var repository: (any AffirmationRepositoryProtocol)?
-    
+
     /// Repository for saved session data access
     var savedSessionRepository: (any SavedSessionRepositoryProtocol)?
-    
+
+    // MARK: - Coordinators
+
+    /// Coordinates TTS audio playback (speakText, stopPlayback, audio session pre-config).
+    @ObservationIgnored
+    private(set) lazy var playbackCoordinator = SessionPlaybackCoordinator(
+        queueService: dependencies.sessionTTSQueueService,
+        audioPlayerService: dependencies.audioPlayerService,
+        ttsService: dependencies.ttsService
+    )
+
     // MARK: - Initialization
-    
+
     /// Creates a new practice store with the shared dependency container
     convenience init() {
         self.init(dependencies: .shared)
     }
-    
+
     /// Creates a new practice store with custom dependencies
     /// - Parameter dependencies: Service container for dependency injection
     init(dependencies: DependencyContainer) {

@@ -76,7 +76,8 @@ extension PracticeStore {
         // Check if we need TTS preparation
         let needsTTS = mode == .readAloud || mode == .readThenSpeak
         let currentModeUsesTTS = sessionMode == .readAloud || sessionMode == .readThenSpeak
-        let hasCache = dependencies.sessionTTSQueueService.isReady(0)
+        let hasCache = !sessionAffirmations.isEmpty
+            && dependencies.sessionTTSQueueService.isReady(sessionAffirmations[0].id)
         
         // Prepare TTS if switching TO a TTS mode FROM a non-TTS mode (or no cache exists)
         if needsTTS && (!currentModeUsesTTS || !hasCache) {
@@ -231,24 +232,33 @@ extension PracticeStore {
     
     func handleExitSession() {
         AppLogger.debug("Exit session initiated", category: .practice)
-        
-        // 1. Cancel all active work immediately
+
+        // 1. IMMEDIATE SILENCE: Zero volume and stop player synchronously.
+        // This bypasses actor isolation to guarantee zero audible bleed,
+        // even if the cooperative thread pool is under load.
+        dependencies.audioPlayerService.immediateStop()
+
+        // 2. Cancel all active work (tasks, TTS, speech capture, continuations)
         cancelCurrentActivity()
         flowGeneration += 1  // Ensure any stale async work sees generation mismatch and stops
-        
-        // 2. Cancel TTS queue and clear preparation state
+
+        // 3. Signal MemoryManager that session lifecycle is complete
+        MemoryManager.shared.sessionDidEnd()
+
+        // 4. Cancel TTS queue and clear preparation state.
+        // cancelAll() internally resumes the synthesis idle timer.
         dependencies.sessionTTSQueueService.cancelAll()
         clearSessionPreparation()
-        
-        // 2b. Reset session-scoped voice flag so next session uses proper voice
+
+        // 4b. Reset session-scoped voice flag so next session uses proper voice
         forceSystemTTSForSession = false
-        
-        // 3. Dismiss any alerts and clear timeout tracking
+
+        // 5. Dismiss any alerts and clear timeout tracking
         setShowingTimeoutAlert(false)
         timedOutAffirmationId = nil
         setPermissionAlert(showing: false)
-        
-        // 4. CRITICAL: Set mode and flow to home FIRST
+
+        // 6. CRITICAL: Set mode and flow to home FIRST
         //    This makes isSessionActive = false BEFORE we clear session data.
         //    Without this order, there's a brief moment where:
         //    - sessionAffirmations is empty
@@ -258,15 +268,15 @@ extension PracticeStore {
         sessionMode = .readOnly
         setFlow(.home)
         setSegmentProgress(0)
-        
-        // 5. Now safe to clear session state (isSessionActive is already false)
+
+        // 7. Now safe to clear session state (isSessionActive is already false)
         resetLoopConfiguration()
         clearSavedSessionContext()
         clearOriginalSessionAffirmationIds()
         setSessionState(affirmations: [], index: 0)
         setSessionResults([])
-        
-        // 6. Close any open menus with animation
+
+        // 8. Close any open menus with animation
         withAnimation(AppTheme.Animation.standard) {
             isModeSelectorExpanded = false
             isBinauralSelectorExpanded = false
@@ -290,8 +300,12 @@ extension PracticeStore {
         // Cancel any active work - use centralized management
         cancelAllManagedTasks()
         cancelCurrentActivity()
-        
-        // Cancel TTS queue and clear preparation state
+
+        // Signal MemoryManager that session lifecycle is complete
+        MemoryManager.shared.sessionDidEnd()
+
+        // Cancel TTS queue and clear preparation state.
+        // cancelAll() internally resumes the synthesis idle timer.
         dependencies.sessionTTSQueueService.cancelAll()
         clearSessionPreparation()
         
@@ -365,37 +379,30 @@ extension PracticeStore {
     ///
     /// ## Rapid-Skip Resilience
     ///
-    /// Each swipe/skip fires a fire-and-forget `Task { await playerService.stop() }`
-    /// via `cancelCurrentActivity()`. After 10 rapid skips, ~10 such Tasks queue
-    /// on the `AudioPlayerService` actor. Without cleanup, the next loop's first
-    /// `playRawPCMData()` call must wait behind ALL of them â€” causing a visible delay.
+    /// Each swipe/skip fires a fire-and-forget `cancelAndStop()` Task
+    /// via `cancelCurrentActivity()`. The system handles this through
+    /// two layers of defense:
     ///
-    /// ### Defense-in-Depth (3 layers):
+    /// ### Defense-in-Depth (2 layers):
     ///
-    /// 1. **`cancelCurrentActivity()`** â€” Best-effort teardown. Cancels the active
-    ///    flow task, stops TTS, fires a fire-and-forget `stop()` on the audio actor.
-    ///    This handles the common case but leaves fire-and-forget Tasks in-flight.
+    /// 1. **`cancelCurrentActivity()`** - Best-effort teardown. Cancels the active
+    ///    flow task, stops TTS via `cancelAndStop()` on the audio actor.
     ///
-    /// 2. **`isAnimating` toggle** â€” Sets flow to `.idle` (isAnimating=false) BEFORE
+    /// 2. **`isAnimating` toggle** - Sets flow to `.idle` (isAnimating=false) BEFORE
     ///    resetting the index, so the dock timer cannot start prematurely.
     ///    `handleAnimatingChanged` restarts it when flow sets `.playing`.
     ///
-    /// 3. **Actor drain in `executeCurrentFlow()`** â€” The new flow's Task awaits
-    ///    `playerService.stop()` before the 300ms `flowStartDelay`. This serializes
-    ///    behind ALL pending fire-and-forget operations, guaranteeing a clean audio
-    ///    state before playback begins. No matter how many stale Tasks are queued,
-    ///    they're drained before TTS plays.
+    /// `playRawPCMData()` atomically handles cleanup via `cancelAndStop()` as its
+    /// first operation, eliminating the need for an explicit actor drain.
     ///
     /// ### State Change Order (Critical)
     /// ```
-    /// 1. cancelCurrentActivity()  -> fire-and-forget stop() Tasks queued
+    /// 1. cancelCurrentActivity()  -> cancelAndStop() Tasks queued
     /// 2. Set flow to .idle        -> isAnimating=false -> dock timer STOPS
     /// 3. Reset index to 0         -> no timer start (isAnimating=false)
     /// 4. startFlowForCurrentAffirmation() -> new Task:
-    ///    a. await playerService.stop()  -> DRAINS all pending fire-and-forget ops
-    ///    b. 300ms flowStartDelay
-    ///    c. setFlow(.playing)           -> isAnimating=true -> dock timer STARTS
-    ///    d. speakText()                 -> TTS plays simultaneously
+    ///    a. setFlow(.playing)           -> isAnimating=true -> dock timer STARTS
+    ///    b. speakText() -> playRawPCMData() -> cancelAndStop() + play
     /// ```
     func handleLoopIterationCompleted() {
         guard loopConfiguration.hasMoreLoops else {
@@ -416,9 +423,9 @@ extension PracticeStore {
         )
         
         // LAYER 1: Best-effort teardown of all current activity.
-        // Cancels flow task, stops TTS, fires fire-and-forget audio stop.
-        // Rapid skipping may have left fire-and-forget Tasks in-flight â€”
-        // these are drained by Layer 3 (actor drain in executeCurrentFlow).
+        // Cancels flow task, stops TTS via cancelAndStop() on the audio actor.
+        // Rapid skipping may have left fire-and-forget Tasks in-flight --
+        // playRawPCMData() handles residual cleanup atomically.
         cancelCurrentActivity()
         
         // Invalidate stale completion handlers BEFORE state reset.
@@ -429,8 +436,8 @@ extension PracticeStore {
         // LAYER 2: Set flow to idle to stop the dock timer.
         // The flow was .readAloud(.complete) which keeps isAnimating=true.
         // If we reset the index while isAnimating is still true,
-        // handleSegmentChanged would immediately start a new timer â€”
-        // creating a head start over TTS (the flowStartDelay gap).
+        // handleSegmentChanged would immediately start a new timer Ã¢â‚¬â€
+        // creating a head start over TTS.
         switch sessionMode {
         case .readAloud:
             setFlow(.readAloud(.idle))
@@ -442,41 +449,41 @@ extension PracticeStore {
             break
         }
         
-        // Now safe to reset index â€” isAnimating is false, timer won't start
+        // Now safe to reset index Ã¢â‚¬â€ isAnimating is false, timer won't start
         setSessionState(index: 0)
         setSegmentProgress(0)
         
-        // Shuffle if enabled and invalidate stale TTS cache
+        // Shuffle if enabled — cache remains valid (keyed by UUID, not index)
         if config.isShuffleEnabled {
             shuffleSessionAffirmations()
-            
+
             // Update TTS queue with new affirmation order.
-            // Clears cached audio (indices no longer match) but preserves
-            // voice settings. On-demand synthesis handles each affirmation
-            // during playback via speakText's fallback chain.
+            // Cache is keyed by affirmation UUID, so it remains fully valid
+            // after reordering — no invalidation needed.
             let newOrder = sessionAffirmations.enumerated().map { index, affirmation in
                 SessionAffirmationInfo(affirmation: affirmation, index: index)
             }
-            dependencies.sessionTTSQueueService.invalidateCacheForShuffle(newOrder: newOrder)
+            dependencies.sessionTTSQueueService.updateAffirmationOrder(newOrder)
         }
-        
-        // Signal dock to restart segment timer for the new loop.
-        // Without this, the dock's segment generation counter stays stale
-        // from the previous loop, potentially leaving the timer in an
-        // inconsistent state for event-mode segments (Read & Speak, Speak Only).
-        // Matches the pattern in handleRepeatSessionWithConfig() and
-        // handleAutoAdvanceCompleted().
-        incrementSegmentGeneration()
-        
-        // LAYER 3 is inside executeCurrentFlow() — actor drain.
-        // Start flow for first affirmation of the new loop.
-        // After drain + flowStartDelay, the flow sets .playing which:
-        //   1. Toggles isAnimating false->true
-        //   2. handleAnimatingChanged starts the dock timer
-        //   3. speakText() fires TTS at the same moment
-        // Result: dock timer and TTS are perfectly synchronized.
-        startFlowForCurrentAffirmation()
-        
+
+        // Pre-configure the audio session to eliminate the 50-200ms HAL
+        // reconfiguration delay in ensurePlaybackCategory().
+        // After cancelCurrentActivity() above, the category may be .playAndRecord
+        // (from speech capture in Read & Speak / Speak Only modes). Pre-configuring
+        // switches to .playback on a background queue so playRawPCMData() finds it
+        // already set (~1-5ms instead of 50-200ms).
+        let loopGeneration = flowGeneration
+        Task { [weak self] in
+            guard let self = self else { return }
+
+            // Pre-configure audio session BEFORE starting flow
+            await self.playbackCoordinator.preConfigureAudioSession()
+            guard self.flowGeneration == loopGeneration else { return }
+
+            self.incrementSegmentGeneration()
+            self.startFlowForCurrentAffirmation()
+        }
+
         HapticFeedback.notification(.success)
     }
 }
@@ -771,7 +778,7 @@ extension PracticeStore {
             // This prevents the auto-advance from firing after manual navigation
             guard self.shouldContinueFlow(generation: generation) else {
                 #if DEBUG
-                print("ÃƒÂ¢Ã‚ÂÃ‚Â­ÃƒÂ¯Ã‚Â¸Ã‚Â Score display: User navigated away, skipping auto-advance")
+                print("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€šÃ‚Â­ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Score display: User navigated away, skipping auto-advance")
                 #endif
                 return
             }

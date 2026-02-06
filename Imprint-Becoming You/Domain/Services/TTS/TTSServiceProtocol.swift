@@ -220,6 +220,29 @@ protocol TTSServiceProtocol: AnyObject {
     /// Pipeline reloads (~7-8s) during the next session's "Preparing..." UI,
     /// so users experience no perceptible delay.
     func releasePipelineMemory() async
+    
+    // MARK: - Idle Timer Control
+    
+    /// Suppresses the synthesis idle timer during active sessions.
+    ///
+    /// Call when session preparation begins. While suppressed, the idle timer
+    /// will not fire, preventing ML pipeline release during active playback.
+    /// The session TTS queue manages the suppress/resume lifecycle.
+    ///
+    /// ## Why This Exists
+    /// During session playback, audio comes from the pre-synthesized cache via
+    /// `AudioPlayerService.playRawPCMData()`, which bypasses `TTSService` entirely.
+    /// Without suppression, the idle timer fires 30s after the last synthesis
+    /// (session prep), releasing ~800MB–1.5GB of CoreML buffers mid-session.
+    /// On-demand synthesis for loop 2+ then hits a cold pipeline (~1–2s reload).
+    func suppressSynthesisIdleTimer()
+    
+    /// Resumes the synthesis idle timer after session ends.
+    ///
+    /// Call when the session is cancelled or completed. Restarts the idle timer
+    /// so pipelines are released after the standard timeout if no further
+    /// synthesis occurs (e.g., voice preview flows).
+    func resumeSynthesisIdleTimer()
 }
 
 // MARK: - Convenience Extensions
@@ -318,6 +341,16 @@ extension TTSServiceProtocol {
     
     /// Default implementation for pipeline memory release (no-op for mocks)
     func releasePipelineMemory() async {
+        // Default: no-op for mock services
+    }
+    
+    /// Default implementation for idle timer suppression (no-op for mocks)
+    func suppressSynthesisIdleTimer() {
+        // Default: no-op for mock services
+    }
+    
+    /// Default implementation for idle timer resumption (no-op for mocks)
+    func resumeSynthesisIdleTimer() {
         // Default: no-op for mock services
     }
 }

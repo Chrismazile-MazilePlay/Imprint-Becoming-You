@@ -91,15 +91,28 @@ extension PracticeStore {
             // Setting to idle makes isAnimating=false, which the dock observes
             cancelCurrentActivity()
             resetToIdle()  // Critical: sets isAnimating=false so resume triggers fresh start
+            releaseSpeechCaptureService()  // Free audio engine buffers (~7-15MB)
             AppLogger.debug("Session paused (app backgrounded)", category: .practice)
             
         case .resumeSession:
             // Resume when app returns from background - restart flow from beginning of current segment
             if isSessionActive {
                 AppLogger.debug("Session resumed (app foregrounded)", category: .practice)
+
+                // Re-suppress idle timer as a safety measure. The timer should
+                // already be suppressed (it's suppressed at session start and
+                // never resumed until the session lifecycle ends), but this
+                // guards against edge cases.
+                dependencies.ttsService.suppressSynthesisIdleTimer()
+
                 // Increment generation to signal dock to reset its timer
                 incrementSegmentGeneration()
-                // Restart flow from beginning of current affirmation
+
+                // Restart flow from beginning of current affirmation.
+                // Audio cache is preserved — playAffirmation() will hit the
+                // UUID-keyed cache for instant playback. If the pipeline was
+                // soft-released (>45s background), on-demand synthesis
+                // transparently reloads it.
                 startFlowForCurrentAffirmation()
             }
             

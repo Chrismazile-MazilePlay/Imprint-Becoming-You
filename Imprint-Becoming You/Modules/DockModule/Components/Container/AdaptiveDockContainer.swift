@@ -102,7 +102,7 @@ public struct AdaptiveDockContainer<Content: View>: View {
     // MARK: - Computed Properties
     
     private var isAnyMenuExpanded: Bool {
-        adapter.isModeSelectorExpanded || adapter.isBinauralSelectorExpanded
+        adapter.isModeSelectorExpanded || adapter.isBinauralSelectorExpanded || adapter.isErrorBarVisible
     }
     
     private var labelText: String {
@@ -156,6 +156,13 @@ public struct AdaptiveDockContainer<Content: View>: View {
             .padding(.horizontal, tokens.spacingMD)
             .padding(.bottom, tokens.spacingSM)
             .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+        
+        if adapter.isErrorBarVisible {
+            DockErrorBar(message: adapter.errorBarMessage)
+                .padding(.horizontal, tokens.spacingMD)
+                .padding(.bottom, tokens.spacingSM)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
     

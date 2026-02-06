@@ -46,7 +46,7 @@ final class MockSessionTTSQueueService: SessionTTSQueueServiceProtocol {
     private(set) var preparationPhase: SessionPreparationPhase = .waitingForKokoro
     private(set) var preparedCount = 0
     private(set) var totalCount = 0
-    private var audioCache: [Int: Data] = [:]
+    private var audioCache: [UUID: Data] = [:]
     private var sessionAffirmations: [SessionAffirmationInfo] = []
     private var currentVoiceId: String?
     private var forceSystemTTS: Bool = false
@@ -123,17 +123,17 @@ final class MockSessionTTSQueueService: SessionTTSQueueServiceProtocol {
         // Synthesize ALL affirmations
         for (index, info) in affirmations.enumerated() {
             try Task.checkCancellation()
-            
+
             if synthesisDelay > .zero {
                 try await Task.sleep(for: synthesisDelay)
             }
-            
+
             try Task.checkCancellation()
-            
+
             let mockAudio = generateMockAudio(for: info.text)
-            audioCache[index] = mockAudio
+            audioCache[info.id] = mockAudio
             preparedCount = index + 1
-            
+
             Task { @MainActor in
                 onProgress(self.preparedCount, self.totalCount)
             }
@@ -147,28 +147,28 @@ final class MockSessionTTSQueueService: SessionTTSQueueServiceProtocol {
     
     func startBackgroundSynthesis(startingFrom startIndex: Int) {
         isBackgroundSynthesizing = true
-        
+
         for index in startIndex..<totalCount {
-            if audioCache[index] == nil {
-                let info = sessionAffirmations[index]
-                audioCache[index] = generateMockAudio(for: info.text)
+            let info = sessionAffirmations[index]
+            if audioCache[info.id] == nil {
+                audioCache[info.id] = generateMockAudio(for: info.text)
                 preparedCount += 1
             }
         }
-        
+
         isBackgroundSynthesizing = false
-        
+
         #if DEBUG
-        print("ðŸŽµ MockSessionTTSQueue: Background synthesis complete")
+        print("MockSessionTTSQueue: Background synthesis complete")
         #endif
     }
     
-    func getAudio(for index: Int) -> Data? {
-        audioCache[index]
+    func getAudio(for id: UUID) -> Data? {
+        audioCache[id]
     }
-    
-    func isReady(_ index: Int) -> Bool {
-        audioCache[index] != nil
+
+    func isReady(_ id: UUID) -> Bool {
+        audioCache[id] != nil
     }
     
     func notifyPlaying(index: Int) {
@@ -176,36 +176,62 @@ final class MockSessionTTSQueueService: SessionTTSQueueServiceProtocol {
     }
     
     func synthesizeOnDemand(index: Int) async throws -> Data {
-        if let cached = audioCache[index] {
-            return cached
-        }
-        
         guard index >= 0 && index < sessionAffirmations.count else {
             throw TTSError.synthesisFailedError(message: "Index out of bounds")
         }
-        
+
+        let info = sessionAffirmations[index]
+
+        if let cached = audioCache[info.id] {
+            return cached
+        }
+
         if shouldFail {
             throw TTSError.synthesisFailedError(message: failureMessage)
         }
-        
-        let info = sessionAffirmations[index]
+
         let audio = generateMockAudio(for: info.text)
-        audioCache[index] = audio
+        audioCache[info.id] = audio
         return audio
     }
     
-    func invalidateCacheForShuffle(newOrder: [SessionAffirmationInfo]) {
-        // Clear stale audio cache
-        audioCache.removeAll()
-        
-        // Update affirmation order
+    func updateAffirmationOrder(_ newOrder: [SessionAffirmationInfo]) {
+        // Update affirmation order — cache remains valid (keyed by UUID)
         sessionAffirmations = newOrder
         totalCount = newOrder.count
-        preparedCount = 0
-        
-        // Preserve: currentVoiceId, forceSystemTTS
+        // Preserve: audioCache, currentVoiceId, forceSystemTTS, preparedCount
     }
-    
+
+    func preSynthesizeFromIndex(_ startIndex: Int) {
+        // Instant mock: synthesize all immediately
+        for index in startIndex..<sessionAffirmations.count {
+            let info = sessionAffirmations[index]
+            if audioCache[info.id] == nil {
+                audioCache[info.id] = generateMockAudio(for: info.text)
+                preparedCount += 1
+            }
+        }
+    }
+
+    func synthesizeFirstThenBackground(_ startIndex: Int) async {
+        // Instant mock: synthesize first then all remaining
+        if startIndex < sessionAffirmations.count {
+            let info = sessionAffirmations[startIndex]
+            if audioCache[info.id] == nil {
+                audioCache[info.id] = generateMockAudio(for: info.text)
+                preparedCount += 1
+            }
+        }
+        preSynthesizeFromIndex(startIndex + 1)
+    }
+
+    func clearQueue() {
+        // Clear audio cache but preserve session metadata
+        audioCache.removeAll()
+        isBackgroundSynthesizing = false
+        // Preserve: sessionAffirmations, currentVoiceId, forceSystemTTS, totalCount
+    }
+
     func cancelAll() {
         isPreparing = false
         isBackgroundSynthesizing = false
@@ -269,14 +295,14 @@ final class MockSessionTTSQueueService: SessionTTSQueueServiceProtocol {
     /// Simulates progress during preparation for UI testing.
     func simulateProgress(prepared: Int, onProgress: @escaping (Int, Int) -> Void) {
         preparedCount = min(prepared, totalCount)
-        
-        for index in 0..<preparedCount {
-            if audioCache[index] == nil, index < sessionAffirmations.count {
-                let info = sessionAffirmations[index]
-                audioCache[index] = generateMockAudio(for: info.text)
+
+        for index in 0..<preparedCount where index < sessionAffirmations.count {
+            let info = sessionAffirmations[index]
+            if audioCache[info.id] == nil {
+                audioCache[info.id] = generateMockAudio(for: info.text)
             }
         }
-        
+
         onProgress(preparedCount, totalCount)
     }
 }

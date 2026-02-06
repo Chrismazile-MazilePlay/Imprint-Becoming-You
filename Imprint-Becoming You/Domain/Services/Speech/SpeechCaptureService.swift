@@ -6,7 +6,7 @@
 //
 
 import AVFoundation
-import Speech
+@preconcurrency import Speech
 import Combine
 import os.signpost
 
@@ -324,44 +324,68 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         endCaptureSignpost()
         
         emit(.stopped)
-        
+
+        // Best-effort pre-warm: restore audio session to .playback for TTS.
+        // This is fire-and-forget — it may complete before the next playback
+        // call or it may not. AudioPlayerService.ensurePlaybackCategory() is
+        // the definitive fallback that awaits completion before playback.
+        // If this dispatch completes first, ensurePlaybackCategory() becomes
+        // a no-op (~0ms) since the category is already .playback.
+        DispatchQueue.global(qos: .userInitiated).async {
+            let session = AVAudioSession.sharedInstance()
+            if session.category == .playAndRecord {
+                try? session.setCategory(.playback, mode: .default, options: [.duckOthers])
+            }
+        }
+
         #if DEBUG
         print("[LOG] SpeechCaptureService: Capture stopped. Final: \"\(currentTranscription)\"")
         #endif
-        
+
         return currentTranscription
     }
-    
+
     /// Cancels capture without waiting for final result
     func cancelCapture() {
         guard isCapturing else { return }
-        
+
         #if DEBUG
         print("[LOG] SpeechCaptureService: Cancelling capture...")
         #endif
-        
+
         silenceTimer?.cancel()
         silenceTimer = nil
-        
+
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest = nil
-        
+
         if let engine = audioEngine {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
         }
         audioEngine = nil
-        
+
         isCapturing = false
         currentTranscription = ""
-        
+
         // End signpost interval
         endCaptureSignpost()
-        
+
         emit(.stopped)
+
+        // Best-effort pre-warm: restore audio session to .playback for TTS.
+        // This is fire-and-forget — it may complete before the next playback
+        // call or it may not. AudioPlayerService.ensurePlaybackCategory() is
+        // the definitive fallback that awaits completion before playback.
+        DispatchQueue.global(qos: .userInitiated).async {
+            let session = AVAudioSession.sharedInstance()
+            if session.category == .playAndRecord {
+                try? session.setCategory(.playback, mode: .default, options: [.duckOthers])
+            }
+        }
     }
-    
+
     // MARK: - Private Methods
     
     /// Ends the capture signpost interval if one is active
@@ -372,37 +396,63 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         }
     }
     
-    /// Configures the audio session for recording
+    /// Configures the audio session for recording.
+    ///
+    /// ## Performance
+    /// `AVAudioSession.setCategory()` and `setActive()` are synchronous blocking calls
+    /// that take 50–200ms for HAL driver reconfiguration. These are dispatched to a
+    /// background queue to keep MainActor free for animations during the TTS→listening
+    /// transition.
+    ///
+    /// ## Retry Strategy
+    /// - **Attempt 1**: Immediate — no delay. TTS playback has already completed by the
+    ///   time this runs, so the audio session is typically available.
+    /// - **Attempt 2**: 250ms delay — handles transient conflicts from recent TTS teardown.
+    /// - **Attempt 3**: 500ms delay — handles slower hardware reconfiguration.
     private func configureAudioSession() async throws {
-        let session = AVAudioSession.sharedInstance()
-        
-        // Retry with increasing delays to handle transient audio session conflicts.
-        // When switching from TTS playback to recording, the system may need time to
-        // release the previous configuration. Additionally, competing apps (Zoom,
-        // FaceTime, phone calls) may temporarily hold the session.
-        let retryDelays: [UInt64] = [100, 250, 500] // milliseconds
+        // Total attempts: immediate + 2 retries with increasing back-off.
+        // Only delay BEFORE retries, not before the first attempt.
+        let retryDelays: [UInt64] = [0, 250, 500] // milliseconds
         var lastError: Error?
         
         for (attempt, delayMs) in retryDelays.enumerated() {
-            // Brief delay before each attempt — gives the system time to release
-            // the previous audio configuration after TTS playback ends.
-            try? await Task.sleep(nanoseconds: delayMs * 1_000_000)
+            // Delay before retries only (first attempt is immediate)
+            if delayMs > 0 {
+                try? await Task.sleep(nanoseconds: delayMs * 1_000_000)
+            }
             
             do {
-                // Use playAndRecord to support both TTS and microphone
-                try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetooth])
-                try session.setActive(true, options: .notifyOthersOnDeactivation)
-                
-                #if DEBUG
-                print("[LOG] SpeechCaptureService: Audio session configured (attempt \(attempt + 1)) - Sample rate: \(session.sampleRate)")
-                #endif
+                // Dispatch blocking audio session calls to a background queue.
+                // setCategory() triggers HAL driver reconfiguration (50-200ms synchronous).
+                // setActive() acquires hardware resources (10-50ms synchronous).
+                // Running these off MainActor prevents animation frame drops.
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        do {
+                            let session = AVAudioSession.sharedInstance()
+                            try session.setCategory(
+                                .playAndRecord,
+                                mode: .measurement,
+                                options: [.defaultToSpeaker, .allowBluetooth]
+                            )
+                            try session.setActive(true, options: .notifyOthersOnDeactivation)
+                            
+                            #if DEBUG
+                            print("[LOG] SpeechCaptureService: Audio session configured (attempt \(attempt + 1)) - Sample rate: \(session.sampleRate)")
+                            #endif
+                            
+                            continuation.resume()
+                        } catch {
+                            #if DEBUG
+                            print("[LOG] SpeechCaptureService: Audio session config attempt \(attempt + 1)/\(retryDelays.count) failed: \(error.localizedDescription)")
+                            #endif
+                            continuation.resume(throwing: error)
+                        }
+                    }
+                }
                 return // Success
             } catch {
                 lastError = error
-                
-                #if DEBUG
-                print("[LOG] SpeechCaptureService: Audio session config attempt \(attempt + 1)/\(retryDelays.count) failed: \(error.localizedDescription)")
-                #endif
             }
         }
         
@@ -416,68 +466,102 @@ final class SpeechCaptureService: NSObject, @unchecked Sendable {
         throw CaptureError.audioEngineFailure("Failed to configure audio session: \(errorDesc)")
     }
     
-    /// Starts the audio engine and recognition pipeline
+    /// Starts the audio engine and recognition pipeline.
+    ///
+    /// ## Performance
+    /// `AVAudioEngine` allocation, `prepare()`, and `start()` are synchronous operations
+    /// that take 50–150ms total. `SFSpeechRecognizer.recognitionTask(with:)` also blocks
+    /// briefly. All heavy work is dispatched to a background queue to keep MainActor
+    /// free for animations.
+    ///
+    /// Pipeline components are assigned to `nonisolated(unsafe)` properties from the
+    /// background queue. This is safe because the flow is sequential — the continuation
+    /// resumes only after all assignments complete, and no other code accesses these
+    /// properties during setup.
     private func startCapturePipeline() async throws {
-        // Create fresh audio engine
-        let engine = AVAudioEngine()
-        self.audioEngine = engine
-        
-        // Get the input node and its NATIVE format
-        let inputNode = engine.inputNode
-        
-        // CRITICAL: Use the input node's native format, not a custom format
-        // This prevents format mismatch crashes when audio route changes
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-        
-        guard recordingFormat.sampleRate > 0 else {
-            throw CaptureError.audioEngineFailure("Invalid input format: sample rate is 0")
-        }
-        
-        #if DEBUG
-        print("[LOG] SpeechCaptureService: Recording format - \(Int(recordingFormat.sampleRate)) Hz, \(recordingFormat.channelCount) ch")
-        #endif
-        
-        // Create recognition request
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        request.requiresOnDeviceRecognition = false // Cloud for better accuracy
-        
-        if #available(iOS 17.0, *) {
-            request.addsPunctuation = true
-        }
-        
-        self.recognitionRequest = request
-        
-        // Start recognition task
         guard let recognizer = speechRecognizer else {
             throw CaptureError.speechRecognizerUnavailable
         }
         
-        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            Task { @MainActor in
-                self?.handleRecognitionResult(result, error: error)
+        // Dispatch heavy audio pipeline setup to a background queue.
+        // This frees MainActor for ~100-150ms of animation frames.
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self else {
+                    continuation.resume(throwing: CaptureError.audioEngineFailure("Service deallocated during setup"))
+                    return
+                }
+                
+                do {
+                    // Create fresh audio engine
+                    let engine = AVAudioEngine()
+                    
+                    // Get the input node and its NATIVE format
+                    let inputNode = engine.inputNode
+                    
+                    // CRITICAL: Use the input node's native format, not a custom format
+                    // This prevents format mismatch crashes when audio route changes
+                    let recordingFormat = inputNode.outputFormat(forBus: 0)
+                    
+                    guard recordingFormat.sampleRate > 0 else {
+                        throw CaptureError.audioEngineFailure("Invalid input format: sample rate is 0")
+                    }
+                    
+                    #if DEBUG
+                    print("[LOG] SpeechCaptureService: Recording format - \(Int(recordingFormat.sampleRate)) Hz, \(recordingFormat.channelCount) ch")
+                    #endif
+                    
+                    // Create recognition request
+                    let request = SFSpeechAudioBufferRecognitionRequest()
+                    request.shouldReportPartialResults = true
+                    request.requiresOnDeviceRecognition = false // Cloud for better accuracy
+                    
+                    if #available(iOS 17.0, *) {
+                        request.addsPunctuation = true
+                    }
+                    
+                    // Start recognition task
+                    let task = recognizer.recognitionTask(with: request) { [weak self] result, error in
+                        Task { @MainActor in
+                            self?.handleRecognitionResult(result, error: error)
+                        }
+                    }
+                    
+                    // Install tap with the NATIVE format
+                    inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
+                        // Append buffer to recognition request
+                        request.append(buffer)
+                        
+                        // Calculate audio level on MainActor
+                        Task { @MainActor in
+                            self?.processAudioLevel(buffer: buffer)
+                        }
+                    }
+                    
+                    // Prepare and start engine
+                    engine.prepare()
+                    
+                    do {
+                        try engine.start()
+                    } catch {
+                        // Clean up tap and recognition task on engine start failure
+                        inputNode.removeTap(onBus: 0)
+                        task.cancel()
+                        throw CaptureError.audioEngineFailure("Failed to start audio engine: \(error.localizedDescription)")
+                    }
+                    
+                    // Store pipeline components on nonisolated(unsafe) properties.
+                    // Safe: sequential flow — continuation resumes only after these writes,
+                    // and no other code accesses these properties during setup.
+                    self.audioEngine = engine
+                    self.recognitionRequest = request
+                    self.recognitionTask = task
+                    
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
             }
-        }
-        
-        // Install tap with the NATIVE format
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
-            // Append buffer to recognition request
-            self?.recognitionRequest?.append(buffer)
-            
-            // Calculate audio level
-            Task { @MainActor in
-                self?.processAudioLevel(buffer: buffer)
-            }
-        }
-        
-        // Prepare and start engine
-        engine.prepare()
-        
-        do {
-            try engine.start()
-        } catch {
-            inputNode.removeTap(onBus: 0)
-            throw CaptureError.audioEngineFailure("Failed to start audio engine: \(error.localizedDescription)")
         }
     }
     

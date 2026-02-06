@@ -119,17 +119,17 @@ protocol SessionTTSQueueServiceProtocol: AnyObject {
     /// - Parameter startIndex: The index to start synthesizing from (typically preparedCount)
     func startBackgroundSynthesis(startingFrom startIndex: Int)
     
-    /// Gets cached audio data for an affirmation at the given index.
+    /// Gets cached audio data for an affirmation by its unique identifier.
     ///
-    /// - Parameter index: The affirmation index in the session
+    /// - Parameter id: The affirmation's UUID
     /// - Returns: Audio data if cached, nil if not yet synthesized
-    func getAudio(for index: Int) -> Data?
-    
-    /// Checks if audio is ready for the given index.
+    func getAudio(for id: UUID) -> Data?
+
+    /// Checks if audio is ready for the given affirmation.
     ///
-    /// - Parameter index: The affirmation index in the session
+    /// - Parameter id: The affirmation's UUID
     /// - Returns: true if audio is cached and ready to play
-    func isReady(_ index: Int) -> Bool
+    func isReady(_ id: UUID) -> Bool
     
     /// Notifies the queue that playback has moved to a new index.
     ///
@@ -150,22 +150,55 @@ protocol SessionTTSQueueServiceProtocol: AnyObject {
     /// - Throws: `AppError.ttsError` if synthesis fails
     func synthesizeOnDemand(index: Int) async throws -> Data
     
-    /// Invalidates the audio cache after a shuffle and updates the affirmation order.
+    /// Updates the internal affirmation list after a shuffle.
     ///
-    /// Use this instead of `cancelAll()` when the session is being repeated or looped
-    /// with shuffle enabled. Clears stale cached audio (indices no longer match) and
-    /// updates the internal affirmation list so `synthesizeOnDemand()` produces correct
-    /// audio for the new order.
-    ///
-    /// Preserves voice settings (`currentVoiceId`, `currentVoiceSettings`) so on-demand
-    /// synthesis uses the same voice configuration as the original session.
-    ///
-    /// Does NOT start background re-synthesis — each affirmation is synthesized
-    /// on-demand via `speakText`'s fallback chain during playback.
+    /// Because audio is cached by UUID (not positional index), the cache remains
+    /// fully valid after a shuffle — no invalidation needed. This method simply
+    /// updates the affirmation order so index-based lookups resolve to the correct
+    /// affirmation in the new arrangement.
     ///
     /// - Parameter newOrder: The shuffled affirmation list (with updated indices)
-    func invalidateCacheForShuffle(newOrder: [SessionAffirmationInfo])
-    
+    func updateAffirmationOrder(_ newOrder: [SessionAffirmationInfo])
+
+    /// Starts background synthesis from the given index.
+    ///
+    /// Used after shuffle to pre-warm the cache for the new affirmation order.
+    /// Without this, every segment on the first shuffled loop falls through to
+    /// `synthesizeOnDemand()` (1-2s delay per segment).
+    ///
+    /// Synthesis runs sequentially with throttling to avoid ANE contention
+    /// with active playback. Already-cached indices are skipped.
+    ///
+    /// - Parameter startIndex: The index to start pre-synthesizing from
+    func preSynthesizeFromIndex(_ startIndex: Int)
+
+    /// Awaits synthesis of the first affirmation, then kicks off background
+    /// synthesis for the rest.
+    ///
+    /// Use this after shuffle to eliminate the delay on the first segment.
+    /// `preSynthesizeFromIndex()` fires in background — by the time
+    /// `startFlowForCurrentAffirmation()` calls `speakText()`, index 0 has
+    /// no cached audio yet and falls through to `synthesizeOnDemand()`.
+    ///
+    /// This method:
+    /// 1. Synthesizes `startIndex` synchronously (awaited)
+    /// 2. Calls `preSynthesizeFromIndex(startIndex + 1)` for remaining indices
+    ///
+    /// - Parameter startIndex: The index to synthesize first (typically 0)
+    func synthesizeFirstThenBackground(_ startIndex: Int) async
+
+    /// Clears the audio cache and cancels background synthesis without
+    /// resetting session metadata.
+    ///
+    /// Use this when the session is complete (summary shown) but the user
+    /// may repeat. Frees cached PCM audio (~3–40 MB) while preserving
+    /// `sessionAffirmations`, `currentVoiceId`, and `currentVoiceSettings`
+    /// so that a subsequent repeat can re-synthesize with the same voice.
+    ///
+    /// Contrast with `cancelAll()`, which fully tears down session state
+    /// (clears affirmations, resets voice settings, resumes idle timer).
+    func clearQueue()
+
     /// Cancels all synthesis and clears the cache.
     ///
     /// Call this when:

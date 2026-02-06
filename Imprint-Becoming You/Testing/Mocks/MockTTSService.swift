@@ -54,6 +54,12 @@ final class MockTTSService: TTSServiceProtocol {
     /// Number of times stopSpeaking was called
     var stopSpeakingCallCount: Int = 0
     
+    /// Number of times suppressSynthesisIdleTimer was called
+    var suppressIdleTimerCallCount: Int = 0
+    
+    /// Number of times resumeSynthesisIdleTimer was called
+    var resumeIdleTimerCallCount: Int = 0
+    
     /// Last voice ID passed to synthesize
     var lastSynthesizeVoiceId: String?
     
@@ -179,6 +185,14 @@ final class MockTTSService: TTSServiceProtocol {
         // No-op for mock - Kokoro stays "ready"
     }
     
+    func suppressSynthesisIdleTimer() {
+        suppressIdleTimerCallCount += 1
+    }
+    
+    func resumeSynthesisIdleTimer() {
+        resumeIdleTimerCallCount += 1
+    }
+    
     // MARK: - Test Helpers
     
     /// Resets all call counts and tracked values
@@ -188,6 +202,8 @@ final class MockTTSService: TTSServiceProtocol {
         speakTextCallCount = 0
         preSynthesizeCallCount = 0
         stopSpeakingCallCount = 0
+        suppressIdleTimerCallCount = 0
+        resumeIdleTimerCallCount = 0
         lastSynthesizeVoiceId = nil
         lastSynthesizeText = nil
         lastSynthesizeSpeed = nil

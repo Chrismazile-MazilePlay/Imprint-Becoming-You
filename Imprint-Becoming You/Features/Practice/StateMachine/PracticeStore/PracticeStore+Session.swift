@@ -236,6 +236,11 @@ extension PracticeStore {
     }
     
     func startSession(mode: SessionMode) {
+        // Signal MemoryManager that a session is active.
+        // This prevents aggressive background release of the audio cache
+        // and defers pipeline release with a grace period.
+        MemoryManager.shared.sessionDidStart()
+
         // Reset session-scoped flags
         setHasSessionBeenSaved(false)
         
@@ -318,9 +323,19 @@ extension PracticeStore {
     func appendToBrowseQueue(_ newAffirmations: [Affirmation]) {
         let existingIds = Set(browseAffirmations.map { $0.id })
         let uniqueNew = newAffirmations.filter { !existingIds.contains($0.id) }
-        
+
         var updated = browseAffirmations
         updated.append(contentsOf: uniqueNew)
+
+        // Cap at 100 to prevent unbounded memory growth from long browse sessions
+        let maxBrowseCount = 100
+        if updated.count > maxBrowseCount {
+            let trimmed = Array(updated.suffix(maxBrowseCount))
+            let trimmedIds = Set(trimmed.map { $0.id })
+            viewedBrowseAffirmationIds = viewedBrowseAffirmationIds.intersection(trimmedIds)
+            updated = trimmed
+        }
+
         setBrowseState(affirmations: updated, consumed: 0)
     }
 }
@@ -409,13 +424,19 @@ extension PracticeStore {
     
     func showSessionSummary() {
         cancelCurrentActivity()
-        
-        // Release ML pipeline memory to free ~800MB-1.5GB of CoreML buffers.
-        // Pipelines will lazy-reload during the next session's "Preparing..." UI.
-        Task {
-            await dependencies.ttsService.releasePipelineMemory()
-        }
-        
+
+        // NOTE: Idle timer is NOT resumed here. The summary view is part of the
+        // active session lifecycle — the user may tap "Repeat" which reuses the
+        // cached audio. The idle timer stays suppressed so the Kokoro pipeline
+        // remains warm for instant repeat. It's resumed when the session lifecycle
+        // fully ends (handleDismissSummary, handleExitSession, or handleResetToHome
+        // via cancelAll() which internally resumes the idle timer).
+
+        // NOTE: Audio cache is NOT cleared here. The TTS audio cache (~20-40MB)
+        // is preserved for repeat sessions. With UUID-keyed caching, the same
+        // audio data works even after shuffle reordering. The cache is freed
+        // when the session lifecycle ends (handleDismissSummary → cancelAll()).
+
         // Release speech capture service to free SFSpeechRecognizer + AVAudioEngine (~7-15MB).
         // Lazily recreated on next Read & Speak or Speak Only session.
         releaseSpeechCaptureService()
@@ -481,9 +502,13 @@ extension PracticeStore {
         clearOriginalSessionAffirmationIds()
         setSessionState(affirmations: [], index: 0)
         // NOTE: Keep sessionResults - ResultsSummaryView still references store.sessionSummary
-        
-        // Clear TTS audio cache to free memory (~7-15MB per session)
-        // This was previously missing, causing memory to accumulate across sessions
+
+        // Signal MemoryManager that session lifecycle is complete.
+        // Must come before cancelAll() for consistent teardown ordering.
+        MemoryManager.shared.sessionDidEnd()
+
+        // Clear TTS audio cache and session state to free memory.
+        // cancelAll() internally resumes the synthesis idle timer.
         dependencies.sessionTTSQueueService.cancelAll()
         
         // Close any open menus immediately
@@ -518,31 +543,38 @@ extension PracticeStore {
         var config = loopConfiguration
         config.resetIteration()
         setLoopConfiguration(config)
-        
-        // Invalidate stale completion handlers before state reset
-        flowGeneration += 1
-        
+
         // Reset session-scoped voice flag so next session uses proper voice
         forceSystemTTSForSession = false
-        
+
+        // Cancel any lingering flow tasks or audio from the previous session.
+        // Without this, stale flow tasks or audio can bleed into the new session.
+        cancelCurrentActivity()
+        flowGeneration += 1
+
+        // NOTE: Idle timer is already suppressed — showSessionSummary() no longer
+        // resumes it. The timer stays suppressed through the summary lifecycle
+        // and into the repeat session. It's only resumed when the session fully
+        // ends (handleDismissSummary, handleExitSession, or handleResetToHome).
+
         setSessionState(index: 0)
         setSessionResults([])
         setSegmentProgress(0)
         sessionStartTime = Date()
-        
+
+        // Shuffle if enabled — cache remains valid (keyed by UUID, not index)
         if config.isShuffleEnabled {
             shuffleSessionAffirmations()
-            
+
             // Update TTS queue with new affirmation order.
-            // Clears cached audio (indices no longer match) but preserves
-            // voice settings. On-demand synthesis handles each affirmation
-            // during playback via speakText's fallback chain.
+            // Cache is keyed by affirmation UUID, so it remains fully valid
+            // after reordering — no invalidation needed.
             let newOrder = sessionAffirmations.enumerated().map { index, affirmation in
                 SessionAffirmationInfo(affirmation: affirmation, index: index)
             }
-            dependencies.sessionTTSQueueService.invalidateCacheForShuffle(newOrder: newOrder)
+            dependencies.sessionTTSQueueService.updateAffirmationOrder(newOrder)
         }
-        
+
         switch sessionMode {
         case .readAloud:
             setFlow(.readAloud(.idle))
@@ -553,16 +585,26 @@ extension PracticeStore {
         default:
             setFlow(.home)
         }
-        
+
         withAnimation(.easeInOut(duration: PracticeTiming.summaryDismissDuration)) {
             setShowingSummary(false)
         }
-        
+
+        // Store the generation at launch time to guard against rapid re-tap.
+        // If user taps repeat again before delay completes, flowGeneration changes
+        // and this Task's delayed callback becomes a no-op.
+        let repeatGeneration = flowGeneration
         Task { [weak self] in
             guard let self = self else { return }
             try? await Task.sleep(for: .milliseconds(Int(PracticeTiming.summaryDismissDuration * 1000) + 50))
             guard !Task.isCancelled else { return }
-            
+            guard self.flowGeneration == repeatGeneration else { return }
+
+            // Pre-configure audio session to .playback to eliminate
+            // the 50-200ms HAL reconfiguration delay on first playback.
+            await self.playbackCoordinator.preConfigureAudioSession()
+            guard self.flowGeneration == repeatGeneration else { return }
+
             // Signal dock to start segment timer in sync with flow start
             self.incrementSegmentGeneration()
             self.startFlowForCurrentAffirmation()

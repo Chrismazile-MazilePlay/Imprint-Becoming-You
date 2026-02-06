@@ -12,7 +12,7 @@ import Foundation
 /// Mode representation for the dock.
 ///
 /// This is the dock module's own type for practice modes. It contains only
-/// display properties — no app-specific logic. The host app's adapter maps
+/// display properties â€” no app-specific logic. The host app's adapter maps
 /// between its internal mode type (e.g., `SessionMode`) and this type.
 ///
 /// ## Raw Values
@@ -129,5 +129,18 @@ public extension DockMode {
     /// Describes what happens when the mode is selected.
     var accessibilityHint: String {
         description
+    }
+    
+    /// Whether this mode requires microphone access for speech recognition.
+    ///
+    /// Modes that require the microphone will be blocked if another app
+    /// (Zoom, FaceTime, phone call) holds the audio session.
+    var requiresMicrophone: Bool {
+        switch self {
+        case .readAndSpeak, .speakOnly:
+            return true
+        case .readOnly, .readAloud:
+            return false
+        }
     }
 }

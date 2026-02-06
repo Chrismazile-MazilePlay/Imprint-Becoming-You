@@ -122,6 +122,17 @@ public final class MockDockAdapter: DockAdapterProtocol {
     /// Label text displayed below the dock.
     public var labelText: String = ""
     
+    // MARK: - Error Bar State
+    
+    /// Whether the error bar is visible.
+    public var isErrorBarVisible: Bool = false
+    
+    /// The current error bar message.
+    public var errorBarMessage: String = ""
+    
+    /// Task managing auto-dismiss timer.
+    private var errorDismissTask: Task<Void, Never>?
+    
     // MARK: - Initialization
     
     /// Creates a new mock adapter with default values.
@@ -191,6 +202,39 @@ public final class MockDockAdapter: DockAdapterProtocol {
     public func closeAllSelectors() {
         isModeSelectorExpanded = false
         isBinauralSelectorExpanded = false
+        dismissErrorBar()
+    }
+    
+    // MARK: - Error Bar Actions
+    
+    /// Shows an error message in the dock error bar.
+    public func showError(_ message: String) {
+        errorDismissTask?.cancel()
+        errorBarMessage = message
+        
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            isErrorBarVisible = true
+        }
+        
+        errorDismissTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                self?.isErrorBarVisible = false
+            }
+        }
+        
+        #if DEBUG
+        print("[MockDockAdapter] Error shown: \(message)")
+        #endif
+    }
+    
+    /// Immediately dismisses the error bar with animation.
+    public func dismissErrorBar() {
+        errorDismissTask?.cancel()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            isErrorBarVisible = false
+        }
     }
     
     // MARK: - Segment Animation Callback

@@ -287,7 +287,7 @@ final class DependencyContainer: Sendable {
         }
         let service: any SessionTTSQueueServiceProtocol = isPreview
             ? MockSessionTTSQueueService()
-            : SessionTTSQueueService(ttsService: ttsService)
+            : SessionTTSQueueService(synthesisEngine: TTSSynthesisEngine(ttsService: ttsService))
         _sessionTTSQueueService = service
         return service
     }

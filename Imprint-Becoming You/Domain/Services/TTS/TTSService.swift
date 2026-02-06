@@ -91,6 +91,13 @@ final class TTSService: TTSServiceProtocol {
     /// Whether we've released resources for background
     private var _isReleasedForBackground: Bool = false
     
+    /// Whether the idle timer is suppressed during an active session.
+    ///
+    /// When `true`, `resetSynthesisIdleTimer()` becomes a no-op, preventing
+    /// the idle timer from firing mid-session. Set by `suppressSynthesisIdleTimer()`,
+    /// cleared by `resumeSynthesisIdleTimer()`.
+    private var _isIdleTimerSuppressed: Bool = false
+    
     // MARK: - Audio Session State (Issue 2.4 Fix)
     
     /// Whether audio session has been pre-configured during warm-up.
@@ -111,7 +118,7 @@ final class TTSService: TTSServiceProtocol {
     ///
     /// Resets after every Kokoro synthesis completes. When the timer fires
     /// (no synthesis for `synthesisIdleTimeout` seconds), pipeline memory
-    /// is automatically released to free ~800MB–1.5GB of CoreML buffers.
+    /// is automatically released to free ~800MBâ€“1.5GB of CoreML buffers.
     ///
     /// This solves the memory retention problem in voice preview flows
     /// (Voice Settings, Voice Modification, Onboarding) where synthesis
@@ -122,8 +129,8 @@ final class TTSService: TTSServiceProtocol {
     ///
     /// Balances competing needs:
     /// - Short enough to free memory promptly after voice preview navigation (~30s)
-    /// - Long enough to keep pipeline warm during active voice browsing (2–5s gaps)
-    /// - Pipeline reload takes ~1–2s from CoreML cache, masked by UI indicators
+    /// - Long enough to keep pipeline warm during active voice browsing (2â€“5s gaps)
+    /// - Pipeline reload takes ~1â€“2s from CoreML cache, masked by UI indicators
     private let synthesisIdleTimeout: TimeInterval = 30
     
     // MARK: - Initialization
@@ -180,7 +187,7 @@ final class TTSService: TTSServiceProtocol {
         // Reset background release flag
         _isReleasedForBackground = false
         
-        // Cancel any pending idle timer — fresh warm-up should not be released
+        // Cancel any pending idle timer â€” fresh warm-up should not be released
         cancelSynthesisIdleTimer()
         
         // Pre-configure audio session on background queue (Issue 2.4)
@@ -195,7 +202,7 @@ final class TTSService: TTSServiceProtocol {
             print("TTSService: Kokoro engine ready")
             #endif
             
-            // Start idle timer — if no synthesis occurs within 30s, the pipeline
+            // Start idle timer â€” if no synthesis occurs within 30s, the pipeline
             // auto-releases to free ~300-350MB. This makes the eager warm-up
             // self-correcting: instant TTS if needed, minimal memory if not.
             resetSynthesisIdleTimer()
@@ -365,9 +372,12 @@ final class TTSService: TTSServiceProtocol {
         // Cancel any pending pre-synthesis
         cancelPreSynthesis()
         
-        // Cancel idle timer — explicit release supersedes timer
+        // Cancel idle timer and clear suppression flag.
+        // Without clearing _isIdleTimerSuppressed, the timer stays permanently
+        // suppressed after foreground restore and pipelines never auto-release.
         cancelSynthesisIdleTimer()
-        
+        _isIdleTimerSuppressed = false
+
         // Release the Kokoro engine
         await kokoroEngine.releasePipelines()
         
@@ -402,7 +412,7 @@ final class TTSService: TTSServiceProtocol {
         // Cancel any pending pre-synthesis (no longer needed)
         cancelPreSynthesis()
         
-        // Cancel idle timer — explicit release supersedes timer
+        // Cancel idle timer â€” explicit release supersedes timer
         cancelSynthesisIdleTimer()
         
         // Release ML pipelines but keep Kokoro logically "ready"
@@ -418,6 +428,26 @@ final class TTSService: TTSServiceProtocol {
         #endif
     }
     
+    // MARK: - Idle Timer Control
+    
+    func suppressSynthesisIdleTimer() {
+        _isIdleTimerSuppressed = true
+        cancelSynthesisIdleTimer()
+        
+        #if DEBUG
+        print("TTSService: Idle timer suppressed (active session)")
+        #endif
+    }
+    
+    func resumeSynthesisIdleTimer() {
+        _isIdleTimerSuppressed = false
+        resetSynthesisIdleTimer()
+        
+        #if DEBUG
+        print("TTSService: Idle timer resumed")
+        #endif
+    }
+    
     // MARK: - Synthesis Idle Timer
     
     /// Resets the idle timer after a Kokoro synthesis completes.
@@ -429,6 +459,9 @@ final class TTSService: TTSServiceProtocol {
     /// This ensures all synthesis consumers (session, voice preview, onboarding)
     /// benefit from automatic cleanup without explicit per-view teardown.
     private func resetSynthesisIdleTimer() {
+        // Skip timer reset while session is active — pipeline must stay warm
+        guard !_isIdleTimerSuppressed else { return }
+        
         synthesisIdleTimer?.cancel()
         
         let timeout = synthesisIdleTimeout
@@ -437,7 +470,7 @@ final class TTSService: TTSServiceProtocol {
                 try await Task.sleep(for: .seconds(timeout))
                 await self?.handleSynthesisIdleTimeout()
             } catch {
-                // Task was cancelled — new synthesis started or explicit cleanup occurred
+                // Task was cancelled â€” new synthesis started or explicit cleanup occurred
             }
         }
     }
@@ -462,7 +495,7 @@ final class TTSService: TTSServiceProtocol {
     /// - Keeps `isKokoroReady = true` so next synthesis transparently reloads
     private func handleSynthesisIdleTimeout() async {
         #if DEBUG
-        print("TTSService: Synthesis idle timeout (\(synthesisIdleTimeout)s) — releasing pipeline memory")
+        print("TTSService: Synthesis idle timeout (\(synthesisIdleTimeout)s) â€” releasing pipeline memory")
         #endif
         
         // Cancel any lingering pre-synthesis (may hold WAV data in memory)
@@ -599,8 +632,11 @@ final class TTSService: TTSServiceProtocol {
     private func ensureAudioSessionActive() throws {
         let session = AVAudioSession.sharedInstance()
         
-        // Only reconfigure if category changed or not yet configured
-        if lastConfiguredCategory != .playback {
+        // Reconfigure if category changed, not yet configured, or externally modified.
+        // SpeechCaptureService changes the session to .playAndRecord during listening
+        // phases without updating TTSService's cache, so we also check the actual
+        // session category to catch external changes.
+        if lastConfiguredCategory != .playback || session.category != .playback {
             #if DEBUG
             print("TTSService: Reconfiguring audio session (category changed)")
             #endif
@@ -641,7 +677,7 @@ final class TTSService: TTSServiceProtocol {
         print("TTSService: Resolved voice style: \(voiceStyle.rawValue), speed=\(speed), pitch=\(pitchShiftSemitones)")
         #endif
         
-        // Cancel idle timer — Kokoro synthesis is starting
+        // Cancel idle timer â€” Kokoro synthesis is starting
         cancelSynthesisIdleTimer()
         
         do {
@@ -653,12 +689,12 @@ final class TTSService: TTSServiceProtocol {
                 pitchRangeScale: pitchRangeScale
             )
             
-            // Reset idle timer — synthesis complete, start countdown
+            // Reset idle timer â€” synthesis complete, start countdown
             resetSynthesisIdleTimer()
             
             return audioData
         } catch {
-            // Reset timer even on failure — pipeline was loaded and has buffers
+            // Reset timer even on failure â€” pipeline was loaded and has buffers
             resetSynthesisIdleTimer()
             
             #if DEBUG
@@ -694,7 +730,7 @@ final class TTSService: TTSServiceProtocol {
         print("TTSService: Resolved voice style: \(voiceStyle.rawValue)")
         #endif
         
-        // Cancel idle timer — Kokoro synthesis is starting
+        // Cancel idle timer â€” Kokoro synthesis is starting
         cancelSynthesisIdleTimer()
         
         do {
@@ -706,7 +742,7 @@ final class TTSService: TTSServiceProtocol {
                 pitchRangeScale: pitchRangeScale
             )
             
-            // Reset idle timer — synthesis complete, start countdown
+            // Reset idle timer â€” synthesis complete, start countdown
             resetSynthesisIdleTimer()
             
             #if DEBUG
@@ -716,7 +752,7 @@ final class TTSService: TTSServiceProtocol {
             try await playAudioData(audioData)
             
         } catch {
-            // Reset timer even on failure — pipeline was loaded and has buffers
+            // Reset timer even on failure â€” pipeline was loaded and has buffers
             resetSynthesisIdleTimer()
             
             #if DEBUG

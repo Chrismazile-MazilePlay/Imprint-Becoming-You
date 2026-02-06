@@ -165,14 +165,25 @@ struct PracticePageView: View {
         .onChange(of: dockAdapter.isBinauralSelectorExpanded) { _, _ in
             updateDockMenuExpanded()
         }
+        .onChange(of: dockAdapter.isErrorBarVisible) { _, _ in
+            updateDockMenuExpanded()
+        }
+        .onChange(of: store.error) { _, newError in
+            // Bridge PracticeStore errors to the dock error bar.
+            // This replaces the .alert modifier in MainPracticeView.
+            if let error = newError {
+                dockAdapter.showError(error.userMessage)
+                store.send(.dismissError)
+            }
+        }
     }
     
     // MARK: - Dock Menu State
     
     /// Relays dock selector expansion state to the parent binding.
-    /// When either selector is expanded, horizontal paging is disabled.
+    /// When any selector or error bar is expanded, horizontal paging is disabled.
     private func updateDockMenuExpanded() {
-        isDockMenuExpanded = dockAdapter.isModeSelectorExpanded || dockAdapter.isBinauralSelectorExpanded
+        isDockMenuExpanded = dockAdapter.isModeSelectorExpanded || dockAdapter.isBinauralSelectorExpanded || dockAdapter.isErrorBarVisible
     }
     
     // MARK: - Bindings
@@ -208,9 +219,10 @@ struct PracticePageView: View {
     // MARK: - Navigation Logic
     
     private var canNavigate: Bool {
-        // Block if selectors are expanded
+        // Block if selectors or error bar are expanded
         guard !dockAdapter.isModeSelectorExpanded else { return false }
         guard !dockAdapter.isBinauralSelectorExpanded else { return false }
+        guard !dockAdapter.isErrorBarVisible else { return false }
         
         // Block if timeout alert is showing to prevent race conditions
         // that could cause double-skip behavior
@@ -325,11 +337,11 @@ struct PracticePageView: View {
                             .padding(.bottom, AppTheme.Spacing.lg)
                     }
                     
-                    // Affirmation text — auto-scrolls long texts in sync with TTS
+                    // Affirmation text — auto-scrolls long texts with fixed timing
                     AutoScrollingAffirmationText(
                         text: affirmation.text,
-                        progress: index == store.currentIndex ? store.flow.ttsProgress : nil,
-                        progressRange: ttsProgressRange,
+                        isActive: index == store.currentIndex && isScrollActive,
+                        resetsOnStop: !isReadAloudMode,
                         maxHeight: maxAffirmationTextHeight(in: geometry)
                     )
                     
@@ -378,18 +390,35 @@ struct PracticePageView: View {
         }
     }
     
-    /// The maximum TTS progress value for the current practice mode.
+    /// Whether auto-scrolling should be active for the current flow state.
     ///
-    /// Read Aloud caps progress at 0.95 while Read & Speak caps at 0.45.
-    /// Passed to `AutoScrollingAffirmationText` so the scroll range adapts
-    /// to ensure all text scrolls fully in both modes.
-    private var ttsProgressRange: Double {
+    /// Returns `true` during each mode's primary phase:
+    /// - **Read Aloud**: TTS playing
+    /// - **Read & Speak**: TTS playing
+    /// - **Speak Only**: user listening/speaking
+    ///
+    /// Identical timing across all modes — the component's internal timer
+    /// handles delay and speed uniformly.
+    private var isScrollActive: Bool {
         switch store.flow {
-        case .readAndSpeak:
-            return 0.45
+        case .readAloud(.playing):
+            return true
+        case .readAndSpeak(.ttsPlaying):
+            return true
+        case .speakOnly(.listening):
+            return true
         default:
-            return 0.95
+            return false
         }
+    }
+    
+    /// Whether the current flow is Read Aloud mode.
+    ///
+    /// Read Aloud keeps the scroll position after TTS ends so the user
+    /// can continue reading during the hold/complete phase.
+    private var isReadAloudMode: Bool {
+        if case .readAloud = store.flow { return true }
+        return false
     }
     
     /// Maximum height available for the affirmation text before auto-scrolling activates.

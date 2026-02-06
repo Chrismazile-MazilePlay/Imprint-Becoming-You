@@ -64,9 +64,6 @@ enum PracticeTiming {
     /// Duration navigation is locked during score display
     static let navigationLockDuration: Duration = .seconds(1.0)
     
-    /// Delay before starting flow when entering active mode
-    static let flowStartDelay: Duration = .milliseconds(300)
-    
     // MARK: - TTS Duration Constants
     
     /// Minimum duration to hold on TTS affirmation before advancing.
@@ -166,7 +163,7 @@ extension PracticeTiming {
     
     /// Timing configuration for Read Aloud mode
     static let readAloudTiming = FlowTimingConfiguration(
-        startDelay: flowStartDelay,
+        startDelay: .zero,
         phaseDurations: [
             "complete": readAloudCompletePause
         ],
@@ -176,7 +173,7 @@ extension PracticeTiming {
     
     /// Timing configuration for Read & Speak mode
     static let readAndSpeakTiming = FlowTimingConfiguration(
-        startDelay: flowStartDelay,
+        startDelay: .zero,
         phaseDurations: [
             "waitingForUser": waitForUserDuration,
             "analyzing": analysisDuration,
@@ -188,7 +185,7 @@ extension PracticeTiming {
     
     /// Timing configuration for Speak Only mode
     static let speakOnlyTiming = FlowTimingConfiguration(
-        startDelay: flowStartDelay,
+        startDelay: .zero,
         phaseDurations: [
             "analyzing": analysisDuration,
             "showingScore": scoreDisplayDuration

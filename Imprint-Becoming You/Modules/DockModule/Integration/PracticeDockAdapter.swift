@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AVFoundation
 
 // MARK: - PracticeDockAdapter
 
@@ -60,6 +61,17 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     
     /// Whether the binaural selector menu is expanded.
     var isBinauralSelectorExpanded: Bool = false
+    
+    // MARK: - Error Bar State
+    
+    /// Whether the error bar is visible.
+    var isErrorBarVisible: Bool = false
+    
+    /// The current error bar message.
+    private(set) var errorBarMessage: String = ""
+    
+    /// Task managing the auto-dismiss timer for the error bar.
+    private var errorDismissTask: Task<Void, Never>?
     
     // MARK: - Initialization
     
@@ -163,6 +175,14 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     // MARK: - Mode Actions
     
     func selectMode(_ mode: DockMode) {
+        // Check mic availability for modes that require it
+        if mode.requiresMicrophone && !ConfigurationDockAdapter.isMicrophoneAccessible() {
+            // Close mode selector, then show error bar
+            isModeSelectorExpanded = false
+            showError("The microphone is being used by another app")
+            return
+        }
+        
         let sessionMode = mapDockModeToSessionMode(mode)
         store.send(.selectMode(sessionMode))
         isModeSelectorExpanded = false
@@ -201,6 +221,40 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     func closeAllSelectors() {
         isModeSelectorExpanded = false
         isBinauralSelectorExpanded = false
+        dismissErrorBar()
+    }
+    
+    // MARK: - Error Bar Actions
+    
+    /// Shows an error message in the dock error bar.
+    ///
+    /// Closes any open selectors, displays the error bar, and schedules
+    /// auto-dismissal after 3 seconds. Self-animating — wraps state changes
+    /// in `withAnimation` to ensure consistent transition regardless of caller.
+    func showError(_ message: String) {
+        errorDismissTask?.cancel()
+        errorBarMessage = message
+        
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            isErrorBarVisible = true
+        }
+        
+        // Auto-dismiss after 3 seconds
+        errorDismissTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                self?.isErrorBarVisible = false
+            }
+        }
+    }
+    
+    /// Immediately dismisses the error bar with animation.
+    func dismissErrorBar() {
+        errorDismissTask?.cancel()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            isErrorBarVisible = false
+        }
     }
     
     // MARK: - Segment Animation Callback

@@ -35,29 +35,19 @@ extension PracticeStore {
     
     func executeCurrentFlow(generation: Int) async {
         guard shouldContinueFlow(generation: generation) else { return }
-        
-        // DRAIN: Guarantee a clean AudioPlayerService state.
-        //
-        // During rapid skipping, each `cancelCurrentActivity()` fires a
-        // fire-and-forget `Task { await playerService.stop() }`. These
-        // Tasks queue on the AudioPlayerService actor. If we don't drain
-        // them before attempting playback, the actor may still be processing
-        // stale stops when our `playRawPCMData` arrives â€” or worse, a
-        // late-arriving stop() could kill our playback mid-stream.
-        //
-        // By awaiting `stop()` here, we serialize behind ALL pending
-        // operations on the actor. After this returns, we know:
-        //   1. No audio is playing
-        //   2. No pending continuations exist
-        //   3. No queued fire-and-forget Tasks are ahead of us
-        //
-        // Cost: one actor hop (~10-50Î¼s) â€” negligible vs the 300ms delay.
+
+        // DRAIN: Guarantee a clean AudioPlayerService state before starting
+        // new playback. This serializes behind any pending fire-and-forget
+        // stop() Tasks from cancelCurrentActivity(), ensuring the actor
+        // processes them first. Uses stop() (not cancelAndStop()) because
+        // we want resume(returning: ()) semantics — the previous caller
+        // gets a clean completion, not a CancellationError.
         await dependencies.audioPlayerService.stop()
-        
-        // Re-validate after drain â€” another flow may have started while
-        // we were waiting on the actor.
+
+        // Re-check generation after the await — a navigation event during
+        // the drain should abort this flow.
         guard shouldContinueFlow(generation: generation) else { return }
-        
+
         // Measure flow execution with signpost
         let signpostID = AppLogger.makeSignpostID(for: .practice)
         AppLogger.beginInterval(AppLogger.SignpostName.flowExecution, id: signpostID, category: .practice)
@@ -65,10 +55,6 @@ extension PracticeStore {
         defer {
             AppLogger.endInterval(AppLogger.SignpostName.flowExecution, id: signpostID, category: .practice)
         }
-        
-        try? await Task.sleep(for: PracticeTiming.flowStartDelay)
-        
-        guard shouldContinueFlow(generation: generation) else { return }
         
         switch flow {
         case .home:
@@ -87,72 +73,33 @@ extension PracticeStore {
 
 extension PracticeStore {
     
-    /// Plays audio for the current affirmation using the TTS queue cache.
+    /// Plays audio for the current affirmation via the playback coordinator.
     ///
-    /// If audio is cached (from session preparation), plays immediately.
-    /// If not cached, synthesizes on-demand (with potential delay).
+    /// Captures `sessionIndex` and affirmation UUID atomically at the call site,
+    /// making the async chain immune to concurrent `sessionIndex` mutations
+    /// from rapid skipping.
     ///
     /// - Parameter text: The text to speak (used for on-demand synthesis fallback)
     /// - Throws: `TTSError` if synthesis or playback fails
     private func speakText(_ text: String) async throws {
-        let queueService = dependencies.sessionTTSQueueService
-        let playerService = dependencies.audioPlayerService
-        
-        // Notify queue of current playback position
-        if isSessionActive {
-            queueService.notifyPlaying(index: sessionIndex)
-        }
-        
-        // Try to get cached audio first
-        if isSessionActive, let cachedAudio = queueService.getAudio(for: sessionIndex) {
-            AppLogger.debug(
-                "Playing cached audio",
-                category: .tts,
-                context: ["index": sessionIndex]
-            )
-            
-            // Play raw PCM Float32 data at 24000 Hz (Kokoro TTS output format)
-            try await playerService.playRawPCMData(cachedAudio, sampleRate: 24000)
-            return
-        }
-        
-        // Try on-demand synthesis if in session
-        if isSessionActive {
-            AppLogger.debug(
-                "On-demand synthesis",
-                category: .tts,
-                context: ["index": sessionIndex]
-            )
-            
-            do {
-                let audioData = try await queueService.synthesizeOnDemand(index: sessionIndex)
-                // Play raw PCM Float32 data at 24000 Hz (Kokoro TTS output format)
-                try await playerService.playRawPCMData(audioData, sampleRate: 24000)
-                return
-            } catch {
-                AppLogger.warning(
-                    "On-demand synthesis failed, falling back to TTS service",
-                    category: .tts,
-                    context: ["index": sessionIndex]
-                )
-                // Fall through to direct TTS
-            }
-        }
-        
-        // Fallback: Direct TTS synthesis (browse mode or cache miss)
-        try await dependencies.ttsService.speakText(text, voiceId: selectedVoiceId)
+        // Capture session index and affirmation ID at entry. sessionIndex is a
+        // live @Observable property that changes during rapid skipping. Capturing
+        // both values ensures the coordinator uses stable references throughout.
+        let currentIndex = sessionIndex
+        let affirmationID = sessionAffirmations[currentIndex].id
+
+        try await playbackCoordinator.playAffirmation(
+            index: currentIndex,
+            affirmationID: affirmationID,
+            text: text,
+            isSessionActive: isSessionActive,
+            selectedVoiceId: selectedVoiceId
+        )
     }
-    
-    /// Stops any ongoing TTS playback.
+
+    /// Stops any ongoing TTS playback immediately via the playback coordinator.
     private func stopTTSPlayback() {
-        dependencies.ttsService.stopSpeaking()
-        
-        // AudioPlayerService is an actor - call stop asynchronously
-        // Fire-and-forget: instant operation, no tracking needed
-        Task { [weak self] in
-            guard let self = self else { return }
-            await self.dependencies.audioPlayerService.stop()
-        }
+        playbackCoordinator.stopPlayback()
     }
     
     /// Pre-synthesizes the next affirmation for faster playback.
@@ -417,9 +364,6 @@ extension PracticeStore {
             guard let self = self else { return }
             
             let stream = captureService.captureStream
-            
-            // Small delay to allow UI to settle
-            try? await Task.sleep(for: .milliseconds(50))
             
             // PHASE: Initialize capture (while still in .preparingToListen state)
             // The UI shows green breathing animation during this

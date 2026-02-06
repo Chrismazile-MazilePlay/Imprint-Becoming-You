@@ -352,6 +352,7 @@ struct MainPracticeView: View {
             phase: store.sessionPreparationPhase,
             preparedCount: store.sessionPreparedCount,
             totalCount: store.sessionPreparationTarget,
+            fractionalProgress: store.sessionPreparationProgress,
             canStartEarly: canStartSessionEarly,
             onStartNow: {
                 store.send(.sessionPreparationCompleted)

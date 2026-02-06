@@ -101,13 +101,17 @@ protocol SessionTTSQueueServiceProtocol: AnyObject {
     ///   - onPhaseChange: Callback fired when preparation phase changes
     ///   - onProgress: Callback fired after each affirmation is synthesized.
     ///     Parameters: (preparedCount: Int, totalCount: Int)
+    ///   - onFractionalProgress: Callback fired after each chunk completes with
+    ///     weighted fractional progress (0.0–1.0) that accounts for sub-affirmation
+    ///     chunk synthesis. Enables smooth progress bar updates for long text.
     /// - Throws: `CancellationError` if cancelled, `AppError.ttsError` if synthesis fails
     func prepareSession(
         affirmations: [SessionAffirmationInfo],
         voiceId: String?,
         forceSystemTTS: Bool,
         onPhaseChange: @escaping @Sendable (SessionPreparationPhase) -> Void,
-        onProgress: @escaping @Sendable (Int, Int) -> Void
+        onProgress: @escaping @Sendable (Int, Int) -> Void,
+        onFractionalProgress: @escaping @Sendable (Float) -> Void
     ) async throws
     
     /// Continues synthesis of remaining affirmations in the background.

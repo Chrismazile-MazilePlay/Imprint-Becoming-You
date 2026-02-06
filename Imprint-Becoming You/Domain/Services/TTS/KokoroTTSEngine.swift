@@ -150,13 +150,16 @@ actor KokoroTTSEngine {
     ///   - speed: Speech rate multiplier (0.5 - 2.0)
     ///   - pitchShiftSemitones: Pitch shift in semitones (-12 to +12, default 0)
     ///   - pitchRangeScale: Pitch variation scale (0.5 - 1.5, default 1.0)
+    ///   - onChunkProgress: Optional callback reporting (completedChunks, totalChunks)
+    ///     after each chunk is synthesized. For short text (single chunk), reports (1, 1).
     /// - Returns: WAV audio data
     func synthesizeToData(
         text: String,
         voiceStyle: VoiceStyle,
         speed: Float,
         pitchShiftSemitones: Float = 0.0,
-        pitchRangeScale: Float = 1.0
+        pitchRangeScale: Float = 1.0,
+        onChunkProgress: ((Int, Int) -> Void)? = nil
     ) async throws -> Data {
         // Determine language variant from voice style and ensure pipeline is loaded
         let variant = detectLanguageVariant(from: voiceStyle)
@@ -185,7 +188,9 @@ actor KokoroTTSEngine {
             print("Generated \(samples.count) samples")
             print("Audio duration: \(Float(samples.count) / Float(TTSConfiguration.kokoroSampleRate)) seconds")
             #endif
-            
+
+            onChunkProgress?(1, 1)
+
             return createWAVData(from: samples, sampleRate: TTSConfiguration.kokoroSampleRate)
         }
         
@@ -215,6 +220,8 @@ actor KokoroTTSEngine {
             let duration = Float(samples.count) / Float(TTSConfiguration.kokoroSampleRate)
             print("KokoroTTSEngine: Chunk \(index) -> \(samples.count) samples (\(String(format: "%.2f", duration))s)")
             #endif
+
+            onChunkProgress?(index + 1, chunks.count)
         }
         
         #if DEBUG

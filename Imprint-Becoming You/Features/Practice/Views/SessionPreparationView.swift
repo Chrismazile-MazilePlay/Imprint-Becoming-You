@@ -39,9 +39,13 @@ struct SessionPreparationView: View {
     /// Total number of affirmations to prepare
     let totalCount: Int
     
+    /// Fractional synthesis progress (0.0–1.0), includes sub-affirmation chunk progress.
+    /// Drives both the progress bar and progress-based status messages.
+    let fractionalProgress: Float
+
     /// Whether the "Start Now" threshold has been reached (for large sessions)
     let canStartEarly: Bool
-    
+
     /// Called when user taps "Start Now" (large sessions only)
     let onStartNow: () -> Void
     
@@ -62,35 +66,28 @@ struct SessionPreparationView: View {
     }
     
     // MARK: - State
-    
+
     /// Displayed progress (smooth animation target)
     @State private var displayedProgress: CGFloat = Constants.SessionPreparation.immediateProgress
-    
+
     /// Animation phase for breathing effect
     @State private var breathingPhase: CGFloat = 0
-    
-    /// Current status message index
-    @State private var statusMessageIndex: Int = 0
-    
+
+    /// Currently displayed status message (lags behind `currentStatusMessage` for fade animation)
+    @State private var displayedStatusMessage: String = ""
+
     /// Status message opacity for fade animation
     @State private var statusMessageOpacity: Double = 1.0
-    
+
     /// Warm-up start time (for time-based progress)
     @State private var warmupStartTime: Date?
-    
+
     /// Synthesis start time (for time-based progress)
     @State private var synthesisStartTime: Date?
-    
+
     /// Timer for smooth progress animation
     private let animationTimer = Timer.publish(
         every: Constants.SessionPreparation.progressAnimationInterval,
-        on: .main,
-        in: .common
-    ).autoconnect()
-    
-    /// Timer for status message cycling
-    private let statusTimer = Timer.publish(
-        every: Constants.SessionPreparation.statusMessageInterval,
         on: .main,
         in: .common
     ).autoconnect()
@@ -116,15 +113,26 @@ struct SessionPreparationView: View {
         }
         .onAppear {
             startAnimations()
+            displayedStatusMessage = currentStatusMessage
         }
         .onChange(of: phase) { oldPhase, newPhase in
             handlePhaseChange(from: oldPhase, to: newPhase)
         }
+        .onChange(of: currentStatusMessage) { oldMessage, newMessage in
+            guard oldMessage != newMessage else { return }
+            // Fade out → swap text → fade in
+            withAnimation(.easeOut(duration: 0.3)) {
+                statusMessageOpacity = 0
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                displayedStatusMessage = newMessage
+                withAnimation(.easeIn(duration: 0.3)) {
+                    statusMessageOpacity = 1.0
+                }
+            }
+        }
         .onReceive(animationTimer) { _ in
             updateSmoothProgress()
-        }
-        .onReceive(statusTimer) { _ in
-            cycleStatusMessage()
         }
     }
     
@@ -298,34 +306,38 @@ struct SessionPreparationView: View {
             Text("Preparing Session")
                 .font(AppTypography.title3)
                 .foregroundStyle(AppColors.textPrimary)
-            
-            // Cycling status message with fade
-            Text(currentStatusMessage)
+
+            // Progress-driven status message with fade transitions
+            Text(displayedStatusMessage)
                 .font(AppTypography.caption1)
                 .foregroundStyle(AppColors.textTertiary)
                 .opacity(statusMessageOpacity)
-                .animation(.easeInOut(duration: 0.3), value: statusMessageOpacity)
         }
     }
-    
+
+    /// Status message derived from the current phase and fractional progress.
+    ///
+    /// During synthesis, messages advance based on actual progress thresholds
+    /// rather than cycling on a timer.
     private var currentStatusMessage: String {
         switch phase {
         case .waitingForKokoro:
-            let messages = Constants.SessionPreparation.warmupStatusMessages
-            guard !messages.isEmpty else { return "" }
-            return messages[statusMessageIndex % messages.count]
-            
+            return Constants.SessionPreparation.warmupMessage
+
         case .synthesizing:
-            let messages = Constants.SessionPreparation.synthesisStatusMessages
-            guard !messages.isEmpty else { return "" }
-            return messages[statusMessageIndex % messages.count]
-            
+            for entry in Constants.SessionPreparation.synthesisProgressMessages {
+                if fractionalProgress >= entry.threshold {
+                    return entry.message
+                }
+            }
+            return Constants.SessionPreparation.warmupMessage
+
         case .complete:
             return "Ready!"
-            
+
         case .kokoroTimeout:
             return "Taking longer than usual..."
-            
+
         case .error:
             return ""
         }
@@ -436,8 +448,8 @@ struct SessionPreparationView: View {
     }
     
     private func handlePhaseChange(from oldPhase: SessionPreparationPhase, to newPhase: SessionPreparationPhase) {
-        // Reset status message index to start fresh for new phase
-        statusMessageIndex = 0
+        // Update displayed message immediately for new phase
+        displayedStatusMessage = currentStatusMessage
         statusMessageOpacity = 1.0
         
         switch newPhase {
@@ -493,15 +505,10 @@ struct SessionPreparationView: View {
             return immediate + (CGFloat(warmupProgress) * warmupWeight)
             
         case .synthesizing:
-            // Actual progress only (15% → 99%) - no time-based floor
+            // Actual progress only (15% → 99%) — driven by fractional chunk-aware progress
             let warmupEnd = immediate + warmupWeight  // 15%
-            
-            // Progress driven purely by actual synthesis count
-            let actualProgress = totalCount > 0
-                ? CGFloat(preparedCount) / CGFloat(totalCount)
-                : 0
-            
-            let result = warmupEnd + (actualProgress * synthesisWeight)
+
+            let result = warmupEnd + (CGFloat(fractionalProgress) * synthesisWeight)
             return min(result, maxPreComplete)
             
         case .complete:
@@ -513,23 +520,8 @@ struct SessionPreparationView: View {
         }
     }
     
-    private func cycleStatusMessage() {
-        // Only cycle messages during active preparation phases
-        guard phase == .waitingForKokoro || phase == .synthesizing else { return }
-        
-        // Fade out
-        withAnimation(.easeOut(duration: 0.3)) {
-            statusMessageOpacity = 0
-        }
-        
-        // Change message and fade in
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            statusMessageIndex += 1
-            withAnimation(.easeIn(duration: 0.3)) {
-                statusMessageOpacity = 1.0
-            }
-        }
-    }
+    // NOTE: Status messages are now progress-driven (see currentStatusMessage).
+    // Transitions are handled by .onChange(of: currentStatusMessage) in the body.
 }
 
 // MARK: - Previews
@@ -539,6 +531,7 @@ struct SessionPreparationView: View {
         phase: .waitingForKokoro,
         preparedCount: 0,
         totalCount: 10,
+        fractionalProgress: 0,
         canStartEarly: false,
         onStartNow: {},
         onContinueWithSystemVoice: {},
@@ -552,6 +545,7 @@ struct SessionPreparationView: View {
         phase: .synthesizing,
         preparedCount: 5,
         totalCount: 10,
+        fractionalProgress: 0.5,
         canStartEarly: false,
         onStartNow: {},
         onContinueWithSystemVoice: {},
@@ -565,6 +559,7 @@ struct SessionPreparationView: View {
         phase: .synthesizing,
         preparedCount: 10,
         totalCount: 50,
+        fractionalProgress: 0.2,
         canStartEarly: false,
         onStartNow: {},
         onContinueWithSystemVoice: {},
@@ -578,6 +573,7 @@ struct SessionPreparationView: View {
         phase: .synthesizing,
         preparedCount: 15,
         totalCount: 50,
+        fractionalProgress: 0.3,
         canStartEarly: true,
         onStartNow: {},
         onContinueWithSystemVoice: {},
@@ -591,6 +587,7 @@ struct SessionPreparationView: View {
         phase: .kokoroTimeout,
         preparedCount: 0,
         totalCount: 10,
+        fractionalProgress: 0,
         canStartEarly: false,
         onStartNow: {},
         onContinueWithSystemVoice: {},
@@ -604,6 +601,7 @@ struct SessionPreparationView: View {
         phase: .error(message: "Failed to initialize audio session"),
         preparedCount: 0,
         totalCount: 10,
+        fractionalProgress: 0,
         canStartEarly: false,
         onStartNow: {},
         onContinueWithSystemVoice: {},

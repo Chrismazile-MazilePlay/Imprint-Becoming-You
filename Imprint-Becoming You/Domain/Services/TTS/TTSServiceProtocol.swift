@@ -130,6 +130,29 @@ protocol TTSServiceProtocol: AnyObject {
         pitchRangeScale: Float
     ) async throws -> Data
     
+    /// Synthesizes speech with chunk-level progress reporting.
+    ///
+    /// For long text that is split into multiple chunks, calls `onChunkProgress`
+    /// after each chunk completes. For short text (single chunk), reports (1, 1).
+    ///
+    /// - Parameters:
+    ///   - text: Text to synthesize
+    ///   - voiceId: Voice ID in full format (e.g., "kokoro_af_heart"), nil for default
+    ///   - speed: Playback speed multiplier (0.5 - 2.0, default 1.0)
+    ///   - pitchShiftSemitones: Pitch shift in semitones (-12 to +12, default 0)
+    ///   - pitchRangeScale: Pitch variation scale (0.5 - 1.5, default 1.0)
+    ///   - onChunkProgress: Callback reporting (completedChunks, totalChunks)
+    /// - Returns: Audio data (WAV format)
+    /// - Throws: `AppError.ttsError` if synthesis fails
+    func synthesize(
+        text: String,
+        voiceId: String?,
+        speed: Float,
+        pitchShiftSemitones: Float,
+        pitchRangeScale: Float,
+        onChunkProgress: ((Int, Int) -> Void)?
+    ) async throws -> Data
+
     /// Synthesizes speech using System TTS regardless of Kokoro state.
     ///
     /// Use this when user explicitly chooses "Continue with System Voice"
@@ -245,10 +268,33 @@ protocol TTSServiceProtocol: AnyObject {
     func resumeSynthesisIdleTimer()
 }
 
+// MARK: - Default Implementations
+
+extension TTSServiceProtocol {
+
+    /// Default: delegates to the base `synthesize` method, ignoring chunk progress.
+    func synthesize(
+        text: String,
+        voiceId: String?,
+        speed: Float,
+        pitchShiftSemitones: Float,
+        pitchRangeScale: Float,
+        onChunkProgress: ((Int, Int) -> Void)?
+    ) async throws -> Data {
+        try await synthesize(
+            text: text,
+            voiceId: voiceId,
+            speed: speed,
+            pitchShiftSemitones: pitchShiftSemitones,
+            pitchRangeScale: pitchRangeScale
+        )
+    }
+}
+
 // MARK: - Convenience Extensions
 
 extension TTSServiceProtocol {
-    
+
     /// Synthesizes speech with default voice settings.
     ///
     /// - Parameters:

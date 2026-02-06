@@ -54,6 +54,24 @@ protocol TTSSynthesisEngineProtocol: AnyObject {
     /// - Throws: `AppError.ttsError` if synthesis fails
     func synthesize(text: String, config: SessionVoiceConfiguration) async throws -> Data
 
+    /// Synthesizes audio with chunk-level progress reporting.
+    ///
+    /// For long text split into multiple chunks, calls `onChunkProgress`
+    /// after each chunk completes. Enables smooth progress bar updates
+    /// during session preparation.
+    ///
+    /// - Parameters:
+    ///   - text: The affirmation text to synthesize
+    ///   - config: Immutable voice configuration for the session
+    ///   - onChunkProgress: Callback reporting (completedChunks, totalChunks)
+    /// - Returns: Synthesized audio data (PCM/WAV)
+    /// - Throws: `AppError.ttsError` if synthesis fails
+    func synthesize(
+        text: String,
+        config: SessionVoiceConfiguration,
+        onChunkProgress: ((Int, Int) -> Void)?
+    ) async throws -> Data
+
     /// Suppresses the synthesis idle timer during active sessions.
     ///
     /// Prevents the TTS service from releasing ML pipelines (~800MB–1.5GB)
@@ -64,4 +82,18 @@ protocol TTSSynthesisEngineProtocol: AnyObject {
     ///
     /// Allows pipelines to auto-release after the standard 30s timeout.
     func resumeIdleTimer()
+}
+
+// MARK: - Default Implementations
+
+extension TTSSynthesisEngineProtocol {
+
+    /// Default: delegates to the base `synthesize` method, ignoring chunk progress.
+    func synthesize(
+        text: String,
+        config: SessionVoiceConfiguration,
+        onChunkProgress: ((Int, Int) -> Void)?
+    ) async throws -> Data {
+        try await synthesize(text: text, config: config)
+    }
 }

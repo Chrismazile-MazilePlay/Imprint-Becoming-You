@@ -136,19 +136,26 @@ extension PracticeStore {
                         Task { @MainActor [weak self] in
                             guard let self = self, self.isPreparingSession else { return }
 
-                            let progress = total > 0 ? Float(prepared) / Float(total) : 0
+                            // Update integer counts (used for canStartEarly logic).
+                            // Fractional progress is set by onFractionalProgress below.
                             self.setSessionPreparation(
                                 isActive: true,
-                                progress: progress,
+                                progress: self.sessionPreparationProgress,
                                 preparedCount: prepared,
                                 target: total
                             )
 
                             #if DEBUG
                             if prepared % 5 == 0 || prepared == total {
-                                AppLogger.debug("Preparation progress \(prepared)/\(total) (\(Int(progress * 100))%)", category: .practice)
+                                AppLogger.debug("Preparation progress \(prepared)/\(total)", category: .practice)
                             }
                             #endif
+                        }
+                    },
+                    onFractionalProgress: { [weak self] fraction in
+                        Task { @MainActor [weak self] in
+                            guard let self = self, self.isPreparingSession else { return }
+                            self.setSessionPreparation(isActive: true, progress: fraction)
                         }
                     }
                 )

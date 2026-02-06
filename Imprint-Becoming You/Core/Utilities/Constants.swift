@@ -146,24 +146,32 @@ enum Constants {
         /// Maximum progress before completion (never show 100% until truly done).
         static let maxPreCompleteProgress: CGFloat = 0.99
         
+        // MARK: - Chunk Progress
+
+        /// Maximum characters per TTS synthesis chunk.
+        ///
+        /// Mirrors `KokoroTTSEngine.maxChunkCharacters`. Used by
+        /// `SynthesisProgressTracker` to estimate per-affirmation weight
+        /// for smooth sub-affirmation progress reporting.
+        static let maxChunkCharacters = 150
+
         // MARK: - Status Messages
-        
-        /// Status messages shown during Kokoro warm-up phase.
-        static let warmupStatusMessages: [String] = [
-            "Getting things ready...",
-            "Just a moment...",
-            "Preparing your experience..."
+
+        /// Status message shown during Kokoro warm-up phase (before synthesis starts).
+        static let warmupMessage = "Warming up your voice..."
+
+        /// Progress-driven status messages for the synthesis phase.
+        ///
+        /// Each entry is a `(threshold, message)` pair. The message displays when
+        /// fractional synthesis progress ≥ threshold. Ordered highest-first for
+        /// reverse lookup — the first match wins.
+        static let synthesisProgressMessages: [(threshold: Float, message: String)] = [
+            (0.95, "Putting the finishing touches..."),
+            (0.80, "Almost there..."),
+            (0.50, "Building your session..."),
+            (0.20, "Crafting your affirmations..."),
+            (0.00, "Warming up your voice...")
         ]
-        
-        /// Status messages shown during synthesis phase.
-        static let synthesisStatusMessages: [String] = [
-            "Building your session...",
-            "Almost there...",
-            "Putting finishing touches..."
-        ]
-        
-        /// Interval between status message changes (seconds).
-        static let statusMessageInterval: TimeInterval = 2.5
     }
     
     // MARK: - Background & Lifecycle

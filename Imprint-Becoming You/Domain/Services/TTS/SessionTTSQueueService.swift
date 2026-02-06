@@ -151,14 +151,63 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         self.kokoroWarmupTimeout = kokoroWarmupTimeout
     }
     
+    // MARK: - Synthesis Progress Tracker
+
+    /// Tracks weighted fractional progress across all affirmations during session
+    /// preparation, accounting for sub-affirmation chunk synthesis.
+    ///
+    /// Each affirmation's weight is estimated from its text length relative to the
+    /// maximum chunk size (150 chars). Longer affirmations get proportionally more
+    /// progress bar space, so chunk-by-chunk synthesis within them produces visible
+    /// forward movement.
+    @MainActor
+    private final class SynthesisProgressTracker {
+
+        /// Weight per affirmation (estimated chunk count)
+        private let weights: [Float]
+
+        /// Sum of all weights
+        private let totalWeight: Float
+
+        /// Accumulated weight of fully completed affirmations
+        private var completedWeight: Float = 0
+
+        /// In-flight chunk fraction per affirmation index (0.0–1.0)
+        private var inFlightFractions: [Int: Float] = [:]
+
+        init(affirmations: [SessionAffirmationInfo]) {
+            self.weights = affirmations.map { info in
+                Float(max(1, Int(ceil(Double(info.text.count) / Double(Constants.SessionPreparation.maxChunkCharacters)))))
+            }
+            self.totalWeight = weights.reduce(0, +)
+        }
+
+        func updateChunkProgress(affirmationIndex: Int, completedChunks: Int, totalChunks: Int) {
+            inFlightFractions[affirmationIndex] = Float(completedChunks) / Float(totalChunks)
+        }
+
+        func markCompleted(_ affirmationIndex: Int) {
+            completedWeight += weights[affirmationIndex]
+            inFlightFractions.removeValue(forKey: affirmationIndex)
+        }
+
+        var fractionalProgress: Float {
+            let inFlightWeight = inFlightFractions.reduce(Float(0)) { sum, entry in
+                sum + (weights[entry.key] * entry.value)
+            }
+            return min((completedWeight + inFlightWeight) / totalWeight, 1.0)
+        }
+    }
+
     // MARK: - Session Lifecycle
-    
+
     func prepareSession(
         affirmations: [SessionAffirmationInfo],
         voiceId: String?,
         forceSystemTTS: Bool,
         onPhaseChange: @escaping @Sendable (SessionPreparationPhase) -> Void,
-        onProgress: @escaping @Sendable (Int, Int) -> Void
+        onProgress: @escaping @Sendable (Int, Int) -> Void,
+        onFractionalProgress: @escaping @Sendable (Float) -> Void
     ) async throws {
         // Measure total session preparation time with signpost
         let signpostID = AppLogger.makeSignpostID(for: .tts)
@@ -248,7 +297,8 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         // Perform bounded parallel synthesis of ALL affirmations
         try await synthesizeAllWithBoundedConcurrency(
             affirmations: affirmations,
-            onProgress: onProgress
+            onProgress: onProgress,
+            onFractionalProgress: onFractionalProgress
         )
         
         // Phase 3: Complete
@@ -590,8 +640,10 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
     
     private func synthesizeAllWithBoundedConcurrency(
         affirmations: [SessionAffirmationInfo],
-        onProgress: @escaping @Sendable (Int, Int) -> Void
+        onProgress: @escaping @Sendable (Int, Int) -> Void,
+        onFractionalProgress: @escaping @Sendable (Float) -> Void
     ) async throws {
+        let tracker = SynthesisProgressTracker(affirmations: affirmations)
 
         try await withThrowingTaskGroup(of: (Int, Data).self) { group in
             var nextIndex = 0
@@ -605,7 +657,19 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
 
                 group.addTask { [self] in
                     try Task.checkCancellation()
-                    let data = try await self.synthesizeAffirmation(info)
+                    let data = try await self.synthesizeAffirmation(
+                        info,
+                        onChunkProgress: { completedChunks, totalChunks in
+                            Task { @MainActor in
+                                tracker.updateChunkProgress(
+                                    affirmationIndex: index,
+                                    completedChunks: completedChunks,
+                                    totalChunks: totalChunks
+                                )
+                                onFractionalProgress(tracker.fractionalProgress)
+                            }
+                        }
+                    )
                     return (index, data)
                 }
 
@@ -627,6 +691,10 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
                 synthesizingIDs.remove(completedInfo.id)
                 completedCount += 1
 
+                // Update progress tracker and report
+                tracker.markCompleted(index)
+                onFractionalProgress(tracker.fractionalProgress)
+
                 let currentPrepared = completedCount
                 Task { @MainActor in
                     onProgress(currentPrepared, total)
@@ -645,16 +713,28 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
                 }
 
                 if nextIndex < total {
-                    let info = affirmations[nextIndex]
+                    let nextInfo = affirmations[nextIndex]
                     let idx = nextIndex
 
                     group.addTask { [self] in
                         try Task.checkCancellation()
-                        let data = try await self.synthesizeAffirmation(info)
+                        let data = try await self.synthesizeAffirmation(
+                            nextInfo,
+                            onChunkProgress: { completedChunks, totalChunks in
+                                Task { @MainActor in
+                                    tracker.updateChunkProgress(
+                                        affirmationIndex: idx,
+                                        completedChunks: completedChunks,
+                                        totalChunks: totalChunks
+                                    )
+                                    onFractionalProgress(tracker.fractionalProgress)
+                                }
+                            }
+                        )
                         return (idx, data)
                     }
 
-                    synthesizingIDs.insert(info.id)
+                    synthesizingIDs.insert(nextInfo.id)
                     nextIndex += 1
                 }
             }
@@ -664,14 +744,27 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
             #endif
         }
     }
-    
+
     // MARK: - Private Methods
-    
-    private func synthesizeAffirmation(_ info: SessionAffirmationInfo) async throws -> Data {
+
+    /// Synthesizes a single affirmation with optional chunk-level progress reporting.
+    ///
+    /// - Parameters:
+    ///   - info: The affirmation info to synthesize
+    ///   - onChunkProgress: Optional callback reporting (completedChunks, totalChunks)
+    /// - Returns: Synthesized audio data
+    private func synthesizeAffirmation(
+        _ info: SessionAffirmationInfo,
+        onChunkProgress: (@Sendable (Int, Int) -> Void)? = nil
+    ) async throws -> Data {
         synthesizingIDs.insert(info.id)
         defer { synthesizingIDs.remove(info.id) }
 
-        return try await synthesisEngine.synthesize(text: info.text, config: voiceConfig)
+        return try await synthesisEngine.synthesize(
+            text: info.text,
+            config: voiceConfig,
+            onChunkProgress: onChunkProgress
+        )
     }
     
     private func buildPriorityQueue(from startIndex: Int) -> [Int] {

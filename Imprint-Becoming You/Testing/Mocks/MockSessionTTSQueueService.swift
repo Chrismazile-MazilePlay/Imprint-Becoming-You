@@ -75,30 +75,31 @@ final class MockSessionTTSQueueService: SessionTTSQueueServiceProtocol {
         voiceId: String?,
         forceSystemTTS: Bool,
         onPhaseChange: @escaping @Sendable (SessionPreparationPhase) -> Void,
-        onProgress: @escaping @Sendable (Int, Int) -> Void
+        onProgress: @escaping @Sendable (Int, Int) -> Void,
+        onFractionalProgress: @escaping @Sendable (Float) -> Void
     ) async throws {
         // Reset state
         cancelAll()
-        
+
         sessionAffirmations = affirmations
         currentVoiceId = voiceId
         self.forceSystemTTS = forceSystemTTS
         totalCount = affirmations.count
         preparedCount = 0
         isPreparing = true
-        
+
         guard !affirmations.isEmpty else {
             preparationPhase = .complete
             isPreparing = false
             Task { @MainActor in onPhaseChange(.complete) }
             return
         }
-        
+
         // Phase 1: Simulate Kokoro wait (unless forcing System TTS)
         if !forceSystemTTS && (simulateKokoroWait || simulateKokoroTimeout) {
             preparationPhase = .waitingForKokoro
             Task { @MainActor in onPhaseChange(.waitingForKokoro) }
-            
+
             if simulateKokoroTimeout {
                 try await Task.sleep(for: .seconds(12))
                 preparationPhase = .kokoroTimeout
@@ -106,21 +107,22 @@ final class MockSessionTTSQueueService: SessionTTSQueueServiceProtocol {
                 Task { @MainActor in onPhaseChange(.kokoroTimeout) }
                 return
             }
-            
+
             try await Task.sleep(for: kokoroWaitDuration)
         }
-        
+
         // Phase 2: Synthesis
         preparationPhase = .synthesizing
         Task { @MainActor in onPhaseChange(.synthesizing) }
-        
+
         if shouldFail {
             preparationPhase = .error(message: failureMessage)
             isPreparing = false
             throw TTSError.synthesisFailedError(message: failureMessage)
         }
-        
+
         // Synthesize ALL affirmations
+        let total = Float(affirmations.count)
         for (index, info) in affirmations.enumerated() {
             try Task.checkCancellation()
 
@@ -134,11 +136,13 @@ final class MockSessionTTSQueueService: SessionTTSQueueServiceProtocol {
             audioCache[info.id] = mockAudio
             preparedCount = index + 1
 
+            let fraction = Float(preparedCount) / total
             Task { @MainActor in
                 onProgress(self.preparedCount, self.totalCount)
+                onFractionalProgress(fraction)
             }
         }
-        
+
         // Phase 3: Complete
         preparationPhase = .complete
         isPreparing = false

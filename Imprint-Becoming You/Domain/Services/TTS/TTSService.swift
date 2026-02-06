@@ -263,30 +263,53 @@ final class TTSService: TTSServiceProtocol {
         }
     }
     
+    func synthesize(
+        text: String,
+        voiceId: String?,
+        speed: Float,
+        pitchShiftSemitones: Float,
+        pitchRangeScale: Float,
+        onChunkProgress: ((Int, Int) -> Void)?
+    ) async throws -> Data {
+        return try await AppLogger.measureAsync(AppLogger.SignpostName.ttsSynthesis, category: .tts) {
+            try await performSynthesize(
+                text: text,
+                voiceId: voiceId,
+                speed: speed,
+                pitchShiftSemitones: pitchShiftSemitones,
+                pitchRangeScale: pitchRangeScale,
+                onChunkProgress: onChunkProgress
+            )
+        }
+    }
+
     /// Internal synthesis implementation (separated for signpost measurement).
     private func performSynthesize(
         text: String,
         voiceId: String?,
         speed: Float,
         pitchShiftSemitones: Float,
-        pitchRangeScale: Float
+        pitchRangeScale: Float,
+        onChunkProgress: ((Int, Int) -> Void)? = nil
     ) async throws -> Data {
         #if DEBUG
         print("TTSService.synthesize: voiceId=\(voiceId ?? "nil"), speed=\(speed), pitch=\(pitchShiftSemitones)")
         #endif
-        
+
         // Route based on voiceId
         if voiceId == TTSConfiguration.systemVoiceId {
+            onChunkProgress?(1, 1)
             return try await systemTTS.synthesizeToData(text)
         }
-        
+
         // Try Kokoro for nil, empty, or voice style IDs
         return try await synthesizeWithKokoro(
             text: text,
             voiceId: voiceId,
             speed: speed,
             pitchShiftSemitones: pitchShiftSemitones,
-            pitchRangeScale: pitchRangeScale
+            pitchRangeScale: pitchRangeScale,
+            onChunkProgress: onChunkProgress
         )
     }
     
@@ -661,45 +684,49 @@ final class TTSService: TTSServiceProtocol {
         voiceId: String?,
         speed: Float,
         pitchShiftSemitones: Float,
-        pitchRangeScale: Float
+        pitchRangeScale: Float,
+        onChunkProgress: ((Int, Int) -> Void)? = nil
     ) async throws -> Data {
         guard _isKokoroReady else {
             #if DEBUG
             print("TTSService: Kokoro not ready, falling back to System TTS")
             #endif
+            onChunkProgress?(1, 1)
             return try await systemTTS.synthesizeToData(text)
         }
-        
+
         // Resolve voice style
         let voiceStyle = resolveVoiceStyle(voiceId: voiceId)
-        
+
         #if DEBUG
         print("TTSService: Resolved voice style: \(voiceStyle.rawValue), speed=\(speed), pitch=\(pitchShiftSemitones)")
         #endif
-        
-        // Cancel idle timer â€” Kokoro synthesis is starting
+
+        // Cancel idle timer — Kokoro synthesis is starting
         cancelSynthesisIdleTimer()
-        
+
         do {
             let audioData = try await kokoroEngine.synthesizeToData(
                 text: text,
                 voiceStyle: voiceStyle,
                 speed: speed,
                 pitchShiftSemitones: pitchShiftSemitones,
-                pitchRangeScale: pitchRangeScale
+                pitchRangeScale: pitchRangeScale,
+                onChunkProgress: onChunkProgress
             )
-            
-            // Reset idle timer â€” synthesis complete, start countdown
+
+            // Reset idle timer — synthesis complete, start countdown
             resetSynthesisIdleTimer()
-            
+
             return audioData
         } catch {
-            // Reset timer even on failure â€” pipeline was loaded and has buffers
+            // Reset timer even on failure — pipeline was loaded and has buffers
             resetSynthesisIdleTimer()
-            
+
             #if DEBUG
             print("TTSService: Kokoro synthesis failed, falling back to System TTS - \(error)")
             #endif
+            onChunkProgress?(1, 1)
             return try await systemTTS.synthesizeToData(text)
         }
     }

@@ -80,6 +80,26 @@ final class TTSSynthesisEngine: TTSSynthesisEngineProtocol {
         }
     }
 
+    func synthesize(
+        text: String,
+        config: SessionVoiceConfiguration,
+        onChunkProgress: ((Int, Int) -> Void)?
+    ) async throws -> Data {
+        if config.forceSystemTTS {
+            onChunkProgress?(1, 1)
+            return try await ttsService.synthesizeWithSystemTTS(text: text)
+        } else {
+            return try await ttsService.synthesize(
+                text: text,
+                voiceId: config.voiceId,
+                speed: config.voiceSettings.speed,
+                pitchShiftSemitones: config.voiceSettings.pitchShiftFloat,
+                pitchRangeScale: config.voiceSettings.pitchRangeScale,
+                onChunkProgress: onChunkProgress
+            )
+        }
+    }
+
     func suppressIdleTimer() {
         ttsService.suppressSynthesisIdleTimer()
     }

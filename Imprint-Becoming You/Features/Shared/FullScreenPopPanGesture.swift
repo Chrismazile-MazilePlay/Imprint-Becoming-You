@@ -187,20 +187,26 @@ private struct FullScreenPopGestureFinder: UIViewRepresentable {
             _ gestureRecognizer: UIGestureRecognizer,
             shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
-            // Make other pan gestures defer to our gesture.
-            //
-            // This is called dynamically by UIKit for EVERY gesture recognizer
-            // in the navigation controller's view hierarchy, including ones in
-            // lazily-loaded destination views. No manual view walking needed.
-            //
+            // Only defer UIPanGestureRecognizer subclasses. Tap gestures, long
+            // press gestures, etc. should fire independently and immediately.
+            guard otherGestureRecognizer is UIPanGestureRecognizer else {
+                return false
+            }
+
+            // Don't interfere with UISlider's internal pan gesture.
+            // Sliders need immediate pan recognition for thumb dragging;
+            // deferring causes the pop gesture to steal horizontal drags.
+            if let view = otherGestureRecognizer.view,
+               view is UISlider || view.findAncestor(ofType: UISlider.self) != nil {
+                return false
+            }
+
+            // All other pan gestures defer to our gesture:
             // - Rightward horizontal -> our gesture succeeds, deferred pans fail
             //   -> clean pop with no competing scroll/swipe
             // - Not rightward -> our gesture fails, deferred pans proceed
             //   -> normal ScrollView and SwipeAction behavior
-            //
-            // Only defer UIPanGestureRecognizer subclasses. Tap gestures, long
-            // press gestures, etc. should fire independently and immediately.
-            otherGestureRecognizer is UIPanGestureRecognizer
+            return true
         }
         
         func gestureRecognizer(
@@ -229,6 +235,21 @@ private extension UIView {
                 return navController
             }
             responder = next
+        }
+        return nil
+    }
+
+    /// Walks the superview chain to find the nearest ancestor of the given type.
+    ///
+    /// Used to detect if a gesture recognizer belongs to a specific UIKit control
+    /// (e.g., `UISlider`) even when the gesture is on a private subview.
+    func findAncestor<T: UIView>(ofType type: T.Type) -> T? {
+        var current: UIView? = superview
+        while let view = current {
+            if let match = view as? T {
+                return match
+            }
+            current = view.superview
         }
         return nil
     }

@@ -250,16 +250,21 @@ struct VoiceSettingsView: View {
     // MARK: - Actions
     
     private func handlePlayTapped(_ voice: Voice) {
+        // Also select the voice (pending, not saved until Save is tapped)
+        if selectedVoiceId != voice.id {
+            selectedVoiceId = voice.id
+        }
+
         // If this voice is already playing, stop it
         if previewingVoiceId == voice.id && playbackState == .playing {
             stopPreview()
             return
         }
-        
+
         // Cancel any in-flight synthesis
         dependencies.voicePreviewCacheService.cancelSynthesis()
         stopAudioPlayback()
-        
+
         // Start preview for this voice
         playPreview(for: voice)
     }

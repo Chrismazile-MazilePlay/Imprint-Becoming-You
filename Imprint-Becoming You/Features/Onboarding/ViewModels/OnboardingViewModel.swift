@@ -231,16 +231,21 @@ final class OnboardingViewModel {
     ///
     /// - Parameter voice: The voice to preview
     func handlePlayTapped(_ voice: Voice) {
+        // Also select the voice when previewing
+        if selectedVoiceId != voice.id {
+            selectedVoiceId = voice.id
+        }
+
         // If this voice is already playing, stop it
         if previewingVoiceId == voice.id && playbackState == .playing {
             stopPreview()
             return
         }
-        
+
         // Cancel any in-flight synthesis
         voicePreviewCacheService?.cancelSynthesis()
         stopAudioPlayback()
-        
+
         // Start preview for this voice
         playPreview(for: voice)
     }

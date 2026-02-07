@@ -1,5 +1,5 @@
 {
-  "originHash" : "29a8a0d19a101c31523df30a5b3de47c0d682f9d3a2775e88ccb5ffbf0b5c96d",
+  "originHash" : "74569709d1a195fb1519e6f49e8b7716ee05ed1461d0244083fd29f2b47811e1",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -101,6 +101,24 @@
       }
     },
     {
+      "identity" : "mlx-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ml-explore/mlx-swift",
+      "state" : {
+        "revision" : "f58bd2c2b3b84316da69182f436db4219aff30b9",
+        "version" : "0.30.2"
+      }
+    },
+    {
+      "identity" : "mlxutilslibrary",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mlalma/MLXUtilsLibrary.git",
+      "state" : {
+        "revision" : "41f6cfd5d68b65aa3c65a34efe3b71c371ed915b",
+        "version" : "0.0.6"
+      }
+    },
+    {
       "identity" : "nanopb",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/firebase/nanopb.git",
@@ -155,12 +173,30 @@
       }
     },
     {
+      "identity" : "swift-numerics",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-numerics",
+      "state" : {
+        "revision" : "0c0290ff6b24942dadb83a929ffaaa1481df04a2",
+        "version" : "1.1.1"
+      }
+    },
+    {
       "identity" : "swift-protobuf",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-protobuf.git",
       "state" : {
         "revision" : "c169a5744230951031770e27e475ff6eefe51f9d",
         "version" : "1.33.3"
+      }
+    },
+    {
+      "identity" : "zipfoundation",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/weichsel/ZIPFoundation.git",
+      "state" : {
+        "revision" : "22787ffb59de99e5dc1fbfe80b19c97a904ad48d",
+        "version" : "0.9.20"
       }
     }
   ],

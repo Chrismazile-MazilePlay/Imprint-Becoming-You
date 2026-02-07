@@ -328,7 +328,7 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
             try audioSession.setCategory(
                 .playAndRecord,
                 mode: .measurement, // Best for speech recognition
-                options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers]
+                options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers]
             )
             currentCategory = .playAndRecord
         } catch {

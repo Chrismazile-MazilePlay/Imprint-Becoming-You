@@ -91,8 +91,6 @@ actor KokoroTTSEngine {
     /// Cached resource URLs built once during validation, reused for lazy loading.
     private var cachedModelsURL: URL?
     private var cachedVocabURL: URL?
-    private var cachedPosURL: URL?
-    private var cachedEspeakPath: String?
     private var cachedMLConfig: MLModelConfiguration?
     
     // MARK: - Initialization
@@ -304,23 +302,22 @@ actor KokoroTTSEngine {
         guard resourcesValidated,
               let modelsURL = cachedModelsURL,
               let vocabURL = cachedVocabURL,
-              let posURL = cachedPosURL,
-              let espeakPath = cachedEspeakPath,
               let config = cachedMLConfig else {
             throw AppError.ttsError("Resources not validated. Call warmUp() first.")
         }
-        
+
         #if DEBUG
         print("KokoroTTSEngine: Loading \(variant.displayName) pipeline on-demand...")
         #endif
-        
+
         do {
+            let g2pAdapter = MisakiG2PAdapter(british: variant == .britishEnglish)
             let pipeline = try TTSPipeline(
                 modelPath: modelsURL,
                 vocabURL: vocabURL,
-                postaggerModelURL: posURL,
+                postaggerModelURL: URL(fileURLWithPath: "/dev/null"),
                 language: variant == .americanEnglish ? .englishUS : .englishGB,
-                espeakDataPath: espeakPath,
+                g2p: g2pAdapter,
                 configuration: config
             )
             
@@ -362,41 +359,29 @@ actor KokoroTTSEngine {
         // Build and validate paths
         let modelsPath = (kokoroPath as NSString).appendingPathComponent("Models")
         let g2pPath = (kokoroPath as NSString).appendingPathComponent("G2P")
-        let posModelPath = (kokoroPath as NSString).appendingPathComponent("POS")
-        let espeakPath = (kokoroPath as NSString).appendingPathComponent("Espeak/espeak-ng-data")
-        
+
         #if DEBUG
         print("Models folder: \(FileManager.default.fileExists(atPath: modelsPath))")
         print("G2P folder: \(FileManager.default.fileExists(atPath: g2pPath))")
-        print("POS model: \(FileManager.default.fileExists(atPath: posModelPath))")
-        print("eSpeak folder: \(FileManager.default.fileExists(atPath: espeakPath))")
-        
+
         if let contents = try? FileManager.default.contentsOfDirectory(atPath: modelsPath) {
             print("Models contents: \(contents)")
         }
         #endif
-        
+
         guard FileManager.default.fileExists(atPath: modelsPath) else {
             throw AppError.ttsError("Models folder not found")
         }
         guard FileManager.default.fileExists(atPath: g2pPath) else {
             throw AppError.ttsError("G2P folder not found")
         }
-        guard FileManager.default.fileExists(atPath: posModelPath) else {
-            throw AppError.ttsError("POS model not found")
-        }
-        guard FileManager.default.fileExists(atPath: espeakPath) else {
-            throw AppError.ttsError("eSpeak data not found")
-        }
-        
+
         // Cache everything for lazy pipeline loading
         let config = MLModelConfiguration()
         config.computeUnits = .all
-        
+
         cachedModelsURL = URL(fileURLWithPath: modelsPath)
         cachedVocabURL = URL(fileURLWithPath: g2pPath)
-        cachedPosURL = URL(fileURLWithPath: posModelPath)
-        cachedEspeakPath = espeakPath
         cachedMLConfig = config
         
         resourcesValidated = true

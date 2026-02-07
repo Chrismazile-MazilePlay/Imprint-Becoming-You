@@ -284,7 +284,7 @@ final class ConfigurationDockAdapter: DockAdapterProtocol {
         let previousOptions = session.categoryOptions
         
         do {
-            try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetooth])
+            try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetoothHFP])
             try session.setActive(true, options: .notifyOthersOnDeactivation)
             // Restore previous session state
             try? session.setCategory(previousCategory, mode: previousMode, options: previousOptions)

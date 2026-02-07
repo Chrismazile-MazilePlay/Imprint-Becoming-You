@@ -38,10 +38,10 @@ extension PracticeStore {
 
         // DRAIN: Guarantee a clean AudioPlayerService state before starting
         // new playback. This serializes behind any pending fire-and-forget
-        // stop() Tasks from cancelCurrentActivity(), ensuring the actor
-        // processes them first. Uses stop() (not cancelAndStop()) because
-        // we want resume(returning: ()) semantics — the previous caller
-        // gets a clean completion, not a CancellationError.
+        // cancelAndStop() Tasks from cancelCurrentActivity(), ensuring the
+        // actor processes them first. Uses stop() (not cancelAndStop()) because
+        // we want resume(returning: ()) semantics for THIS caller — the drain
+        // is a clean-up barrier, not a cancellation.
         await dependencies.audioPlayerService.stop()
 
         // Re-check generation after the await — a navigation event during

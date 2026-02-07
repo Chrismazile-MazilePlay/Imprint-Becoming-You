@@ -93,6 +93,7 @@ extension PracticeStore {
             // 2. Animated flow changes can be "in flight" when the view hierarchy
             //    re-renders on foreground return, causing visible layout shifts
             cancelCurrentActivity()
+            flowGeneration += 1  // Invalidate any in-flight flow tasks so they cannot progress
             setSegmentProgress(0)
             var pauseTransaction = Transaction()
             pauseTransaction.disablesAnimations = true

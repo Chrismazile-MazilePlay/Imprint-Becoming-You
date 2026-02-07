@@ -146,13 +146,16 @@ final class SessionPlaybackCoordinator {
     /// 1. `immediateStop()` — synchronous, nonisolated. Zeros volume and stops
     ///    the AVAudioPlayer via OSAllocatedUnfairLock. Guarantees silence within
     ///    the current run loop turn, even if the actor is busy.
-    /// 2. Fire-and-forget `stop()` — resolves pending continuations on the actor
-    ///    so `playAffirmation()`'s `try await playRawPCMData()` returns cleanly.
+    /// 2. Fire-and-forget `cancelAndStop()` — resolves pending continuations with
+    ///    `CancellationError` so `playAffirmation()`'s `try await playRawPCMData()`
+    ///    throws instead of returning successfully. This ensures the calling flow
+    ///    task enters its `catch` block rather than continuing to the next phase
+    ///    (e.g., `.complete` → auto-advance), which is critical for background pause.
     func stopPlayback() {
         ttsService.stopSpeaking()
         audioPlayerService.immediateStop()
         Task { [weak self] in
-            await self?.audioPlayerService.stop()
+            await self?.audioPlayerService.cancelAndStop()
         }
     }
 

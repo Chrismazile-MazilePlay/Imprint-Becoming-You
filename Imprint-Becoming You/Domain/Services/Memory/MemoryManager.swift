@@ -16,16 +16,18 @@ import UIKit
 /// memory release across services to prevent iOS from terminating the app.
 ///
 /// ## Session-Aware Background Strategy
-/// Memory release is **tiered** based on whether a practice session (or summary
-/// view) is active:
+/// Memory release depends on whether a practice session is active:
 ///
 /// ### Active Session / Summary View
-/// | Tier | Trigger | Action |
-/// |------|---------|--------|
-/// | T0   | Background entry | Cancel voice preview only. Cache + pipeline preserved. |
-/// | T1   | 45s in background | Soft-release Kokoro pipeline (~800MB-1.5GB). Cache preserved. |
-/// | T2   | 10 min in background | Full reset via `handleResetToHome()`. |
-/// | —    | Memory warning | Hard-release everything immediately (safety valve). |
+/// The Kokoro ML pipeline is already released by `PracticeStore` when the
+/// loading screen completes (or is cancelled). MemoryManager only cancels
+/// voice preview synthesis on background entry. The TTS audio cache is
+/// **never** cleared by MemoryManager — only by `PracticeStore.cancelAll()`
+/// during session teardown.
+///
+/// The 10-minute background timeout is handled by `MainPracticeView`, which
+/// sends `.resetToHome` → `cancelAll()` to clear the TTS cache and end the
+/// session cleanly.
 ///
 /// ### No Active Session
 /// | Tier | Trigger | Action |
@@ -33,6 +35,12 @@ import UIKit
 /// | T0   | Background entry | Clear stale TTS queue, repo cache, voice preview. |
 /// | T1   | 5s in background | Soft-release Kokoro pipeline. |
 /// | —    | Memory warning | Hard-release everything immediately. |
+///
+/// ## Memory Warning
+/// On iOS memory warnings, `releaseHard()` fires regardless of session state.
+/// This fully disables Kokoro (`isKokoroReady = false`) and requires `warmUp()`
+/// on next use. This is a critical safety valve to prevent iOS from killing
+/// the app.
 ///
 /// ## Lazy Restore
 /// Kokoro is NOT eagerly reloaded on foreground. It loads on-demand when the
@@ -76,9 +84,9 @@ final class MemoryManager {
     /// Whether an active practice session (or summary view) is in progress.
     ///
     /// Set by `PracticeStore` via `sessionDidStart()` / `sessionDidEnd()`.
-    /// When `true`, the app enters background with a grace period before
-    /// releasing the Kokoro pipeline, and the audio cache is never cleared
-    /// by MemoryManager (only by PracticeStore on session teardown).
+    /// When `true`, background entry preserves the TTS audio cache — it is
+    /// never cleared by MemoryManager (only by `PracticeStore.cancelAll()`
+    /// during session teardown).
     ///
     /// The summary view counts as "active" because the user may repeat the
     /// session using cached audio.
@@ -86,9 +94,9 @@ final class MemoryManager {
 
     /// Delayed pipeline release task — cancelled when user returns to foreground.
     ///
-    /// When the app enters background, pipeline release is deferred by a grace
-    /// period (45s for active sessions, 5s otherwise). If the user returns before
-    /// the grace period expires, this task is cancelled and the pipeline stays warm.
+    /// When the app enters background without an active session, pipeline release
+    /// is deferred by a 5s grace period. If the user returns before the grace
+    /// period expires, this task is cancelled and the pipeline stays warm.
     private var delayedReleaseTask: Task<Void, Never>?
 
     /// Memory warning observer
@@ -97,13 +105,6 @@ final class MemoryManager {
     /// Background/foreground observers
     private var backgroundObserver: NSObjectProtocol?
     private var foregroundObserver: NSObjectProtocol?
-
-    /// Task for periodic background checks.
-    ///
-    /// This task runs periodic checks while the app is in background,
-    /// using `Constants.Background.backgroundCheckInterval` between checks.
-    /// Cancelled when app returns to foreground.
-    private var backgroundCheckTask: Task<Void, Never>?
 
     // MARK: - Dependencies (weak to avoid retain cycles)
 
@@ -178,8 +179,7 @@ final class MemoryManager {
             foregroundObserver = nil
         }
 
-        // Cancel background check task and delayed release
-        stopBackgroundMonitoring()
+        // Cancel delayed release
         delayedReleaseTask?.cancel()
         delayedReleaseTask = nil
 
@@ -237,13 +237,13 @@ final class MemoryManager {
         logMemoryUsage()
     }
 
-    /// Handles app entering background with session-aware tiered release.
+    /// Handles app entering background with session-aware release.
     ///
     /// ## Active Session Path
     /// When `hasActiveSession` is `true` (session in progress or summary view):
     /// - Cancel voice preview synthesis (not session-critical)
-    /// - Schedule delayed pipeline release after `sessionPipelineGracePeriod` (45s)
-    /// - Audio cache and repository cache are **untouched**
+    /// - TTS audio cache is **preserved** for session resume
+    /// - Kokoro ML pipeline is already released by `PracticeStore` after loading
     ///
     /// ## No Session Path
     /// When `hasActiveSession` is `false` (browse mode, home, etc.):
@@ -251,9 +251,9 @@ final class MemoryManager {
     /// - Cancel voice preview synthesis
     /// - Schedule delayed pipeline release after `nonSessionPipelineGracePeriod` (5s)
     ///
-    /// In both paths, the delayed release uses a cancellable `Task.sleep`. If the
-    /// user returns to foreground before the grace period expires, the task is
-    /// cancelled in `handleWillEnterForeground()` and the pipeline stays warm.
+    /// The delayed release uses a cancellable `Task.sleep`. If the user returns
+    /// to foreground before the grace period expires, the task is cancelled in
+    /// `handleWillEnterForeground()` and the pipeline stays warm.
     private func handleDidEnterBackground() {
         backgroundedAt = Date()
         AppLogger.info("App entered background (hasActiveSession=\(hasActiveSession))", category: .memory)
@@ -262,53 +262,19 @@ final class MemoryManager {
         delayedReleaseTask?.cancel()
         delayedReleaseTask = nil
 
+        // Cancel voice preview synthesis in both paths (not session-critical)
+        dependencies?.voicePreviewCacheService.cancelSynthesis()
+
         if hasActiveSession {
             // ── Active Session Path ──
-            // Preserve audio cache and repo cache. Only cancel voice preview
-            // (not session-critical) and schedule delayed pipeline release.
-            dependencies?.voicePreviewCacheService.cancelSynthesis()
-            AppLogger.info("  Cancelled voice preview synthesis (session active)", category: .memory)
-
-            let gracePeriod = Constants.Background.sessionPipelineGracePeriod
-            AppLogger.info("  Scheduling pipeline release in \(Int(gracePeriod))s (session active)", category: .memory)
-
-            delayedReleaseTask = Task { @MainActor [weak self] in
-                guard let self = self else { return }
-
-                do {
-                    try await Task.sleep(for: .seconds(gracePeriod))
-                } catch {
-                    // Cancelled — user returned to foreground
-                    AppLogger.debug("Pipeline release cancelled (user returned)", category: .memory)
-                    return
-                }
-
-                // Grace period expired — soft-release pipeline only
-                AppLogger.info("Session pipeline grace period expired — releasing pipeline", category: .memory)
-                let startMemory = self.currentMemoryUsageMB()
-
-                if let ttsService = self.dependencies?.ttsService as? TTSService {
-                    await ttsService.releasePipelineMemory()
-                    AppLogger.info("  Released Kokoro pipeline memory (Kokoro still ready)", category: .memory)
-                }
-
-                self.hasReleasedForBackground = true
-                NotificationCenter.default.post(name: .memoryReleasedForBackground, object: nil)
-
-                let endMemory = self.currentMemoryUsageMB()
-                let saved = startMemory - endMemory
-                AppLogger.info(
-                    "Delayed session release complete. Freed ~\(saved)MB (was \(startMemory)MB, now \(endMemory)MB)",
-                    category: .memory
-                )
-            }
+            // TTS audio cache is preserved for session resume.
+            // ML pipeline is already released (freed after loading screen).
+            // No further action needed.
+            AppLogger.info("  Session active — preserving TTS cache, pipeline already released", category: .memory)
         } else {
             // ── No Session Path ──
-            // No active session — clear stale caches immediately,
-            // then schedule a short delayed pipeline release.
-            dependencies?.voicePreviewCacheService.cancelSynthesis()
-            AppLogger.info("  Cancelled voice preview synthesis", category: .memory)
-
+            // Clear stale caches and schedule delayed pipeline release
+            // for voice preview flows.
             if let sessionQueue = dependencies?.sessionTTSQueueService as? SessionTTSQueueService {
                 sessionQueue.clearQueue()
                 AppLogger.info("  Cleared stale session TTS queue", category: .memory)
@@ -318,7 +284,7 @@ final class MemoryManager {
             AppLogger.info("  Cleared repository cache", category: .memory)
 
             let gracePeriod = Constants.Background.nonSessionPipelineGracePeriod
-            AppLogger.info("  Scheduling pipeline release in \(Int(gracePeriod))s (no session)", category: .memory)
+            AppLogger.info("  Scheduling pipeline release in \(Int(gracePeriod))s", category: .memory)
 
             delayedReleaseTask = Task { @MainActor [weak self] in
                 guard let self = self else { return }
@@ -326,34 +292,18 @@ final class MemoryManager {
                 do {
                     try await Task.sleep(for: .seconds(gracePeriod))
                 } catch {
-                    // Cancelled — user returned to foreground
                     AppLogger.debug("Pipeline release cancelled (user returned)", category: .memory)
                     return
                 }
 
-                // Grace period expired — soft-release pipeline
-                AppLogger.info("Non-session pipeline grace period expired — releasing pipeline", category: .memory)
-                let startMemory = self.currentMemoryUsageMB()
-
+                AppLogger.info("Pipeline grace period expired — releasing pipeline", category: .memory)
                 if let ttsService = self.dependencies?.ttsService as? TTSService {
                     await ttsService.releasePipelineMemory()
-                    AppLogger.info("  Released Kokoro pipeline memory (Kokoro still ready)", category: .memory)
+                    AppLogger.info("  Released Kokoro pipeline memory", category: .memory)
                 }
-
                 self.hasReleasedForBackground = true
-                NotificationCenter.default.post(name: .memoryReleasedForBackground, object: nil)
-
-                let endMemory = self.currentMemoryUsageMB()
-                let saved = startMemory - endMemory
-                AppLogger.info(
-                    "Delayed non-session release complete. Freed ~\(saved)MB (was \(startMemory)MB, now \(endMemory)MB)",
-                    category: .memory
-                )
             }
         }
-
-        // Start periodic background checking for diagnostic logging
-        startBackgroundMonitoring()
     }
 
     /// Handles app returning to foreground.
@@ -364,9 +314,6 @@ final class MemoryManager {
         // Cancel any pending delayed release FIRST — pipeline stays warm
         delayedReleaseTask?.cancel()
         delayedReleaseTask = nil
-
-        // Cancel background monitoring immediately
-        stopBackgroundMonitoring()
 
         let timeInBackground: TimeInterval
         if let backgroundTime = backgroundedAt {
@@ -384,116 +331,7 @@ final class MemoryManager {
         }
     }
 
-    // MARK: - Background Monitoring
-
-    /// Starts periodic background checks for session timeout tracking.
-    ///
-    /// This monitoring only logs elapsed time for diagnostic purposes and
-    /// can be cancelled cleanly when the app returns to foreground.
-    private func startBackgroundMonitoring() {
-        // Cancel any existing task
-        backgroundCheckTask?.cancel()
-
-        backgroundCheckTask = Task { @MainActor [weak self] in
-            guard let self = self else { return }
-
-            let checkInterval = Constants.Background.backgroundCheckInterval
-
-            AppLogger.debug(
-                "Background monitoring started (check every \(Int(checkInterval))s)",
-                category: .memory
-            )
-
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(checkInterval))
-
-                guard !Task.isCancelled else {
-                    AppLogger.debug("Background monitoring cancelled during sleep", category: .memory)
-                    return
-                }
-
-                guard let backgroundTime = self.backgroundedAt else {
-                    AppLogger.debug("Background monitoring: no longer in background", category: .memory)
-                    return
-                }
-
-                let elapsed = Date().timeIntervalSince(backgroundTime)
-                AppLogger.debug(
-                    "Background check: \(Int(elapsed))s elapsed",
-                    category: .memory
-                )
-            }
-
-            AppLogger.debug("Background monitoring loop exited", category: .memory)
-        }
-    }
-
-    /// Stops background monitoring.
-    ///
-    /// Called when app returns to foreground or monitoring is stopped entirely.
-    private func stopBackgroundMonitoring() {
-        backgroundCheckTask?.cancel()
-        backgroundCheckTask = nil
-        AppLogger.debug("Background monitoring stopped", category: .memory)
-    }
-
-    // MARK: - Public API
-
-    /// Releases heavy resources for background state.
-    ///
-    /// Performs a full release of all non-essential resources:
-    /// 1. Kokoro TTS ML pipeline (~800MB-1.5GB) via soft release
-    /// 2. Voice preview synthesis
-    /// 3. Session TTS audio cache (~20-40MB)
-    /// 4. Repository instance cache
-    ///
-    /// This method is now primarily used by the non-session background path
-    /// and by `releaseHard()`. The session-aware tiered release in
-    /// `handleDidEnterBackground()` handles the common case.
-    func releaseForBackground() async {
-        guard !hasReleasedForBackground else {
-            AppLogger.debug("Already released for background", category: .memory)
-            return
-        }
-
-        AppLogger.info("Releasing resources for background...", category: .memory)
-        let startMemory = currentMemoryUsageMB()
-
-        // 1. Release Kokoro TTS pipeline memory (biggest savings ~800MB-1.5GB).
-        // Uses releasePipelineMemory() which keeps isKokoroReady=true so the
-        // pipeline transparently reloads on next synthesis. This preserves
-        // the user's custom voice when resuming from background.
-        if let ttsService = dependencies?.ttsService as? TTSService {
-            await ttsService.releasePipelineMemory()
-            AppLogger.info("  Released Kokoro pipeline memory (Kokoro still ready)", category: .memory)
-        }
-
-        // 2. Cancel any in-flight voice preview synthesis
-        dependencies?.voicePreviewCacheService.cancelSynthesis()
-        AppLogger.info("  Cancelled voice preview synthesis", category: .memory)
-
-        // 3. Clear session TTS queue unconditionally.
-        if let sessionQueue = dependencies?.sessionTTSQueueService as? SessionTTSQueueService {
-            sessionQueue.clearQueue()
-            AppLogger.info("  Cleared session TTS queue", category: .memory)
-        }
-
-        // 4. Clear repository instance cache to free references
-        DependencyContainer.shared.clearRepositoryCache()
-        AppLogger.info("  Cleared repository cache", category: .memory)
-
-        hasReleasedForBackground = true
-
-        // Post notification for other components
-        NotificationCenter.default.post(name: .memoryReleasedForBackground, object: nil)
-
-        let endMemory = currentMemoryUsageMB()
-        let saved = startMemory - endMemory
-        AppLogger.info(
-            "Background release complete. Freed ~\(saved)MB (was \(startMemory)MB, now \(endMemory)MB)",
-            category: .memory
-        )
-    }
+    // MARK: - Resource Release
 
     /// Restores resources after returning from background.
     ///
@@ -504,7 +342,7 @@ final class MemoryManager {
     ///   `releasePipelineMemory()` but `isKokoroReady` is still `true`. The pipeline
     ///   transparently reloads on next synthesis call. No warm-up needed.
     /// - **Hard release** (memory warning): Kokoro was fully disabled via
-    ///   `releaseForBackground()`. Needs `warmUp()` to re-initialize.
+    ///   `releaseHard()`. Needs `warmUp()` to re-initialize.
     func restoreFromBackground() async {
         guard hasReleasedForBackground else {
             AppLogger.debug("Nothing to restore", category: .memory)
@@ -530,16 +368,13 @@ final class MemoryManager {
 
         hasReleasedForBackground = false
 
-        // Post notification for other components
-        NotificationCenter.default.post(name: .memoryRestoredFromBackground, object: nil)
-
         AppLogger.info("Background restore complete", category: .memory)
     }
 
     /// Aggressively releases all resources including fully disabling Kokoro.
     ///
     /// Called on iOS memory warnings where the OS is actively threatening
-    /// to kill the app. Unlike `releaseForBackground()`, this:
+    /// to kill the app. Unlike a normal soft-release, this:
     /// - Calls `ttsService.releaseForBackground()` (sets `isKokoroReady = false`)
     /// - Requires `warmUp()` to restore Kokoro functionality
     ///
@@ -568,22 +403,12 @@ final class MemoryManager {
 
         hasReleasedForBackground = true
 
-        NotificationCenter.default.post(name: .memoryReleasedForBackground, object: nil)
-
         let endMemory = currentMemoryUsageMB()
         let saved = startMemory - endMemory
         AppLogger.warning(
             "Hard release complete. Freed ~\(saved)MB (was \(startMemory)MB, now \(endMemory)MB)",
             category: .memory
         )
-    }
-
-    /// Forces immediate release of all releasable resources.
-    ///
-    /// Use in extreme memory situations or for testing.
-    func forceRelease() async {
-        hasReleasedForBackground = false // Reset flag to allow release
-        await releaseHard()
     }
 
     // MARK: - Memory Diagnostics
@@ -615,14 +440,4 @@ final class MemoryManager {
         print("💻 MemoryManager: Current usage = \(usage)MB")
         #endif
     }
-}
-
-// MARK: - Notification Names
-
-extension Notification.Name {
-    /// Posted when MemoryManager releases resources for background
-    static let memoryReleasedForBackground = Notification.Name("com.imprint.memoryReleasedForBackground")
-
-    /// Posted when MemoryManager restores resources from background
-    static let memoryRestoredFromBackground = Notification.Name("com.imprint.memoryRestoredFromBackground")
 }

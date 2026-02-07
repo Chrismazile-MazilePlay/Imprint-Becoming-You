@@ -179,14 +179,6 @@ enum Constants {
     ///
     /// These values control how the app responds when returning from background
     /// after various durations. Memory management and session state are affected.
-    ///
-    /// ## Periodic Background Monitoring
-    /// Instead of using a single long sleep (which can drift and doesn't respond
-    /// to state changes), the MemoryManager uses periodic checks at `backgroundCheckInterval`.
-    /// This provides:
-    /// - Better timing precision
-    /// - Responsive cancellation when app returns to foreground
-    /// - Lower memory overhead from shorter-lived tasks
     enum Background {
         /// Time in background after which active sessions are reset to home.
         /// Summary view is also reset after this duration.
@@ -196,40 +188,19 @@ enum Constants {
         /// This is shorter than session timeout to free memory proactively.
         static let memoryReleaseThreshold: TimeInterval = 300 // 5 minutes
 
-        /// Grace period before releasing Kokoro pipeline during active sessions (seconds).
-        ///
-        /// If the user returns within this window, both the audio cache AND pipeline
-        /// are warm — zero-latency resume. After this period, the pipeline is
-        /// soft-released (`releasePipelineMemory()`) but the audio cache is preserved.
-        ///
-        /// iOS typically kills high-memory background apps within 30-60 seconds.
-        /// 45 seconds covers the common "quick app switch" scenario while staying
-        /// within iOS's tolerance window. Memory warnings bypass this entirely.
-        static let sessionPipelineGracePeriod: TimeInterval = 45
-
         /// Grace period for non-session background pipeline release (seconds).
         ///
         /// When no session is active, there is no audio cache to preserve,
         /// so a shorter grace period is appropriate. The stale TTS queue and
         /// repository cache are cleared immediately; only the pipeline release
-        /// is delayed by this amount.
+        /// is delayed by this amount. If the user returns before this expires,
+        /// the release is cancelled and the pipeline stays warm.
         static let nonSessionPipelineGracePeriod: TimeInterval = 5
         
         /// Time in background before considering app as "cold started".
         /// After this duration, app may need full re-initialization.
         static let coldStartThreshold: TimeInterval = 1800 // 30 minutes
         
-        /// Interval for periodic background monitoring checks (seconds).
-        ///
-        /// The MemoryManager uses this interval to periodically check elapsed time
-        /// rather than sleeping for the entire `memoryReleaseThreshold` duration.
-        /// Benefits:
-        /// - Timing precision (avoids drift from long sleeps)
-        /// - Responsive cancellation when returning to foreground
-        /// - Lower memory overhead from shorter-lived tasks
-        ///
-        /// At 60 seconds, this means 5 checks before the 5-minute threshold is reached.
-        static let backgroundCheckInterval: TimeInterval = 60 // Check every minute
     }
     
     // MARK: - UI Timing

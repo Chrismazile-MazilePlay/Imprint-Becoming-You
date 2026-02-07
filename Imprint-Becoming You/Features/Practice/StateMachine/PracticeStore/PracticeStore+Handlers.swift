@@ -81,6 +81,24 @@ extension PracticeStore {
         
         // Prepare TTS if switching TO a TTS mode FROM a non-TTS mode (or no cache exists)
         if needsTTS && (!currentModeUsesTTS || !hasCache) {
+            // Transition current mode to idle BEFORE starting preparation.
+            // This stops visible activity (auto-scroll, dock animation) while
+            // the loading screen shows. Without this, the old mode's flow state
+            // (e.g., .speakOnly(.listening)) keeps isScrollActive=true and
+            // the auto-scroll continues behind the preparation overlay.
+            withAnimation(AppTheme.Animation.standard) {
+                switch sessionMode {
+                case .readAloud:
+                    setFlow(.readAloud(.idle))
+                case .readThenSpeak:
+                    setFlow(.readAndSpeak(.idle))
+                case .speakOnly:
+                    setFlow(.speakOnly(.idle))
+                default:
+                    break
+                }
+            }
+
             // Need to prepare TTS - use preparation flow
             prepareAndStartSession(mode: mode)
         } else {

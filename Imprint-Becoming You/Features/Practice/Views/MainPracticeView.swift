@@ -402,11 +402,24 @@ struct MainPracticeView: View {
         case .background:
             // Record when we entered background
             backgroundedAt = Date()
-            
+
+            // Cancel session preparation if loading screen is showing.
+            // TTS synthesis should not continue in the background — when the user
+            // returns they will be back at the home view, same as tapping Cancel.
+            // Must come BEFORE isSessionActive check: the cancel sets flow to .home
+            // (isSessionActive = false), so the pause check naturally falls through.
+            if store.isPreparingSession {
+                store.send(.cancelSessionPreparation)
+
+                #if DEBUG
+                AppLogger.debug("Cancelled session preparation on background", category: .practice)
+                #endif
+            }
+
             // Pause active session (stop TTS, listening, timers)
             if store.isSessionActive {
                 store.send(.pauseSession)
-                
+
                 #if DEBUG
                 AppLogger.debug("Paused session on background", category: .practice)
                 #endif

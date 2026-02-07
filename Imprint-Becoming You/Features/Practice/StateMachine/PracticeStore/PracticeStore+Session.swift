@@ -360,6 +360,16 @@ extension PracticeStore {
     /// 2. Start the session
     /// 3. Begin background synthesis for remaining affirmations
     func handleSessionPreparationCompleted() {
+        // Guard against late completion after user cancelled preparation.
+        // clearSessionPreparation() sets isPreparingSession = false,
+        // so a post-cancel completion event will bail out here.
+        guard isPreparingSession else {
+            #if DEBUG
+            AppLogger.debug("Preparation completed after cancel — ignoring", category: .practice)
+            #endif
+            return
+        }
+
         guard let mode = pendingSessionMode else {
             #if DEBUG
             AppLogger.warning("Preparation completed but no pending mode", category: .practice)
@@ -413,20 +423,57 @@ extension PracticeStore {
     }
 
     /// Handles user cancellation of session preparation.
+    ///
+    /// Performs a full session teardown (modeled after `handleExitSession()`) to ensure
+    /// the app returns to a pristine home state. This is critical for the mid-session
+    /// mode switch path where `flow` and `sessionMode` are still in active states —
+    /// without full cleanup, the session view would remain visible with empty content.
+    ///
+    /// Also handles the race condition where `.sessionPreparationCompleted` fires
+    /// just before cancel: even if `startSession()` already ran, this teardown
+    /// fully undoes it by resetting flow to `.home` and clearing all session state.
     func handleCancelSessionPreparation() {
-        #if DEBUG
         AppLogger.debug("User cancelled session preparation", category: .practice)
-        #endif
 
+        // 1. Cancel any active work from the pre-switch session
+        cancelCurrentActivity()
+        flowGeneration += 1
+
+        // 2. Signal MemoryManager that session lifecycle is complete
+        MemoryManager.shared.sessionDidEnd()
+
+        // 3. Cancel TTS queue and clear preparation state.
+        // cancelAll() internally resumes the synthesis idle timer.
         clearSessionPreparation()
         dependencies.sessionTTSQueueService.cancelAll()
 
-        // Reset session-scoped System TTS flag
+        // 4. Reset session-scoped flags
         forceSystemTTSForSession = false
 
-        // Clear session state since we're not starting
-        setSessionState(affirmations: [], index: 0)
+        // 5. Dismiss any alerts
+        setShowingTimeoutAlert(false)
+        timedOutAffirmationId = nil
+        setPermissionAlert(showing: false)
+
+        // 6. CRITICAL: Reset mode and flow to home BEFORE clearing data.
+        //    This makes isSessionActive = false immediately, preventing
+        //    the brief window where session UI shows with empty content.
+        sessionMode = .readOnly
+        setFlow(.home)
+        setSegmentProgress(0)
+
+        // 7. Clear all session state
+        resetLoopConfiguration()
+        clearSavedSessionContext()
         clearOriginalSessionAffirmationIds()
+        setSessionState(affirmations: [], index: 0)
+        setSessionResults([])
+
+        // 8. Close any open menus
+        withAnimation(AppTheme.Animation.standard) {
+            isModeSelectorExpanded = false
+            isBinauralSelectorExpanded = false
+        }
     }
 
     func showSessionSummary() {

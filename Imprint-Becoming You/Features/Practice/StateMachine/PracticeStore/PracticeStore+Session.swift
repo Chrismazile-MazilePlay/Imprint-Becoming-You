@@ -406,7 +406,36 @@ extension PracticeStore {
             #if DEBUG
             AppLogger.debug("Starting background synthesis for remaining \(totalCount - preparedCount) affirmations", category: .practice)
             #endif
+
+            // Release pipeline once background synthesis finishes.
+            // All audio will be cached — the pipeline is no longer needed for playback.
+            queueService.onBackgroundSynthesisComplete = { [weak self] in
+                guard let self = self else { return }
+                Task {
+                    if let ttsService = self.dependencies.ttsService as? TTSService {
+                        await ttsService.releasePipelineMemory()
+                        #if DEBUG
+                        AppLogger.debug("Released Kokoro pipeline after background synthesis (~1.3GB freed)", category: .practice)
+                        #endif
+                    }
+                }
+            }
+
             queueService.startBackgroundSynthesis(startingFrom: preparedCount)
+        } else {
+            // All audio is pre-synthesized and cached. The Kokoro ML pipeline
+            // (~1.3GB) is no longer needed — playback uses cached audio via
+            // AudioPlayerService, bypassing TTSService entirely.
+            // Soft-release frees CoreML buffers while keeping isKokoroReady=true,
+            // so the pipeline transparently reloads on next session preparation.
+            Task {
+                if let ttsService = self.dependencies.ttsService as? TTSService {
+                    await ttsService.releasePipelineMemory()
+                    #if DEBUG
+                    AppLogger.debug("Released Kokoro pipeline after full preparation (~1.3GB freed)", category: .practice)
+                    #endif
+                }
+            }
         }
     }
 
@@ -446,6 +475,19 @@ extension PracticeStore {
         // cancelAll() internally resumes the synthesis idle timer.
         clearSessionPreparation()
         dependencies.sessionTTSQueueService.cancelAll()
+
+        // 3b. Release Kokoro ML pipeline immediately (~1.3GB).
+        // The pipeline was loaded during preparation but is no longer needed.
+        // cancelAll() only schedules release via a 30s idle timer — this
+        // bypasses the delay for instant memory recovery.
+        Task {
+            if let ttsService = self.dependencies.ttsService as? TTSService {
+                await ttsService.releasePipelineMemory()
+                #if DEBUG
+                AppLogger.debug("Released Kokoro pipeline on cancel preparation (~1.3GB freed)", category: .practice)
+                #endif
+            }
+        }
 
         // 4. Reset session-scoped flags
         forceSystemTTSForSession = false

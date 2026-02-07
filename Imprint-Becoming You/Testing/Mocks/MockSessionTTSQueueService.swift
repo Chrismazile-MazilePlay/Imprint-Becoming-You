@@ -40,8 +40,13 @@ final class MockSessionTTSQueueService: SessionTTSQueueServiceProtocol {
     /// Failure error message
     var failureMessage = "Mock TTS failure"
     
+    // MARK: - Callbacks
+
+    /// Optional callback fired when background synthesis completes.
+    var onBackgroundSynthesisComplete: (@MainActor () -> Void)?
+
     // MARK: - State
-    
+
     private(set) var isPreparing = false
     private(set) var preparationPhase: SessionPreparationPhase = .waitingForKokoro
     private(set) var preparedCount = 0

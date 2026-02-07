@@ -48,8 +48,19 @@ import Foundation
 @MainActor
 protocol SessionTTSQueueServiceProtocol: AnyObject {
     
+    // MARK: - Callbacks
+
+    /// Optional callback fired when background synthesis completes all remaining affirmations.
+    ///
+    /// Used by `PracticeStore` to release the Kokoro ML pipeline (~1.3GB) once
+    /// the early-start background synthesis finishes. At that point all audio is
+    /// cached and the pipeline is no longer needed for playback.
+    ///
+    /// Cleared automatically by `cancelAll()` to prevent stale references.
+    var onBackgroundSynthesisComplete: (@MainActor () -> Void)? { get set }
+
     // MARK: - State
-    
+
     /// Whether the service is currently preparing initial affirmations
     var isPreparing: Bool { get }
     

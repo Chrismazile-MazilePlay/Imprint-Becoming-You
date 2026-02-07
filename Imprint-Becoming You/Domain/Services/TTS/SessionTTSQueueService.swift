@@ -97,7 +97,11 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
     
     /// Current playback index (for priority calculation)
     private var currentPlaybackIndex: Int = 0
-    
+
+    /// Optional callback fired when background synthesis completes.
+    /// Set by PracticeStore to release the Kokoro pipeline after early-start synthesis.
+    var onBackgroundSynthesisComplete: (@MainActor () -> Void)?
+
     // MARK: - Protocol Properties
     
     var isPreparing: Bool {
@@ -545,6 +549,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         sessionAffirmations.removeAll()
         voiceConfig = .default
         currentPlaybackIndex = 0
+        onBackgroundSynthesisComplete = nil
 
         // Resume idle timer now that session is over.
         // This allows the timer to auto-release pipelines after the
@@ -628,6 +633,11 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
 
             if !Task.isCancelled && self.state != .cancelled {
                 self.state = .complete
+
+                // Notify caller that all synthesis is done — pipeline can be released.
+                // Dispatched to MainActor since startBackgroundSynthesis runs its
+                // Task on the actor already, but the callback may trigger async work.
+                self.onBackgroundSynthesisComplete?()
 
                 #if DEBUG
                 print("SessionTTSQueue: Background synthesis complete (\(self.preparedCount)/\(self.sessionAffirmations.count))")

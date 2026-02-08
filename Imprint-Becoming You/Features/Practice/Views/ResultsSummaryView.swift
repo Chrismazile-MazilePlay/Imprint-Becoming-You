@@ -32,7 +32,7 @@ struct ResultsSummaryView: View {
     
     // MARK: - State
     
-    @State private var dockAdapter: ConfigurationDockAdapter
+    @State private var dockAdapter: ListDockAdapter
     
     /// Captured disabled state from when view appeared.
     /// Prevents button from flashing enabled when store state resets during dismissal.
@@ -108,14 +108,16 @@ struct ResultsSummaryView: View {
             }
         }()
         
-        self._dockAdapter = State(initialValue: ConfigurationDockAdapter(
+        let adapter = ListDockAdapter(
             initialMode: initialDockMode,
             initialLoopCount: loopConfiguration.loopCount,
             initialShuffle: loopConfiguration.isShuffleEnabled,
+            showsShuffleOption: true,
             labelText: "Repeat Session",
-            isPlayEnabled: true,
-            onPlay: onRepeat
-        ))
+            isPlayEnabled: true
+        )
+        adapter.onPlayHandler = onRepeat
+        self._dockAdapter = State(initialValue: adapter)
     }
     
     // MARK: - Body
@@ -191,6 +193,7 @@ struct ResultsSummaryView: View {
         .onTapGesture {
             guard dockAdapter.isModeSelectorExpanded
                || dockAdapter.isBinauralSelectorExpanded
+               || dockAdapter.isConfigSelectorExpanded
                || dockAdapter.isErrorBarVisible else { return }
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 dockAdapter.closeAllSelectors()

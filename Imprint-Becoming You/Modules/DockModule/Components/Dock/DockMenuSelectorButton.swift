@@ -9,10 +9,11 @@ import SwiftUI
 
 // MARK: - DockMenuSelectorButton
 
-/// A reusable chip-style button for menu selection (mode, binaural).
+/// A reusable chip-style button for menu selection (mode, binaural, settings).
 ///
-/// Always displays icon + label + chevron. Supports active state highlighting
-/// for options like binaural presets.
+/// Displays icon + optional label + chevron. When `label` is empty, shows only
+/// icon + chevron (used for the gear/settings button). Supports active state
+/// highlighting for options like binaural presets.
 ///
 /// ## Accessibility
 ///
@@ -92,10 +93,12 @@ public struct DockMenuSelectorButton: View {
             HStack(spacing: tokens.spacingXS) {
                 Image(systemName: icon)
                     .font(.system(size: 14, weight: .medium))
-                
-                Text(label)
-                    .font(tokens.caption1.weight(.medium))
-                
+
+                if !label.isEmpty {
+                    Text(label)
+                        .font(tokens.caption1.weight(.medium))
+                }
+
                 Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                     .font(.system(size: 10, weight: .semibold))
             }
@@ -108,7 +111,7 @@ public struct DockMenuSelectorButton: View {
             )
         }
         // MARK: Accessibility
-        .accessibilityLabel("\(label) selector")
+        .accessibilityLabel(label.isEmpty ? "Settings selector" : "\(label) selector")
         .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
         .accessibilityHint("Double tap to \(isExpanded ? "collapse" : "expand") options")
         .accessibilityAddTraits(isExpanded ? .isSelected : [])

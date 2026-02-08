@@ -38,7 +38,7 @@ struct SavedSessionsFullListView: View {
     // MARK: - State
     
     @State private var selectedSessionId: UUID?
-    @State private var dockAdapter: ConfigurationDockAdapter
+    @State private var dockAdapter: ListDockAdapter
     @State private var editingSessionId: UUID?
     @State private var originalTitleBeforeEdit: String = ""
     @State private var currentEditingTitle: String = ""
@@ -79,10 +79,10 @@ struct SavedSessionsFullListView: View {
         self.store = store
         self.onStartSession = onStartSession
         
-        self._dockAdapter = State(initialValue: ConfigurationDockAdapter(
+        self._dockAdapter = State(initialValue: ListDockAdapter(
+            showsShuffleOption: true,
             labelText: "",
-            isPlayEnabled: false,
-            onPlay: { _, _, _ in }
+            isPlayEnabled: false
         ))
     }
     
@@ -149,10 +149,10 @@ struct SavedSessionsFullListView: View {
         .animation(AppTheme.Animation.standard, value: isAnyCardEditing)
         .animation(AppTheme.Animation.standard, value: sessionToDelete != nil)
         .onChange(of: selectedSessionId) { _, _ in
-            updateDockAdapter()
+            updateDockState()
         }
         .onAppear {
-            updateDockAdapter()
+            updateDockState()
         }
         .onDisappear {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -236,6 +236,7 @@ struct SavedSessionsFullListView: View {
             SwipeActionSharedState.shared.dismissAll()
             guard dockAdapter.isModeSelectorExpanded
                || dockAdapter.isBinauralSelectorExpanded
+               || dockAdapter.isConfigSelectorExpanded
                || dockAdapter.isErrorBarVisible else { return }
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 dockAdapter.closeAllSelectors()
@@ -247,26 +248,31 @@ struct SavedSessionsFullListView: View {
         .accessibilityLabel("Saved sessions list, \(savedSessions.count) items")
     }
     
-    // MARK: - Dock Adapter
-    
-    private func updateDockAdapter() {
-        dockAdapter = ConfigurationDockAdapter(
-            initialMode: dockAdapter.currentMode,
-            initialLoopCount: dockAdapter.loopCount,
-            initialShuffle: dockAdapter.isShuffleEnabled,
-            labelText: "",
-            isPlayEnabled: isPlayEnabled,
-            onPlay: { [self] mode, loopCount, shuffle in
-                playSelectedSession(mode: mode, loopCount: loopCount, shuffle: shuffle)
-            }
-        )
+    // MARK: - Dock State
+
+    /// Updates dock adapter properties directly — no instance replacement.
+    private func updateDockState() {
+        dockAdapter.isPlayEnabled = isPlayEnabled
+        dockAdapter.onPlayHandler = { [self] mode, loopCount, shuffle in
+            playSelectedSession(mode: mode, loopCount: loopCount, shuffle: shuffle)
+        }
     }
     
     // MARK: - Selection
     
     private func handleCardTap(_ session: SavedSession) {
         guard !isAnyCardEditing else { return }
-        
+
+        // Close any expanded menus with animation before changing selection
+        if dockAdapter.isModeSelectorExpanded
+            || dockAdapter.isBinauralSelectorExpanded
+            || dockAdapter.isConfigSelectorExpanded
+            || dockAdapter.isErrorBarVisible {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                dockAdapter.closeAllSelectors()
+            }
+        }
+
         if selectedSessionId == session.id {
             selectedSessionId = nil
         } else {

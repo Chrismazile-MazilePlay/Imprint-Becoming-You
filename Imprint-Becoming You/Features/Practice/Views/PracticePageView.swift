@@ -132,6 +132,7 @@ struct PracticePageView: View {
                     .onEnded {
                         guard dockAdapter.isModeSelectorExpanded
                            || dockAdapter.isBinauralSelectorExpanded
+                           || dockAdapter.isConfigSelectorExpanded
                            || dockAdapter.isErrorBarVisible else { return }
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                             dockAdapter.closeAllSelectors()
@@ -152,6 +153,7 @@ struct PracticePageView: View {
                         .onEnded {
                             guard dockAdapter.isModeSelectorExpanded
                                || dockAdapter.isBinauralSelectorExpanded
+                               || dockAdapter.isConfigSelectorExpanded
                                || dockAdapter.isErrorBarVisible else { return }
                             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                                 dockAdapter.closeAllSelectors()
@@ -242,6 +244,7 @@ struct PracticePageView: View {
         // Block if selectors or error bar are expanded
         guard !dockAdapter.isModeSelectorExpanded else { return false }
         guard !dockAdapter.isBinauralSelectorExpanded else { return false }
+        guard !dockAdapter.isConfigSelectorExpanded else { return false }
         guard !dockAdapter.isErrorBarVisible else { return false }
         
         // Block if timeout alert is showing to prevent race conditions

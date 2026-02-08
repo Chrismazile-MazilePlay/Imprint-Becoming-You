@@ -9,12 +9,18 @@ import SwiftUI
 
 // MARK: - AdaptiveDockContainer
 
-/// Top-level container managing dock layout and expanded menus.
+/// Top-level container managing dock layout, play button, label, and expanded menus.
 ///
 /// This container wraps `AdaptiveBottomDock` and handles:
-/// - Expanded selector menus (Mode, Binaural)
+/// - Play button (conditional, above dock row)
+/// - Expanded selector menus (Mode, Binaural, Config/Settings)
+/// - Label text (conditional, below dock row)
 /// - Optional gradient background
-/// - Optional label display below dock
+/// - Error bar display
+///
+/// The play button and expanded menus share the same vertical space via a
+/// `ZStack`. Menus render in front of (Z-above) the play button, so they
+/// float on top without pushing the dock content down.
 ///
 /// Menu dismiss is handled by the host views (not this container).
 /// Host views add tap gestures to their native content areas to close
@@ -23,14 +29,20 @@ import SwiftUI
 /// ## Structure
 ///
 /// ```
-/// ┌───────────────────────────────────┐
-/// │    [Expanded Menu - if visible]   │
-/// ├───────────────────────────────────┤
-/// │    [Dock Content - via content]   │
-/// ├───────────────────────────────────┤
-/// │    [Label - if present]           │
-/// └───────────────────────────────────┘
+/// VStack:
+///   ZStack {
+///     Play button  (Z-back, right-aligned)
+///     Menus        (Z-front, full width)
+///   }
+///   Dock row       (via content closure)
+///   Label text     (optional)
 /// ```
+///
+/// ## Menu Alignment
+///
+/// - Mode selector: **left-aligned** (expands toward center from left button)
+/// - Binaural selector: **left-aligned** (expands from left button position)
+/// - Config selector: **right-aligned** (matches gear button position)
 ///
 /// ## Usage
 ///
@@ -64,47 +76,80 @@ public struct AdaptiveDockContainer<Content: View>: View {
     }
     
     // MARK: - Body
-    
+
     public var body: some View {
-        ZStack(alignment: .bottom) {
-            // Main content stack
-            VStack(spacing: 0) {
-                Spacer(minLength: 0)
-                
-                // Expanded menus (slide up from bottom)
-                expandedMenus
-                
-                // Dock content
-                content()
-                    .padding(.horizontal, tokens.spacingMD)
-                    .padding(.bottom, labelText.isEmpty ? tokens.dockBottomPadding : tokens.spacingSM)
-                
-                // Optional label
-                if !labelText.isEmpty {
-                    Text(labelText)
-                        .font(tokens.caption1)
-                        .foregroundStyle(tokens.textSecondary)
-                        .padding(.bottom, tokens.dockBottomPadding)
+        VStack(spacing: 0) {
+            // Play button + expanded menus share the same vertical space.
+            // Menus render in front of (Z-above) the play button so they
+            // float on top without pushing dock content down.
+            if adapter.showsPlayButton || hasExpandedContent {
+                ZStack(alignment: .bottomTrailing) {
+                    // Play button (Z-back) — right-aligned above dock row
+                    if adapter.showsPlayButton {
+                        DockPlayButton(isEnabled: adapter.isPlayEnabled) {
+                            adapter.play()
+                        }
+                        .padding(.trailing, tokens.spacingLG)
+                        .padding(.bottom, tokens.spacingSM)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+
+                    // Expanded menus (Z-front) — float above play button
+                    expandedMenus
                 }
             }
+
+            // Dock row (just the button row / session content)
+            content()
+                .padding(.horizontal, tokens.spacingMD)
+
+            // Label text — below dock row
+            if !adapter.labelText.isEmpty {
+                Text(adapter.labelText)
+                    .font(tokens.caption1)
+                    .foregroundStyle(tokens.textSecondary)
+                    .padding(.top, tokens.spacingSM)
+                    .accessibilityHidden(true)
+            }
         }
+        .padding(.bottom, tokens.dockBottomPadding)
         .background(alignment: .bottom) {
             if showsGradient {
                 gradientBackground
             }
         }
     }
-    
-    // MARK: - Computed Properties
 
-    private var labelText: String {
-        adapter.labelText
+    /// Whether any expanded menu or error bar is currently visible.
+    private var hasExpandedContent: Bool {
+        adapter.isBinauralSelectorExpanded
+        || adapter.isModeSelectorExpanded
+        || adapter.isConfigSelectorExpanded
+        || adapter.isErrorBarVisible
     }
     
     // MARK: - Expanded Menus
     
     @ViewBuilder
     private var expandedMenus: some View {
+        // Binaural selector — left-aligned (matches left binaural button)
+        if adapter.isBinauralSelectorExpanded {
+            HStack {
+                BinauralSelectorExpanded(
+                    selectedPreset: adapter.binauralPreset
+                ) { preset in
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        adapter.selectBinaural(preset)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, tokens.spacingMD)
+            .padding(.bottom, tokens.spacingSM)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+
+        // Mode selector — left-aligned
         if adapter.isModeSelectorExpanded {
             HStack {
                 ModeSelectorExpanded(
@@ -121,23 +166,29 @@ public struct AdaptiveDockContainer<Content: View>: View {
             .padding(.bottom, tokens.spacingSM)
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
-        
-        if adapter.isBinauralSelectorExpanded {
+
+        // Config selector — right-aligned (matches right gear button)
+        if adapter.isConfigSelectorExpanded {
             HStack {
                 Spacer(minLength: 0)
-                BinauralSelectorExpanded(
-                    selectedPreset: adapter.binauralPreset
-                ) { preset in
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                        adapter.selectBinaural(preset)
+                ConfigSelectorExpanded(
+                    loopCount: adapter.loopCount,
+                    isShuffleEnabled: adapter.isShuffleEnabled,
+                    showsShuffleOption: adapter.showsShuffleOption,
+                    onSelectLoopCount: { count in
+                        adapter.selectLoopCount(count)
+                    },
+                    onToggleShuffle: {
+                        adapter.toggleShuffle()
                     }
-                }
+                )
             }
             .padding(.horizontal, tokens.spacingMD)
             .padding(.bottom, tokens.spacingSM)
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
-        
+
+        // Error bar
         if adapter.isErrorBarVisible {
             DockErrorBar(message: adapter.errorBarMessage)
                 .padding(.horizontal, tokens.spacingMD)
@@ -219,6 +270,32 @@ public struct AdaptiveDockContainer<Content: View>: View {
                 }
             }
             .background(Color.black)
+        }
+    }
+    return PreviewWrapper()
+}
+
+#Preview("Container - Play + Menu Z-Layer") {
+    struct PreviewWrapper: View {
+        @State private var adapter: MockDockAdapter = {
+            let a = MockDockAdapter.favorites
+            a.isModeSelectorExpanded = true
+            return a
+        }()
+
+        var body: some View {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                // Simulate consumer overlay layout
+                VStack {
+                    Spacer()
+                    AdaptiveDockContainer(adapter: adapter, showsGradient: true) {
+                        AdaptiveBottomDock(adapter: adapter)
+                    }
+                    .imprintDockEnvironment()
+                }
+                .ignoresSafeArea(edges: .bottom)
+            }
         }
     }
     return PreviewWrapper()

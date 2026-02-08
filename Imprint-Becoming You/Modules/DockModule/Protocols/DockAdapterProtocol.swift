@@ -100,7 +100,24 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
     /// When `true`, the binaural selector panel is visible above the dock.
     /// Setting this to `false` closes the menu.
     var isBinauralSelectorExpanded: Bool { get set }
-    
+
+    // MARK: - Config Selector State
+
+    /// Whether the config selector menu (gear menu) is expanded.
+    ///
+    /// When `true`, the config selector panel is visible above the dock showing
+    /// loop count and shuffle options. Setting this to `false` closes the menu.
+    ///
+    /// Unlike mode and binaural selectors, the config menu does NOT auto-dismiss
+    /// on selection — only on outside tap or second gear button tap.
+    var isConfigSelectorExpanded: Bool { get set }
+
+    /// Whether the shuffle option appears in the config menu.
+    ///
+    /// Returns `false` on the home screen (no predefined set to shuffle).
+    /// Returns `true` on Favorites, Saved Sessions, and Results views.
+    var showsShuffleOption: Bool { get }
+
     // MARK: - Session State (Session Configuration Only)
     
     /// The current state of the center content slot.
@@ -165,10 +182,17 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
     /// Only used when `configuration == .configuration`.
     var isShuffleEnabled: Bool { get }
     
-    /// Whether the play button is enabled.
+    /// Whether the play button is visible above the dock.
     ///
-    /// When `false`, the play button appears disabled.
-    /// Only used when `configuration == .configuration`.
+    /// When `true`, the play button renders above the dock background.
+    /// The `isPlayEnabled` property controls whether it's tappable or greyed out.
+    /// Default: `false` (hidden on home/session screens).
+    var showsPlayButton: Bool { get }
+
+    /// Whether the play button is enabled (tappable).
+    ///
+    /// When `false`, the play button appears greyed out and non-interactive.
+    /// Only relevant when `showsPlayButton` is `true`.
     var isPlayEnabled: Bool { get }
     
     /// Optional label text displayed below the dock.
@@ -248,7 +272,12 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
     ///
     /// The adapter should cycle through available loop counts (e.g., 1 → 3 → 5 → 1).
     func cycleLoopCount()
-    
+
+    /// Called when the user selects a specific loop count from the config menu.
+    ///
+    /// - Parameter count: The selected loop count (1, 3, or 5)
+    func selectLoopCount(_ count: Int)
+
     /// Called when the user taps the shuffle button.
     ///
     /// The adapter should toggle the shuffle state.
@@ -294,12 +323,28 @@ public extension DockAdapterProtocol {
         DockMode.allCases
     }
     
-    /// Default implementation closes both selectors and error bar.
+    /// Default implementation closes all selectors and error bar.
     func closeAllSelectors() {
         isModeSelectorExpanded = false
         isBinauralSelectorExpanded = false
+        isConfigSelectorExpanded = false
         isErrorBarVisible = false
     }
+
+    /// Default config selector state — not expanded.
+    var isConfigSelectorExpanded: Bool {
+        get { false }
+        set { }
+    }
+
+    /// Default shuffle option visibility — hidden.
+    var showsShuffleOption: Bool { false }
+
+    /// Default play button visibility — hidden.
+    var showsPlayButton: Bool { false }
+
+    /// Default loop count selection — no-op.
+    func selectLoopCount(_ count: Int) { }
     
     /// Default session segments returns nil (no session active).
     var sessionSegments: DockSessionSegments? {

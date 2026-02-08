@@ -55,12 +55,18 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     private let store: PracticeStore
     
     // MARK: - Local State
-    
+
     /// Whether the mode selector menu is expanded.
     var isModeSelectorExpanded: Bool = false
-    
+
     /// Whether the binaural selector menu is expanded.
     var isBinauralSelectorExpanded: Bool = false
+
+    /// Whether the config selector (gear menu) is expanded.
+    var isConfigSelectorExpanded: Bool = false
+
+    /// Shuffle option hidden on home/session screens (no predefined set to shuffle).
+    var showsShuffleOption: Bool { false }
     
     // MARK: - Error Bar State
     
@@ -163,11 +169,14 @@ final class PracticeDockAdapter: DockAdapterProtocol {
         store.canGoNext
     }
     
-    // MARK: - Configuration Mode State (Not Used)
-    
-    /// Not applicable for practice mode.
-    var loopCount: Int { 1 }
-    
+    // MARK: - Configuration Mode State
+
+    /// Loop count selected on the home screen.
+    ///
+    /// Applied to the store's loop configuration when a session starts via mode selection.
+    /// Defaults to `1` (single play).
+    var loopCount: Int = 1
+
     /// Not applicable for practice mode.
     var isShuffleEnabled: Bool { false }
     
@@ -181,16 +190,27 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     
     func selectMode(_ mode: DockMode) {
         // Check mic availability for modes that require it
-        if mode.requiresMicrophone && !ConfigurationDockAdapter.isMicrophoneAccessible() {
+        if mode.requiresMicrophone && !ListDockAdapter.isMicrophoneAccessible() {
             // Close mode selector, then show error bar
             isModeSelectorExpanded = false
             showError("The microphone is being used by another app")
             return
         }
-        
+
         let sessionMode = mapDockModeToSessionMode(mode)
         store.send(.selectMode(sessionMode))
         isModeSelectorExpanded = false
+
+        // Apply loop configuration after session starts (overrides the store's reset).
+        // send() is synchronous, so setLoopConfiguration runs on the same MainActor turn.
+        if loopCount > 1 {
+            let config = LoopConfiguration(
+                loopCount: loopCount,
+                isShuffleEnabled: false,
+                currentLoopIteration: 1
+            )
+            store.setLoopConfiguration(config)
+        }
     }
     
     // MARK: - Binaural Actions
@@ -226,6 +246,7 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     func closeAllSelectors() {
         isModeSelectorExpanded = false
         isBinauralSelectorExpanded = false
+        isConfigSelectorExpanded = false
         dismissErrorBar()
     }
     
@@ -274,7 +295,12 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     func cycleLoopCount() {
         // Not applicable for practice mode
     }
-    
+
+    func selectLoopCount(_ count: Int) {
+        guard [1, 3, 5].contains(count) else { return }
+        loopCount = count
+    }
+
     func toggleShuffle() {
         // Not applicable for practice mode
     }

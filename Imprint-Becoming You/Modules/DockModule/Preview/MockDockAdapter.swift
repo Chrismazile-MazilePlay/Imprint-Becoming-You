@@ -27,10 +27,10 @@ import SwiftUI
 /// | `.sessionPreparing` | `.session`      | Session, preparing to listen        |
 /// | `.sessionListening` | `.session`      | Session, user speaking              |
 /// | `.sessionScore`     | `.session`      | Session, showing score              |
-/// | `.favorites`        | `.configuration`| Favorites with label                |
-/// | `.favoritesEmpty`   | `.configuration`| Favorites disabled (empty)          |
-/// | `.resultsSummary`   | `.configuration`| Results with "Repeat Session"       |
-/// | `.savedSessions`    | `.configuration`| Saved sessions, no label            |
+/// | `.favorites`        | `.home`         | Favorites with label + shuffle      |
+/// | `.favoritesEmpty`   | `.home`         | Favorites disabled (empty)          |
+/// | `.resultsSummary`   | `.home`         | Results with "Repeat Session"       |
+/// | `.savedSessions`    | `.home`         | Saved sessions, no label            |
 ///
 /// ## Usage
 ///
@@ -90,7 +90,13 @@ public final class MockDockAdapter: DockAdapterProtocol {
     
     /// Whether the binaural selector is expanded.
     public var isBinauralSelectorExpanded: Bool = false
-    
+
+    /// Whether the config selector (gear menu) is expanded.
+    public var isConfigSelectorExpanded: Bool = false
+
+    /// Whether the shuffle option appears in the config menu.
+    public var showsShuffleOption: Bool = false
+
     // MARK: - Session State
     
     /// The center content visualization state.
@@ -116,7 +122,10 @@ public final class MockDockAdapter: DockAdapterProtocol {
     /// Whether shuffle is enabled.
     public var isShuffleEnabled: Bool = false
     
-    /// Whether the play button is enabled.
+    /// Whether the play button is visible above the dock.
+    public var showsPlayButton: Bool = false
+
+    /// Whether the play button is enabled (tappable).
     public var isPlayEnabled: Bool = true
     
     /// Label text displayed below the dock.
@@ -202,6 +211,7 @@ public final class MockDockAdapter: DockAdapterProtocol {
     public func closeAllSelectors() {
         isModeSelectorExpanded = false
         isBinauralSelectorExpanded = false
+        isConfigSelectorExpanded = false
         dismissErrorBar()
     }
     
@@ -271,6 +281,15 @@ public final class MockDockAdapter: DockAdapterProtocol {
         }
         #if DEBUG
         print("[MockDockAdapter] Loop count: \(loopCount)")
+        #endif
+    }
+
+    /// Selects a specific loop count.
+    public func selectLoopCount(_ count: Int) {
+        guard [1, 3, 5].contains(count) else { return }
+        loopCount = count
+        #if DEBUG
+        print("[MockDockAdapter] Selected loop count: \(count)")
         #endif
     }
     
@@ -429,65 +448,76 @@ public extension MockDockAdapter {
         return adapter
     }
     
-    // MARK: - Configuration Mode
-    
+    // MARK: - List View Configurations
+
     /// Creates a mock adapter for favorites list.
     ///
-    /// - Configuration: `.configuration`
+    /// - Configuration: `.home` (unified 3-button row)
     /// - Label: "Practice X affirmations"
+    /// - Shows shuffle option in config menu
     /// - Use case: FavoritesFullListView
     static var favorites: MockDockAdapter {
         let adapter = MockDockAdapter()
-        adapter.configuration = .configuration
+        adapter.configuration = .home
         adapter.currentMode = .readAndSpeak
+        adapter.showsShuffleOption = true
+        adapter.showsPlayButton = true
         adapter.loopCount = 1
         adapter.isShuffleEnabled = false
         adapter.isPlayEnabled = true
         adapter.labelText = "Practice 9 affirmations"
         return adapter
     }
-    
+
     /// Creates a mock adapter for empty favorites.
     ///
-    /// - Configuration: `.configuration`
+    /// - Configuration: `.home` (unified 3-button row)
     /// - Play button: Disabled
     /// - Use case: FavoritesFullListView with no favorites
     static var favoritesEmpty: MockDockAdapter {
         let adapter = MockDockAdapter()
-        adapter.configuration = .configuration
+        adapter.configuration = .home
         adapter.currentMode = .readAndSpeak
+        adapter.showsShuffleOption = true
+        adapter.showsPlayButton = true
         adapter.loopCount = 1
         adapter.isShuffleEnabled = false
         adapter.isPlayEnabled = false
         adapter.labelText = "No favorites yet"
         return adapter
     }
-    
+
     /// Creates a mock adapter for results summary.
     ///
-    /// - Configuration: `.configuration`
+    /// - Configuration: `.home` (unified 3-button row)
     /// - Label: "Repeat Session"
+    /// - Shows shuffle option in config menu
     /// - Use case: ResultsSummaryView
     static var resultsSummary: MockDockAdapter {
         let adapter = MockDockAdapter()
-        adapter.configuration = .configuration
+        adapter.configuration = .home
         adapter.currentMode = .readAndSpeak
+        adapter.showsShuffleOption = true
+        adapter.showsPlayButton = true
         adapter.loopCount = 1
         adapter.isShuffleEnabled = false
         adapter.isPlayEnabled = true
         adapter.labelText = "Repeat Session"
         return adapter
     }
-    
+
     /// Creates a mock adapter for saved sessions.
     ///
-    /// - Configuration: `.configuration`
+    /// - Configuration: `.home` (unified 3-button row)
     /// - Label: None
+    /// - Shows shuffle option in config menu
     /// - Use case: SavedSessionsFullListView
     static var savedSessions: MockDockAdapter {
         let adapter = MockDockAdapter()
-        adapter.configuration = .configuration
+        adapter.configuration = .home
         adapter.currentMode = .readAloud
+        adapter.showsShuffleOption = true
+        adapter.showsPlayButton = true
         adapter.loopCount = 3
         adapter.isShuffleEnabled = true
         adapter.isPlayEnabled = true

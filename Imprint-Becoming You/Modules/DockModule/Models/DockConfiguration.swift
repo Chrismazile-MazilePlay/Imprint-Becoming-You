@@ -11,34 +11,31 @@ import Foundation
 
 /// Configuration determining which dock layout to render.
 ///
-/// The dock morphs between three distinct layouts based on the parent context.
-/// This enum drives that decision, telling the dock which slots to show.
+/// The dock uses a unified 3-button row across all compact layouts:
+/// **Binaural (left) — Mode (center) — Settings/Gear (right)**
 ///
 /// ## Visual Overview
 ///
 /// ```
-/// HOME:          [Mode ▼]                    [Binaural ▼]
+/// HOME/COMPACT:  [Binaural ▼]    [Mode ▼]    [⚙ Settings ▼]
 ///
 /// SESSION:       [═══════════ Segments ═══════════════]
 ///                [◀]   [Center Content Slot]    [▶]
-///                [Mode ▼]                    [Binaural ▼]
-///
-/// CONFIGURATION: [Mode ▼]     [🔁 3] [🔀]         [▶]
+///                [Binaural ▼]    [Mode ▼]    [⚙ Settings ▼]
 /// ```
 ///
 /// ## Slot Visibility
 ///
-/// | Slot               | Home | Session | Configuration |
-/// |--------------------|------|---------|---------------|
-/// | Progress Segments  | ✗    | ✓       | ✗             |
-/// | Navigation Arrows  | ✗    | ✓       | ✗             |
-/// | Center Content     | ✗    | ✓       | ✗             |
-/// | Mode Selector      | ✓    | ✓       | ✓             |
-/// | Binaural Selector  | ✓    | ✓       | ✗             |
-/// | Loop Button        | ✗    | ✗       | ✓             |
-/// | Shuffle Button     | ✗    | ✗       | ✓             |
-/// | Play Button        | ✗    | ✗       | ✓             |
-/// | Label Below        | ✗    | ✗       | ✓ (optional)  |
+/// | Slot               | Home | Session |
+/// |--------------------|------|---------|
+/// | Progress Segments  | ✗    | ✓       |
+/// | Navigation Arrows  | ✗    | ✓       |
+/// | Center Content     | ✗    | ✓       |
+/// | Mode Selector      | ✓    | ✓       |
+/// | Binaural Selector  | ✓    | ✓       |
+/// | Config Selector    | ✓    | ✓*      |
+///
+/// *Config selector shows error bar during session instead of opening menu.
 ///
 /// ## Usage
 ///
@@ -46,26 +43,21 @@ import Foundation
 ///
 /// ```swift
 /// var configuration: DockConfiguration {
-///     switch parentContext {
-///     case .practice:
-///         return isSessionActive ? .session : .home
-///     case .favorites, .savedSessions, .resultsSummary:
-///         return .configuration
-///     }
+///     isSessionActive ? .session : .home
 /// }
 /// ```
 public enum DockConfiguration: Equatable, Sendable {
-    
-    /// Home/browse mode — compact with mode + binaural selectors only.
+
+    /// Compact mode — unified 3-button row with binaural, mode, and config selectors.
     ///
     /// Used when:
-    /// - User is browsing affirmations
+    /// - User is browsing affirmations (home)
+    /// - Favorites, Saved Sessions, Results views
     /// - No active session in progress
-    /// - PracticePageView in non-session state
     ///
     /// Height: ~68pt
     case home
-    
+
     /// Active session mode — expanded with all session controls.
     ///
     /// Used when:
@@ -73,22 +65,16 @@ public enum DockConfiguration: Equatable, Sendable {
     /// - PracticePageView during active session
     ///
     /// Shows: Progress segments, navigation arrows, center content slot,
-    /// mode selector, binaural selector.
+    /// plus the unified 3-button row at the bottom.
     ///
     /// Height: ~155pt
     case session
-    
+
     /// Configuration mode — compact with playback controls.
     ///
-    /// Used when:
-    /// - FavoritesFullListView (label: "Practice X affirmations")
-    /// - SavedSessionsFullListView (no label)
-    /// - ResultsSummaryView (label: "Repeat Session")
-    ///
-    /// Shows: Mode selector, loop button, shuffle button, play button.
-    /// Optionally shows label below dock.
-    ///
-    /// Height: ~68pt (plus label if present)
+    /// - Important: Deprecated. Use `.home` instead. All compact layouts now use
+    ///   the unified 3-button row. Play button has moved to `DockFloatingPlayButton`.
+    @available(*, deprecated, message: "Use .home instead. Configuration mode is replaced by the unified dock layout.")
     case configuration
 }
 
@@ -108,41 +94,50 @@ public extension DockConfiguration {
             return false
         }
     }
-    
-    /// Whether this configuration shows the binaural selector.
+
+    /// Whether this configuration shows the binaural selector button.
     ///
-    /// The binaural selector appears in `.home` and `.session` but not
-    /// in `.configuration` (which uses play controls instead).
+    /// Always `true` — the unified 3-button row includes binaural on all layouts.
     var showsBinauralSelector: Bool {
+        true
+    }
+
+    /// Whether tapping the config selector opens the settings menu.
+    ///
+    /// Returns `true` for `.home` and `.configuration` (gear opens menu).
+    /// Returns `false` for `.session` (gear shows error bar instead).
+    var showsConfigSelector: Bool {
         switch self {
-        case .home, .session:
+        case .home, .configuration:
             return true
-        case .configuration:
+        case .session:
             return false
         }
     }
-    
-    /// Whether this configuration shows playback controls.
+
+    /// Whether this configuration shows inline playback controls (loop, shuffle, play).
     ///
-    /// Playback controls (loop, shuffle, play) only appear in `.configuration`.
+    /// Always `false` — playback controls have moved to the config selector menu
+    /// and `DockFloatingPlayButton`. Retained for backward compatibility during migration.
+    @available(*, deprecated, message: "Playback controls moved to config selector menu and DockFloatingPlayButton.")
     var showsPlaybackControls: Bool {
         self == .configuration
     }
-    
+
     /// Whether this configuration shows progress segments.
     ///
     /// Progress segments only appear in `.session`.
     var showsProgressSegments: Bool {
         self == .session
     }
-    
+
     /// Whether this configuration shows navigation arrows.
     ///
     /// Navigation arrows (previous/next) only appear in `.session`.
     var showsNavigationArrows: Bool {
         self == .session
     }
-    
+
     /// Whether this configuration shows the center content slot.
     ///
     /// The center content slot (waveform/score) only appears in `.session`.

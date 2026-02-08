@@ -70,7 +70,6 @@ struct FavoritesFullListView: View {
                 favoritesList
             }
         }
-        .dismissesDockMenuOnTouch(adapter: dockAdapter)
         .overlay {
             VStack {
                 Spacer()
@@ -85,6 +84,11 @@ struct FavoritesFullListView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await loadFavorites()
+        }
+        .onDisappear {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                dockAdapter.closeAllSelectors()
+            }
         }
     }
     
@@ -133,6 +137,14 @@ struct FavoritesFullListView: View {
             }
             .padding(.horizontal, AppTheme.Spacing.lg)
             .padding(.vertical, AppTheme.Spacing.md)
+        }
+        .onTapGesture {
+            guard dockAdapter.isModeSelectorExpanded
+               || dockAdapter.isBinauralSelectorExpanded
+               || dockAdapter.isErrorBarVisible else { return }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                dockAdapter.closeAllSelectors()
+            }
         }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: dockAreaHeight)

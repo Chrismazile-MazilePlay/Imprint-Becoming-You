@@ -128,7 +128,6 @@ struct ResultsSummaryView: View {
                 
                 scrollableContent
             }
-            .dismissesDockMenuOnTouch(adapter: dockAdapter)
             .overlay {
                 VStack {
                     Spacer()
@@ -188,6 +187,14 @@ struct ResultsSummaryView: View {
                 cardsSection
             }
             .padding(.horizontal, AppTheme.Spacing.lg)
+        }
+        .onTapGesture {
+            guard dockAdapter.isModeSelectorExpanded
+               || dockAdapter.isBinauralSelectorExpanded
+               || dockAdapter.isErrorBarVisible else { return }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                dockAdapter.closeAllSelectors()
+            }
         }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: dockAreaHeight)

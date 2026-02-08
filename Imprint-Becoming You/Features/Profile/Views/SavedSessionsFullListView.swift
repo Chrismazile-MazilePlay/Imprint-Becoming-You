@@ -99,7 +99,6 @@ struct SavedSessionsFullListView: View {
                 sessionsList
             }
         }
-        .dismissesDockMenuOnTouch(adapter: dockAdapter)
         .overlay {
             VStack {
                 Spacer()
@@ -154,6 +153,11 @@ struct SavedSessionsFullListView: View {
         }
         .onAppear {
             updateDockAdapter()
+        }
+        .onDisappear {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                dockAdapter.closeAllSelectors()
+            }
         }
     }
     
@@ -230,6 +234,12 @@ struct SavedSessionsFullListView: View {
         .onTapGesture {
             // Dismiss any open swipe actions when tapping outside cards
             SwipeActionSharedState.shared.dismissAll()
+            guard dockAdapter.isModeSelectorExpanded
+               || dockAdapter.isBinauralSelectorExpanded
+               || dockAdapter.isErrorBarVisible else { return }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                dockAdapter.closeAllSelectors()
+            }
         }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: dockAreaHeight)

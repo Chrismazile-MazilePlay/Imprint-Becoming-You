@@ -9,20 +9,21 @@ import SwiftUI
 
 // MARK: - AdaptiveDockContainer
 
-/// Top-level container managing dock layout, expanded menus, and dismiss behavior.
+/// Top-level container managing dock layout and expanded menus.
 ///
 /// This container wraps `AdaptiveBottomDock` and handles:
 /// - Expanded selector menus (Mode, Binaural)
-/// - Dismiss overlay for closing menus
 /// - Optional gradient background
 /// - Optional label display below dock
+///
+/// Menu dismiss is handled by the host views (not this container).
+/// Host views add tap gestures to their native content areas to close
+/// expanded menus, avoiding overlay insertion/removal artifacts.
 ///
 /// ## Structure
 ///
 /// ```
 /// ┌───────────────────────────────────┐
-/// │         (Dismiss Overlay)         │
-/// ├───────────────────────────────────┤
 /// │    [Expanded Menu - if visible]   │
 /// ├───────────────────────────────────┤
 /// │    [Dock Content - via content]   │
@@ -66,11 +67,6 @@ public struct AdaptiveDockContainer<Content: View>: View {
     
     public var body: some View {
         ZStack(alignment: .bottom) {
-            // Dismiss overlay
-            if isAnyMenuExpanded {
-                dismissOverlay
-            }
-            
             // Main content stack
             VStack(spacing: 0) {
                 Spacer(minLength: 0)
@@ -100,25 +96,9 @@ public struct AdaptiveDockContainer<Content: View>: View {
     }
     
     // MARK: - Computed Properties
-    
-    private var isAnyMenuExpanded: Bool {
-        adapter.isModeSelectorExpanded || adapter.isBinauralSelectorExpanded || adapter.isErrorBarVisible
-    }
-    
+
     private var labelText: String {
         adapter.labelText
-    }
-    
-    // MARK: - Dismiss Overlay
-    
-    private var dismissOverlay: some View {
-        Color.black.opacity(0.01)
-            .ignoresSafeArea()
-            .onTapGesture {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    adapter.closeAllSelectors()
-                }
-            }
     }
     
     // MARK: - Expanded Menus

@@ -127,9 +127,19 @@ struct PracticePageView: View {
                 // Background with smooth color morphing
                 morphingBackground(currentIndex: currentIndex, progress: progress)
             }
-            .dismissesDockMenuOnTouch(adapter: dockAdapter)
+            .simultaneousGesture(
+                TapGesture()
+                    .onEnded {
+                        guard dockAdapter.isModeSelectorExpanded
+                           || dockAdapter.isBinauralSelectorExpanded
+                           || dockAdapter.isErrorBarVisible else { return }
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            dockAdapter.closeAllSelectors()
+                        }
+                    }
+            )
 
-            
+
             VStack {
                 // Top HUD (doesn't move with gesture)
                 FloatingHUDLayer(
@@ -137,7 +147,17 @@ struct PracticePageView: View {
                     onProfileTap: onNavigateToProfile,
                     onPromptsTap: onNavigateToPrompts
                 )
-                .dismissesDockMenuOnTouch(adapter: dockAdapter)
+                .simultaneousGesture(
+                    TapGesture()
+                        .onEnded {
+                            guard dockAdapter.isModeSelectorExpanded
+                               || dockAdapter.isBinauralSelectorExpanded
+                               || dockAdapter.isErrorBarVisible else { return }
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                dockAdapter.closeAllSelectors()
+                            }
+                        }
+                )
                 
                 Spacer()
                 

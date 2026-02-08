@@ -256,6 +256,10 @@ struct SavedSessionsFullListView: View {
         dockAdapter.onPlayHandler = { [self] mode, loopCount, shuffle in
             playSelectedSession(mode: mode, loopCount: loopCount, shuffle: shuffle)
         }
+        // Show error when disabled play is tapped — but not in empty state
+        dockAdapter.onDisabledPlayHandler = isEmpty ? nil : { [self] in
+            dockAdapter.showError("Select a session to begin")
+        }
     }
     
     // MARK: - Selection

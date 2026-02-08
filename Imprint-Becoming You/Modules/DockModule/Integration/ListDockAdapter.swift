@@ -154,6 +154,13 @@ final class ListDockAdapter: DockAdapterProtocol {
     /// Mutable to support late binding — parent views set this after initialization.
     var onPlayHandler: ((SessionMode, Int, Bool) -> Void)?
 
+    /// Called when play is tapped while disabled.
+    ///
+    /// Set by consumer views that want to show contextual feedback
+    /// (e.g., SavedSessionsFullListView shows "Select a session to begin").
+    /// When `nil`, tapping the disabled play button does nothing.
+    var onDisabledPlayHandler: (() -> Void)?
+
     // MARK: - Initialization
 
     /// Creates a list dock adapter.
@@ -283,7 +290,10 @@ final class ListDockAdapter: DockAdapterProtocol {
     }
 
     func play() {
-        guard isPlayEnabled else { return }
+        guard isPlayEnabled else {
+            onDisabledPlayHandler?()
+            return
+        }
 
         let sessionMode = mapDockModeToSessionMode(currentMode)
         onPlayHandler?(sessionMode, loopCount, isShuffleEnabled)

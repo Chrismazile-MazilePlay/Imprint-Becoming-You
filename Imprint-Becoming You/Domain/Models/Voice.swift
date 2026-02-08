@@ -277,10 +277,10 @@ extension Voice {
     /// These voices are verified to exist in the iOS_TTS VoiceStyle enum.
     /// Organized by accent and gender:
     /// - American Female: 11 voices
-    /// - American Male: 8 voices
-    /// - British Female: 3 voices
+    /// - American Male: 9 voices
+    /// - British Female: 4 voices
     /// - British Male: 4 voices
-    /// Total: 26 voices
+    /// Total: 28 voices
     static let allEnglishKokoroVoices: [Voice] = [
         // American Female (11)
         .kokoroVoice(id: "af_heart", name: "Heart", isPremiumOnly: false, gender: .female, style: "warm", adjectives: ["Warm", "Expressive"]),
@@ -295,7 +295,7 @@ extension Voice {
         .kokoroVoice(id: "af_sarah", name: "Sarah", isPremiumOnly: false, gender: .female, style: "friendly", adjectives: ["Friendly", "Approachable"]),
         .kokoroVoice(id: "af_sky", name: "Sky", isPremiumOnly: false, gender: .female, style: "airy", adjectives: ["Airy", "Light"]),
         
-        // American Male (8)
+        // American Male (9)
         .kokoroVoice(id: "am_adam", name: "Adam", isPremiumOnly: false, gender: .male, style: "confident", adjectives: ["Deep", "Confident"]),
         .kokoroVoice(id: "am_michael", name: "Michael", isPremiumOnly: false, gender: .male, style: "professional", adjectives: ["Steady", "Professional"]),
         .kokoroVoice(id: "am_echo", name: "Echo", isPremiumOnly: false, gender: .male, style: "resonant", adjectives: ["Resonant", "Rich"]),
@@ -304,10 +304,12 @@ extension Voice {
         .kokoroVoice(id: "am_liam", name: "Liam", isPremiumOnly: false, gender: .male, style: "friendly", adjectives: ["Warm", "Friendly"]),
         .kokoroVoice(id: "am_onyx", name: "Onyx", isPremiumOnly: false, gender: .male, style: "smooth", adjectives: ["Smooth", "Refined"]),
         .kokoroVoice(id: "am_puck", name: "Puck", isPremiumOnly: false, gender: .male, style: "playful", adjectives: ["Playful", "Lively"]),
+        .kokoroVoice(id: "am_santa", name: "Santa", isPremiumOnly: false, gender: .male, style: "jolly", adjectives: ["Jolly", "Warm"]),
         
-        // British Female (3)
+        // British Female (4)
         .kokoroVoice(id: "bf_emma", name: "Emma", languageCode: "en-GB", isPremiumOnly: false, gender: .female, style: "warm", adjectives: ["Warm", "Articulate"]),
         .kokoroVoice(id: "bf_alice", name: "Alice", languageCode: "en-GB", isPremiumOnly: false, gender: .female, style: "elegant", adjectives: ["Refined", "Elegant"]),
+        .kokoroVoice(id: "bf_isabella", name: "Isabella", languageCode: "en-GB", isPremiumOnly: false, gender: .female, style: "poised", adjectives: ["Poised", "Graceful"]),
         .kokoroVoice(id: "bf_lily", name: "Lily", languageCode: "en-GB", isPremiumOnly: false, gender: .female, style: "gentle", adjectives: ["Gentle", "Soft"]),
         
         // British Male (4)

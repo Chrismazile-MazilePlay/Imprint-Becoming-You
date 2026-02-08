@@ -39,17 +39,19 @@ public struct DockMenuDismissModifier: ViewModifier {
     // MARK: - Body
     
     public func body(content: Content) -> some View {
-        content
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        if adapter.isModeSelectorExpanded || adapter.isBinauralSelectorExpanded || adapter.isErrorBarVisible {
+        if adapter.isModeSelectorExpanded || adapter.isBinauralSelectorExpanded || adapter.isErrorBarVisible {
+            content
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { _ in
                             withAnimation(.easeOut(duration: 0.2)) {
                                 adapter.closeAllSelectors()
                             }
                         }
-                    }
-            )
+                )
+        } else {
+            content
+        }
     }
 }
 

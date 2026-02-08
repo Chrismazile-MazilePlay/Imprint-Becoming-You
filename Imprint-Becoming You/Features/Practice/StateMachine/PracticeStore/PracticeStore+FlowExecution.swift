@@ -173,6 +173,9 @@ extension PracticeStore {
                 setFlow(.readAloud(.complete))
             }
             
+        } catch is CancellationError {
+            // Intentional cancellation (user navigated, paused, etc.) — not an error
+            return
         } catch {
             guard generation == flowGeneration else { return }
             send(.ttsFailed(.ttsError(error.localizedDescription)))
@@ -249,12 +252,14 @@ extension PracticeStore {
             progressTask.cancel()
             
             guard shouldContinueFlow(generation: generation) else { return }
-            
+
+        } catch is CancellationError {
+            return
         } catch {
             send(.ttsFailed(.ttsError(error.localizedDescription)))
             return
         }
-        
+
         // Phase 2: Preparing to Listen (green breathing animation)
         // UI shows preparing state while speech engine initializes off main thread
         withAnimation(AppTheme.Animation.quick) {

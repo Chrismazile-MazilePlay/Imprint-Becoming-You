@@ -82,21 +82,24 @@ public struct AdaptiveDockContainer<Content: View>: View {
             // Play button + expanded menus share the same vertical space.
             // Menus render in front of (Z-above) the play button so they
             // float on top without pushing dock content down.
-            if adapter.showsPlayButton || hasExpandedContent {
-                ZStack(alignment: .bottomTrailing) {
-                    // Play button (Z-back) — right-aligned above dock row
-                    if adapter.showsPlayButton {
-                        DockPlayButton(isEnabled: adapter.isPlayEnabled) {
-                            adapter.play()
-                        }
-                        .padding(.trailing, tokens.spacingLG)
-                        .padding(.bottom, tokens.spacingSM)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+            //
+            // The ZStack must be unconditionally present so that child menu
+            // transitions (.move(edge: .bottom)) fire correctly. If gated by
+            // an `if`, SwiftUI inserts the entire ZStack as a new view on
+            // first menu open, swallowing the child transition into a fade.
+            ZStack(alignment: .bottomTrailing) {
+                // Play button (Z-back) — right-aligned above dock row
+                if adapter.showsPlayButton {
+                    DockPlayButton(isEnabled: adapter.isPlayEnabled) {
+                        adapter.play()
                     }
-
-                    // Expanded menus (Z-front) — float above play button
-                    expandedMenus
+                    .padding(.trailing, tokens.spacingLG)
+                    .padding(.bottom, tokens.spacingSM)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
                 }
+
+                // Expanded menus (Z-front) — float above play button
+                expandedMenus
             }
 
             // Dock row (just the button row / session content)
@@ -120,14 +123,6 @@ public struct AdaptiveDockContainer<Content: View>: View {
         }
     }
 
-    /// Whether any expanded menu or error bar is currently visible.
-    private var hasExpandedContent: Bool {
-        adapter.isBinauralSelectorExpanded
-        || adapter.isModeSelectorExpanded
-        || adapter.isConfigSelectorExpanded
-        || adapter.isErrorBarVisible
-    }
-    
     // MARK: - Expanded Menus
     
     @ViewBuilder

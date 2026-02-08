@@ -18,18 +18,18 @@ import SwiftUI
 ///
 /// All configurations share a unified bottom row:
 /// ```
-/// [Binaural ▼]    [Mode ▼]    [⚙ Settings ▼]
+/// (Binaural)    [Mode ▼]    (⚙)
 /// ```
+///
+/// Binaural and Gear are circular icon-only buttons (`DockCircularButton`).
+/// Mode is a chip with icon + label + chevron (`DockMenuSelectorButton`).
+/// Both circular buttons share the same fixed width, keeping Mode centered.
 ///
 /// | Configuration   | Layout                                          |
 /// |-----------------|------------------------------------------------|
 /// | `.home`         | Binaural + Mode + Settings (unified row)        |
 /// | `.session`      | Progress + Nav + Center + unified row            |
 /// | `.configuration`| Routes to `.home` layout (deprecated)            |
-///
-/// ## Button Consistency
-/// Mode, Binaural, and Settings buttons always show icon + label across all
-/// configurations, maintaining a consistent visual language.
 ///
 /// ## Animation Optimization (Issue 2.3)
 /// Uses computed animation keys to prevent unnecessary re-renders:
@@ -128,24 +128,29 @@ private extension AdaptiveBottomDock {
         adapter.loopCount > 1 || adapter.isShuffleEnabled
     }
 
-    /// The unified 3-button row: Binaural (left) — Mode (center) — Gear (right).
+    /// The unified 3-button row: (Binaural) — [Mode ▼] — (⚙).
+    ///
+    /// Binaural and Gear are circular icon-only buttons. Mode is a chip with
+    /// icon + label + chevron. Since both circular buttons share the same fixed
+    /// width (`chipHeight` = 36pt), the Spacers distribute equally, keeping the
+    /// Mode chip perfectly centered.
     ///
     /// Used in both `.home` and `.session` configurations.
     var unifiedButtonRow: some View {
         HStack(spacing: tokens.spacingMD) {
-            // Binaural (left)
-            DockMenuSelectorButton(
+            // Binaural (left) — circular icon-only
+            DockCircularButton(
                 icon: adapter.binauralPreset.iconName,
-                label: adapter.binauralPreset.displayName,
                 isExpanded: adapter.isBinauralSelectorExpanded,
-                isActive: adapter.binauralPreset.isActive
+                isActive: adapter.binauralPreset.isActive,
+                accessibilityLabel: adapter.binauralPreset.accessibilityLabel
             ) {
                 toggleBinauralSelector()
             }
 
             Spacer(minLength: 0)
 
-            // Mode (center)
+            // Mode (center) — chip with icon + label + chevron
             DockMenuSelectorButton(
                 icon: adapter.currentMode.iconName,
                 label: adapter.currentMode.displayName,
@@ -157,12 +162,12 @@ private extension AdaptiveBottomDock {
 
             Spacer(minLength: 0)
 
-            // Gear / Settings (right)
-            DockMenuSelectorButton(
+            // Gear / Settings (right) — circular icon-only
+            DockCircularButton(
                 icon: "gearshape.fill",
-                label: "",
                 isExpanded: adapter.isConfigSelectorExpanded,
-                isActive: isConfigActive
+                isActive: isConfigActive,
+                accessibilityLabel: "Settings"
             ) {
                 toggleConfigSelector()
             }

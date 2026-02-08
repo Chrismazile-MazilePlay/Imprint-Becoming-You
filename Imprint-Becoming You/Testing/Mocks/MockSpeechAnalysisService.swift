@@ -141,12 +141,6 @@ final class MockSpeechAnalysisService: SpeechAnalysisServiceProtocol {
         
         try await Task.sleep(for: calibrationDelay)
         
-        return CalibrationData(
-            baselineRMS: 0.3,
-            pitchMin: 85,
-            pitchMax: 255,
-            volumeMin: -30,
-            volumeMax: -10
-        )
+        return .uncalibrated
     }
 }

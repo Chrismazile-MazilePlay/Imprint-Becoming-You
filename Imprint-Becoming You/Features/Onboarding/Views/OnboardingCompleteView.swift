@@ -223,14 +223,8 @@ struct GoalBadge: View {
 #Preview("Onboarding Complete") {
     let vm = OnboardingViewModel()
     vm.selectedGoals = [.confidence, .focus, .faith, .peace]
-    vm.calibrationData = CalibrationData(
-        baselineRMS: 0.3,
-        pitchMin: 100,
-        pitchMax: 250,
-        volumeMin: -30,
-        volumeMax: -10
-    )
-    
+    vm.calibrationData = .uncalibrated
+
     return OnboardingCompleteView(viewModel: vm)
         .background(AppColors.backgroundPrimary)
         .previewEnvironment()
@@ -240,7 +234,7 @@ struct GoalBadge: View {
     let vm = OnboardingViewModel()
     vm.selectedGoals = [.confidence, .abundance]
     vm.skippedCalibration = true
-    
+
     return OnboardingCompleteView(viewModel: vm)
         .background(AppColors.backgroundPrimary)
         .previewEnvironment()

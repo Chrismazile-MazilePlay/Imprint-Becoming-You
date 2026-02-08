@@ -315,15 +315,15 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
+					"-Wl,-U,_MTLIOErrorDomain",
+					"-Wl,-U,_MTLTensorDomain",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "MazilePlay.Imprint-Becoming-You";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
-					"-Wl,-U,_MTLIOErrorDomain",
-					"-Wl,-U,_MTLTensorDomain",
-				);
 			};
 			name = Debug;
 		};
@@ -349,15 +349,15 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
+					"-Wl,-U,_MTLIOErrorDomain",
+					"-Wl,-U,_MTLTensorDomain",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "MazilePlay.Imprint-Becoming-You";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
-					"-Wl,-U,_MTLIOErrorDomain",
-					"-Wl,-U,_MTLTensorDomain",
-				);
 			};
 			name = Release;
 		};

@@ -17,8 +17,14 @@ enum SpeechCaptureUpdate: Sendable {
     /// New transcription text (partial or final)
     case transcription(text: String, isFinal: Bool)
 
-    /// Audio level update (0.0 - 1.0 normalized)
+    /// Audio level update (0.0 - 1.0 normalized) for UI visualization
     case audioLevel(Float)
+
+    /// Raw audio buffer for resonance scoring (pitch + spectral analysis).
+    ///
+    /// Contains unsmoothed PCM samples, sample rate, and raw RMS level.
+    /// Emitted alongside `.audioLevel` from every audio buffer callback.
+    case audioBuffer(samples: [Float], sampleRate: Double, rmsLevel: Float)
 
     /// Silence detected for specified duration
     case silenceDetected(duration: TimeInterval)
@@ -147,6 +153,20 @@ protocol SpeechCaptureServiceProtocol: AnyObject {
     ///
     /// Clears the transcription and tears down the pipeline.
     func cancelCapture()
+
+    // MARK: - Recognition Reset
+
+    /// Resets the speech recognition pipeline without stopping audio capture.
+    ///
+    /// Creates a fresh `SFSpeechAudioBufferRecognitionRequest` and
+    /// `SFSpeechRecognitionTask` while keeping the AVAudioEngine tap running.
+    /// Clears `currentTranscription` so the next phrase starts with clean state.
+    ///
+    /// Used by `VoiceCalibrationService` to cycle through multiple phrases
+    /// without interrupting the microphone capture.
+    ///
+    /// - Throws: `SpeechCaptureError` if the recognizer is unavailable
+    func resetRecognition() throws
 
     // MARK: - State
 

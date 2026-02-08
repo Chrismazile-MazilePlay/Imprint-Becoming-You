@@ -358,7 +358,11 @@ extension PracticeStore {
         
         // Get speech capture service from store's property
         let captureService = speechCaptureService
-        
+
+        // Create resonance calculator for this listening session
+        resonanceCalculator = ResonanceScoreCalculator(calibrationData: calibrationData)
+        resonanceCalculator?.startSession()
+
         // Use centralized task management for listening task
         listeningTask = Task { [weak self] in
             guard let self = self else { return }
@@ -438,12 +442,20 @@ extension PracticeStore {
                 case .audioLevel(let level):
                     lastAudioLevel = Double(level)
                     let elapsed = Date().timeIntervalSince(startTime)
-                    
+
                     if elapsed >= PracticeTiming.maximumListeningDuration { break captureLoop }
-                    
+
                     let context = ListeningContext(elapsed: elapsed, audioLevel: lastAudioLevel, recognizedText: lastTranscription)
                     self.send(.listeningUpdate(context))
-                    
+
+                case .audioBuffer(let samples, let sampleRate, let rmsLevel):
+                    // Feed raw audio data to resonance calculator for scoring
+                    self.resonanceCalculator?.addRMSSample(rmsLevel)
+                    let pitch = PitchDetector.detectPitch(samples: samples, sampleRate: sampleRate)
+                    self.resonanceCalculator?.addPitchSample(pitch)
+                    let centroid = SpectralAnalyzer.spectralCentroid(samples: samples, sampleRate: sampleRate)
+                    self.resonanceCalculator?.addSpectralCentroidSample(centroid)
+
                 case .silenceDetected(let silenceDuration):
                     if lastTranscription.isEmpty {
                         if silenceDuration >= PracticeTiming.incompleteSilenceTimeout {
@@ -623,7 +635,10 @@ extension PracticeStore {
         
         // Stop speech capture (synchronous)
         speechCaptureService.cancelCapture()
-        
+
+        // Clean up resonance calculator
+        resonanceCalculator = nil
+
         // Cancel speech analysis (async, fire-and-forget - instant operation)
         Task { [weak self] in
             guard let self = self else { return }

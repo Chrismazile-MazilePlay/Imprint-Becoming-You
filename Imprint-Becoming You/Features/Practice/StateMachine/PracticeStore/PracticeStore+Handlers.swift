@@ -571,50 +571,75 @@ extension PracticeStore {
         speechCaptureService.cancelCapture()
         transitionToAnalyzing()
         
-        // Calculate score
+        // Calculate resonance score using collected audio samples
         // Fire-and-forget: score calculation is quick, result sent via event
         Task { [weak self] in
             guard let self = self else { return }
-            
-            var score: Double = 0.0
-            var components = ScoreComponents(textAccuracy: 0, vocalEnergy: 0, pitchStability: 0)
-            
+
             guard let rawExpectedText = self.currentAffirmation?.text else {
                 self.send(.scoreFailed(.scoreCalculationError("No affirmation text")))
                 return
             }
-            
+
             // Strip citation (e.g., "(Philippians 4:13)") from expected text
             // so verse references don't need to be spoken
             let expectedText = rawExpectedText.strippingTrailingCitation
-            
-            let result = TextAccuracyCalculator.evaluateCompletion(
+
+            // Calculate text accuracy and set in resonance calculator
+            let accuracy = TextAccuracyCalculator.calculate(
                 expected: expectedText,
                 recognized: trimmedText
             )
-            
-            AppLogger.debug(
-                "Score calculated",
-                category: .practice,
-                context: ["accuracy": Int(result.accuracy * 100)]
-            )
-            
-            score = Double(result.accuracy)
-            components = ScoreComponents(
-                textAccuracy: Double(result.accuracy),
-                vocalEnergy: Double(result.accuracy),
-                pitchStability: Double(result.accuracy)
-            )
-            
-            let scoreResult = ScoreResult(
-                score: score,
-                components: components,
-                duration: duration,
-                mode: self.currentMode,
-                recognizedText: trimmedText
-            )
-            
+            self.resonanceCalculator?.setTextAccuracy(accuracy)
+
+            // Compute final resonance score from all collected samples
+            let scoreResult: ScoreResult
+            if let record = self.resonanceCalculator?.computeFinalScore(sessionMode: self.currentMode) {
+                AppLogger.debug(
+                    "Resonance score calculated",
+                    category: .practice,
+                    context: [
+                        "overall": Int(record.finalScore * 100),
+                        "textAccuracy": Int(record.textAccuracy * 100),
+                        "vocalEnergy": Int(record.vocalEnergy * 100),
+                        "pitchStability": Int(record.pitchStability * 100)
+                    ]
+                )
+
+                scoreResult = ScoreResult(
+                    score: Double(record.finalScore),
+                    components: ScoreComponents(
+                        textAccuracy: Double(record.textAccuracy),
+                        vocalEnergy: Double(record.vocalEnergy),
+                        pitchStability: Double(record.pitchStability)
+                    ),
+                    duration: duration,
+                    mode: self.currentMode,
+                    recognizedText: trimmedText
+                )
+            } else {
+                // Fallback: insufficient audio samples, use text accuracy only
+                AppLogger.debug(
+                    "Insufficient audio samples for resonance scoring, using text accuracy fallback",
+                    category: .practice,
+                    context: ["accuracy": Int(accuracy * 100)]
+                )
+
+                scoreResult = ScoreResult(
+                    score: Double(accuracy),
+                    components: ScoreComponents(
+                        textAccuracy: Double(accuracy),
+                        vocalEnergy: 0.5,
+                        pitchStability: 0.5
+                    ),
+                    duration: duration,
+                    mode: self.currentMode,
+                    recognizedText: trimmedText
+                )
+            }
+
             self.send(.scoreCalculated(scoreResult))
+            self.resonanceCalculator = nil
         }
     }
     

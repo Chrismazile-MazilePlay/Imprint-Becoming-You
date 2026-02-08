@@ -564,7 +564,10 @@ struct MainPracticeView: View {
         
         // Initialize voice selection from user profile
         updateStoreVoice(from: appState.userProfile?.selectedVoiceId)
-        
+
+        // Pass calibration data to store for personalized resonance scoring
+        store.calibrationData = appState.userProfile?.calibrationData
+
         // Ensure we're on practice page when starting
         currentPage = .practice
         isInitialized = true

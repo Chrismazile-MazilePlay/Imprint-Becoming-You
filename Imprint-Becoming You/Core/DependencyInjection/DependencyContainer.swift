@@ -285,6 +285,19 @@ final class DependencyContainer: Sendable {
         return service
     }
     
+    /// Voice calibration service for onboarding
+    private var _voiceCalibrationService: (any VoiceCalibrationServiceProtocol)?
+    var voiceCalibrationService: any VoiceCalibrationServiceProtocol {
+        if let existing = _voiceCalibrationService {
+            return existing
+        }
+        let service: any VoiceCalibrationServiceProtocol = isPreview
+            ? MockVoiceCalibrationService()
+            : VoiceCalibrationService(speechCaptureService: SpeechCaptureService())
+        _voiceCalibrationService = service
+        return service
+    }
+
     /// Session TTS pre-synthesis queue service
     private var _sessionTTSQueueService: (any SessionTTSQueueServiceProtocol)?
     var sessionTTSQueueService: any SessionTTSQueueServiceProtocol {
@@ -494,6 +507,11 @@ final class DependencyContainer: Sendable {
     /// Registers a custom session TTS queue service
     func register(sessionTTSQueueService: any SessionTTSQueueServiceProtocol) {
         _sessionTTSQueueService = sessionTTSQueueService
+    }
+
+    /// Registers a custom voice calibration service
+    func register(voiceCalibrationService: any VoiceCalibrationServiceProtocol) {
+        _voiceCalibrationService = voiceCalibrationService
     }
 }
 

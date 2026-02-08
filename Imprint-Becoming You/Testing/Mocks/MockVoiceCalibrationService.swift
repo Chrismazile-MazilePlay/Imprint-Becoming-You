@@ -39,13 +39,7 @@ final class MockVoiceCalibrationService: VoiceCalibrationServiceProtocol {
     // MARK: - Stubs
 
     /// Stub return value for `performCalibration(with:)`
-    var stubCalibrationData: CalibrationData = CalibrationData(
-        baselineRMS: 0.15,
-        pitchMin: 100,
-        pitchMax: 300,
-        volumeMin: -40,
-        volumeMax: -10
-    )
+    var stubCalibrationData: CalibrationData = .uncalibrated
 
     /// Error to throw from `performCalibration(with:)` (nil = success)
     var stubError: Error?

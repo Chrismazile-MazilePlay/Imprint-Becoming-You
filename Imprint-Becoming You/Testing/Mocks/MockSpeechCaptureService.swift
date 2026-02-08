@@ -37,6 +37,9 @@ final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked S
     /// Number of times `cancelCapture()` was called
     private(set) var cancelCaptureCallCount: Int = 0
 
+    /// Number of times `resetRecognition()` was called
+    private(set) var resetRecognitionCallCount: Int = 0
+
     // MARK: - Stubs
 
     /// Stub value for `hasMicrophonePermission`
@@ -117,6 +120,11 @@ final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked S
         stubCurrentTranscription = ""
     }
 
+    func resetRecognition() throws {
+        resetRecognitionCallCount += 1
+        stubCurrentTranscription = ""
+    }
+
     var isCapturing: Bool { stubIsCapturing }
     var currentTranscription: String { stubCurrentTranscription }
 
@@ -127,6 +135,7 @@ final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked S
         startCaptureCallCount = 0
         stopCaptureCallCount = 0
         cancelCaptureCallCount = 0
+        resetRecognitionCallCount = 0
         stubHasMicrophonePermission = true
         stubHasSpeechRecognitionPermission = true
         stubRequestMicPermissionResult = true

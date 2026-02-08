@@ -309,54 +309,122 @@ extension UserProfile {
 
 /// Voice calibration data captured during onboarding.
 ///
-/// This data is used to personalize the Resonance Score calculation
-/// based on the user's natural vocal characteristics.
+/// This data personalizes the Resonance Score by establishing the user's
+/// natural vocal baseline. Each metric is captured during onboarding
+/// calibration and used for Z-score normalization during practice scoring.
+///
+/// ## Scoring Components
+/// - **Vocal Projection** (40%): `baselineRMS` + `baselineSpectralCentroid`
+/// - **Expressiveness** (35%): `baselinePitchCV` + `baselinePitchRangeSemitones`
+/// - **Text Accuracy** (25%): Not calibration-dependent
+///
+/// ## Usage
+/// ```swift
+/// // During scoring, normalize against personal baseline:
+/// let z = (currentRMS - calibration.baselineRMS) / calibration.rmsStdDev
+/// let score = 1 / (1 + exp(-z * 1.5))  // sigmoid → baseline = 0.5
+/// ```
 struct CalibrationData: Codable, Equatable, Sendable {
-    
-    /// Average RMS energy level from calibration samples
+
+    // MARK: - RMS Energy
+
+    /// Median RMS energy level from calibration samples (0.0 - 1.0)
     var baselineRMS: Float
-    
-    /// Minimum detected pitch (Hz)
+
+    /// Standard deviation of RMS samples (for Z-score normalization)
+    var rmsStdDev: Float
+
+    // MARK: - Pitch
+
+    /// Mean pitch frequency in Hz
+    var pitchMeanHz: Float
+
+    /// 10th percentile pitch (Hz) — lower bound of natural range
     var pitchMin: Float
-    
-    /// Maximum detected pitch (Hz)
+
+    /// 90th percentile pitch (Hz) — upper bound of natural range
     var pitchMax: Float
-    
-    /// Minimum detected volume (dB)
+
+    /// Baseline pitch coefficient of variation (stdDev / mean).
+    /// Represents the user's natural level of pitch variation.
+    var baselinePitchCV: Float
+
+    /// Baseline pitch range in semitones: `12 × log₂(pitchMax / pitchMin)`.
+    /// Represents how wide the user's natural pitch range is.
+    var baselinePitchRangeSemitones: Float
+
+    // MARK: - Spectral
+
+    /// Mean spectral centroid (Hz) — center of spectral energy mass.
+    /// Higher values indicate brighter, more projected speech.
+    var baselineSpectralCentroid: Float
+
+    /// Standard deviation of spectral centroid (for Z-score normalization)
+    var spectralCentroidStdDev: Float
+
+    // MARK: - Volume
+
+    /// Minimum detected volume (dB, 10th percentile)
     var volumeMin: Float
-    
-    /// Maximum detected volume (dB)
+
+    /// Maximum detected volume (dB, 90th percentile)
     var volumeMax: Float
-    
+
+    // MARK: - Metadata
+
     /// Date when calibration was performed
     var calibratedAt: Date
-    
-    /// Creates new calibration data
+
+    // MARK: - Initialization
+
+    /// Creates calibration data from measured voice characteristics.
     init(
         baselineRMS: Float,
+        rmsStdDev: Float,
+        pitchMeanHz: Float,
         pitchMin: Float,
         pitchMax: Float,
+        baselinePitchCV: Float,
+        baselinePitchRangeSemitones: Float,
+        baselineSpectralCentroid: Float,
+        spectralCentroidStdDev: Float,
         volumeMin: Float,
         volumeMax: Float,
         calibratedAt: Date = Date()
     ) {
         self.baselineRMS = baselineRMS
+        self.rmsStdDev = rmsStdDev
+        self.pitchMeanHz = pitchMeanHz
         self.pitchMin = pitchMin
         self.pitchMax = pitchMax
+        self.baselinePitchCV = baselinePitchCV
+        self.baselinePitchRangeSemitones = baselinePitchRangeSemitones
+        self.baselineSpectralCentroid = baselineSpectralCentroid
+        self.spectralCentroidStdDev = spectralCentroidStdDev
         self.volumeMin = volumeMin
         self.volumeMax = volumeMax
         self.calibratedAt = calibratedAt
     }
-    
-    /// Average pitch based on range
-    var averagePitch: Float {
-        (pitchMin + pitchMax) / 2.0
-    }
-    
-    /// Pitch range span
-    var pitchRange: Float {
-        pitchMax - pitchMin
-    }
+
+    // MARK: - Defaults
+
+    /// Sensible defaults for users who skip calibration.
+    ///
+    /// Based on typical adult speech characteristics. Scoring still works
+    /// but is less personalized — users are encouraged to calibrate.
+    static let uncalibrated = CalibrationData(
+        baselineRMS: Constants.ResonanceScoring.defaultBaselineRMS,
+        rmsStdDev: Constants.ResonanceScoring.defaultRMSStdDev,
+        pitchMeanHz: Constants.ResonanceScoring.defaultPitchMeanHz,
+        pitchMin: 100,
+        pitchMax: 300,
+        baselinePitchCV: Constants.ResonanceScoring.defaultPitchCV,
+        baselinePitchRangeSemitones: Constants.ResonanceScoring.defaultPitchRangeSemitones,
+        baselineSpectralCentroid: Constants.ResonanceScoring.defaultSpectralCentroid,
+        spectralCentroidStdDev: Constants.ResonanceScoring.defaultSpectralCentroidStdDev,
+        volumeMin: -40,
+        volumeMax: -10
+    )
 }
 
 // NOTE: SessionMode and BinauralPreset enums have been moved to their own files:

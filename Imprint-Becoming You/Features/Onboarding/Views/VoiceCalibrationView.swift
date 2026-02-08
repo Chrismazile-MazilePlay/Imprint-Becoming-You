@@ -27,11 +27,9 @@ struct VoiceCalibrationView: View {
     @Bindable var viewModel: OnboardingViewModel
     
     // MARK: - State
-    
-    @State private var audioLevel: Float = 0
+
     @State private var pulseScale: CGFloat = 1.0
     @State private var isAnimating: Bool = false
-    @State private var currentPhraseIndex: Int = 0
     @State private var showPermissionAlert: Bool = false
     
     // MARK: - Constants
@@ -64,10 +62,10 @@ struct VoiceCalibrationView: View {
             // Calibration content
             if viewModel.isCalibrating {
                 CalibrationInProgressView(
-                    currentPhrase: phrases[safe: currentPhraseIndex] ?? "",
-                    phraseIndex: currentPhraseIndex,
+                    currentPhrase: phrases[safe: viewModel.currentCalibrationPhraseIndex] ?? "",
+                    phraseIndex: viewModel.currentCalibrationPhraseIndex,
                     totalPhrases: phrases.count,
-                    audioLevel: audioLevel,
+                    audioLevel: viewModel.calibrationAudioLevel,
                     isAnimating: $isAnimating,
                     pulseScale: $pulseScale
                 )
@@ -136,15 +134,15 @@ struct VoiceCalibrationView: View {
     private func startCalibration() {
         Task {
             await viewModel.startCalibration(
-                speechService: dependencies.speechAnalysisService
+                calibrationService: dependencies.voiceCalibrationService
             )
         }
     }
-    
+
     private func cancelCalibration() {
+        dependencies.voiceCalibrationService.cancelCalibration()
         viewModel.isCalibrating = false
         isAnimating = false
-        currentPhraseIndex = 0
     }
     
     private func openSettings() {

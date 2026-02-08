@@ -49,6 +49,14 @@ struct RootView: View {
         .task {
             await loadInitialData()
         }
+        .onChange(of: appState.hasCompletedOnboarding) { _, isComplete in
+            if isComplete {
+                // Resume the 30s synthesis idle timer now that onboarding is done.
+                // During onboarding the timer was suppressed to keep ML pipelines
+                // in memory for instant voice previews.
+                dependencies.ttsService.resumeSynthesisIdleTimer()
+            }
+        }
         .alert(
             "Error",
             isPresented: Binding(

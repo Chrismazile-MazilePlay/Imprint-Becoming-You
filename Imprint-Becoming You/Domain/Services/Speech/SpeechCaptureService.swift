@@ -359,8 +359,69 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         }
     }
 
+    // MARK: - Recognition Reset
+
+    /// Resets the speech recognition pipeline without stopping audio capture.
+    ///
+    /// Ends the current recognition request and task, then creates fresh ones.
+    /// The AVAudioEngine tap continues running — audio is never interrupted.
+    /// This enables cycling through multiple phrases during calibration.
+    ///
+    /// - Throws: `CaptureError.speechRecognizerUnavailable` if recognizer is nil
+    func resetRecognition() throws {
+        guard isCapturing else {
+            #if DEBUG
+            AppLogger.debug("Not capturing, ignoring resetRecognition()", category: .speech)
+            #endif
+            return
+        }
+
+        guard let recognizer = speechRecognizer, recognizer.isAvailable else {
+            throw CaptureError.speechRecognizerUnavailable
+        }
+
+        #if DEBUG
+        AppLogger.debug("Resetting recognition pipeline (engine stays running)", category: .speech)
+        #endif
+
+        // Finalize and cancel the current recognition session
+        recognitionRequest?.endAudio()
+        recognitionTask?.cancel()
+
+        // Clear accumulated transcription
+        currentTranscription = ""
+
+        // Create a fresh recognition request
+        let newRequest = SFSpeechAudioBufferRecognitionRequest()
+        newRequest.shouldReportPartialResults = true
+        newRequest.requiresOnDeviceRecognition = false
+
+        if #available(iOS 17.0, *) {
+            newRequest.addsPunctuation = true
+        }
+
+        // Create a fresh recognition task
+        let newTask = recognizer.recognitionTask(with: newRequest) { [weak self] result, error in
+            Task { @MainActor in
+                self?.handleRecognitionResult(result, error: error)
+            }
+        }
+
+        // Swap stored properties — the tap closure references self.recognitionRequest
+        // so it will automatically start feeding buffers to the new request
+        self.recognitionRequest = newRequest
+        self.recognitionTask = newTask
+
+        // Reset speech timing for silence detection
+        lastSpeechTime = Date()
+
+        #if DEBUG
+        AppLogger.debug("Recognition pipeline reset complete", category: .speech)
+        #endif
+    }
+
     // MARK: - Private Methods
-    
+
     /// Ends the capture signpost interval if one is active
     private func endCaptureSignpost() {
         if let signpostID = captureSignpostID {
@@ -500,11 +561,14 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                         }
                     }
                     
-                    // Install tap with the NATIVE format
+                    // Install tap with the NATIVE format.
+                    // CRITICAL: Reference self.recognitionRequest (stored property) instead
+                    // of the local `request` variable. This allows resetRecognition() to
+                    // swap in a fresh request without reinstalling the tap.
                     inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
-                        // Append buffer to recognition request
-                        request.append(buffer)
-                        
+                        // Append buffer to current recognition request (may change between phrases)
+                        self?.recognitionRequest?.append(buffer)
+
                         // Calculate audio level on MainActor
                         Task { @MainActor in
                             self?.processAudioLevel(buffer: buffer)
@@ -592,29 +656,37 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         #endif
     }
     
-    /// Processes audio buffer for level metering
+    /// Processes audio buffer for level metering and resonance scoring.
+    ///
+    /// Emits two events per buffer:
+    /// - `.audioLevel`: Smoothed, normalized level for UI visualization
+    /// - `.audioBuffer`: Raw samples + RMS for pitch detection and spectral analysis
     private func processAudioLevel(buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData else { return }
-        
+
         let frameLength = Int(buffer.frameLength)
         guard frameLength > 0 else { return }
-        
-        // Calculate RMS
+
+        // Calculate RMS (unsmoothed, for scoring accuracy)
         var sum: Float = 0
         for i in 0..<frameLength {
             let sample = channelData[0][i]
             sum += sample * sample
         }
         let rms = sqrt(sum / Float(frameLength))
-        
-        // Smooth the level
+
+        // Smooth the level for UI
         smoothedLevel = (smoothingFactor * rms) + ((1 - smoothingFactor) * smoothedLevel)
-        
-        // Convert to normalized level (0-1)
+
+        // Convert to normalized level (0-1) for UI visualization
         // RMS of speech typically ranges from 0.01 to 0.3
         let normalizedLevel = min(1.0, smoothedLevel * 5)
-        
         emit(.audioLevel(normalizedLevel))
+
+        // Extract raw samples for resonance scoring (pitch + spectral analysis)
+        var samples = [Float](repeating: 0, count: frameLength)
+        memcpy(&samples, channelData[0], frameLength * MemoryLayout<Float>.size)
+        emit(.audioBuffer(samples: samples, sampleRate: Double(buffer.format.sampleRate), rmsLevel: rms))
     }
     
     /// Starts monitoring for silence

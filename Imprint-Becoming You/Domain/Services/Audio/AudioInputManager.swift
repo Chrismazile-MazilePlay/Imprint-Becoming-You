@@ -144,19 +144,37 @@ final class AudioInputManager {
         }
     }
     
-    /// Stops capturing audio
+    /// Stops capturing audio.
+    ///
+    /// Does **not** finish the buffer stream continuation. The stream
+    /// naturally stops yielding when the tap is removed and resumes
+    /// when ``startCapture()`` re-installs it. This allows multi-phrase
+    /// calibration to call stop/start between phrases without
+    /// permanently terminating the stream.
+    ///
+    /// Call ``shutdown()`` for permanent cleanup when the manager
+    /// is no longer needed.
     func stopCapture() {
         guard isCapturing else { return }
-        
+
         audioInputLog.info("🛑 Stopping audio capture")
-        
+
         inputNode.removeTap(onBus: 0)
         audioEngine.stop()
         isCapturing = false
-        
-        bufferContinuation?.finish()
     }
-    
+
+    /// Permanently shuts down the audio input manager.
+    ///
+    /// Stops capture (if active) and finishes the buffer stream so
+    /// any pending `for await` consumers exit cleanly. After calling
+    /// this method, the manager should not be reused.
+    func shutdown() {
+        stopCapture()
+        bufferContinuation?.finish()
+        bufferContinuation = nil
+    }
+
     /// Requests microphone permission
     /// - Returns: Whether permission was granted
     func requestPermission() async -> Bool {

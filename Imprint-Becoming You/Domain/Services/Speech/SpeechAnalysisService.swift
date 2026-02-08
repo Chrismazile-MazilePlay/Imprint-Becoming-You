@@ -115,7 +115,7 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol {
         }
         
         self.speechRecognitionService = SpeechRecognitionService()
-        self.calibrationService = VoiceCalibrationService(audioInputManager: audioInputManager)
+        self.calibrationService = VoiceCalibrationService(speechCaptureService: SpeechCaptureService())
         
         speechLog.info("✅ SpeechAnalysisService initialized")
     }

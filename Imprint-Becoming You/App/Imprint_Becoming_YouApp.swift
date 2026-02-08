@@ -220,6 +220,14 @@ struct ImprintApp: App {
         #endif
         let startTime = Date()
         await dependencies.ttsService.warmUp()
+
+        // Keep ML pipelines in memory during onboarding — suppress the 30s idle
+        // timer so voice previews are always instant. The timer is resumed in
+        // RootView when hasCompletedOnboarding transitions to true.
+        if !appState.hasCompletedOnboarding {
+            dependencies.ttsService.suppressSynthesisIdleTimer()
+        }
+
         #if DEBUG
         let elapsed = Date().timeIntervalSince(startTime)
         print("ImprintApp: TTS warm-up complete (\(String(format: "%.2f", elapsed))s)")

@@ -54,7 +54,13 @@ final class OnboardingViewModel {
     
     /// Current calibration phrase being spoken
     var currentCalibrationPhrase: String = ""
-    
+
+    /// Index of the current calibration phrase (0-based)
+    var currentCalibrationPhraseIndex: Int = 0
+
+    /// Real-time audio level during calibration (0.0 - 1.0)
+    var calibrationAudioLevel: Float = 0
+
     /// Calibration result after completion
     var calibrationData: CalibrationData?
     
@@ -400,25 +406,41 @@ final class OnboardingViewModel {
     }
     
     // MARK: - Calibration
-    
-    /// Starts voice calibration
-    func startCalibration(speechService: any SpeechAnalysisServiceProtocol) async {
+
+    /// Starts voice calibration using `VoiceCalibrationServiceProtocol`.
+    ///
+    /// Launches a concurrent task that subscribes to `progressStream` for
+    /// live UI updates (phrase index, audio level, progress), while the
+    /// main flow awaits `performCalibration()` for the final result.
+    ///
+    /// - Parameter calibrationService: Calibration service to use
+    func startCalibration(calibrationService: any VoiceCalibrationServiceProtocol) async {
         isCalibrating = true
         calibrationProgress = 0
+        currentCalibrationPhraseIndex = 0
+        calibrationAudioLevel = 0
         errorMessage = nil
-        
-        do {
-            let hasMic = await speechService.requestMicrophonePermission()
-            guard hasMic else {
-                throw AppError.microphoneAccessDenied
+
+        // Subscribe to progress stream for live UI updates
+        let progressTask = Task { [weak self] in
+            for await update in calibrationService.progressStream {
+                guard let self = self else { break }
+                self.currentCalibrationPhrase = update.currentPhrase
+                self.currentCalibrationPhraseIndex = update.phraseIndex
+                self.calibrationProgress = update.progress
+                self.calibrationAudioLevel = update.audioLevel
             }
-            
+        }
+
+        defer { progressTask.cancel() }
+
+        do {
             let phrases = VoiceCalibrationService.defaultCalibrationPhrases
-            calibrationData = try await speechService.performCalibration(with: phrases)
-            
+            calibrationData = try await calibrationService.performCalibration(with: phrases)
+
             isCalibrating = false
             nextStep()
-            
+
         } catch {
             isCalibrating = false
             handleError(error)

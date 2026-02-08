@@ -273,22 +273,50 @@ enum Constants {
     }
     
     // MARK: - Resonance Scoring
-    
+
     enum ResonanceScoring {
-        /// Weight for text accuracy in final score
-        static let textAccuracyWeight: Float = 0.10
-        
-        /// Weight for vocal energy (RMS) in final score
-        static let vocalEnergyWeight: Float = 0.60
-        
-        /// Weight for pitch stability in final score
-        static let pitchStabilityWeight: Float = 0.30
-        
+
+        // MARK: Scoring Weights
+
+        /// Weight for text accuracy (word + Levenshtein matching) in final score
+        static let textAccuracyWeight: Float = 0.25
+
+        /// Weight for vocal projection (RMS energy + spectral centroid) in final score
+        static let vocalEnergyWeight: Float = 0.40
+
+        /// Weight for expressiveness (pitch variation + range utilization) in final score
+        static let pitchStabilityWeight: Float = 0.35
+
+        // MARK: Rating Thresholds
+
         /// Minimum score threshold for "good" resonance
         static let goodThreshold: Float = 0.6
-        
+
         /// Minimum score threshold for "excellent" resonance
         static let excellentThreshold: Float = 0.8
+
+        // MARK: Default Baselines (Uncalibrated Users)
+
+        /// Default baseline RMS energy (typical conversational speech)
+        static let defaultBaselineRMS: Float = 0.15
+
+        /// Default RMS standard deviation
+        static let defaultRMSStdDev: Float = 0.05
+
+        /// Default mean pitch frequency (Hz, adult average)
+        static let defaultPitchMeanHz: Float = 180.0
+
+        /// Default pitch coefficient of variation (natural speech variation)
+        static let defaultPitchCV: Float = 0.12
+
+        /// Default pitch range in semitones (typical conversational range)
+        static let defaultPitchRangeSemitones: Float = 8.0
+
+        /// Default spectral centroid (Hz, typical speech brightness)
+        static let defaultSpectralCentroid: Float = 1500.0
+
+        /// Default spectral centroid standard deviation
+        static let defaultSpectralCentroidStdDev: Float = 300.0
     }
     
     // MARK: - Cache Configuration

@@ -290,7 +290,13 @@ final class PracticeStore {
     
     /// User's calibration data
     var calibrationData: CalibrationData?
-    
+
+    /// Resonance score calculator for current listening session (created per-affirmation).
+    /// Collects RMS, pitch, and spectral centroid samples during listening,
+    /// then computes the final resonance score when listening completes.
+    @ObservationIgnored
+    var resonanceCalculator: ResonanceScoreCalculator?
+
     // MARK: - Voice Configuration
     
     /// The TTS voice ID to use for playback (raw Kokoro format, e.g., "af_heart").

@@ -297,10 +297,8 @@ final class MemoryManager {
                 }
 
                 AppLogger.info("Pipeline grace period expired — releasing pipeline", category: .memory)
-                if let ttsService = self.dependencies?.ttsService as? TTSService {
-                    await ttsService.releasePipelineMemory()
-                    AppLogger.info("  Released Kokoro pipeline memory", category: .memory)
-                }
+                await self.dependencies?.ttsService.releasePipelineMemory()
+                AppLogger.info("  Released Kokoro pipeline memory", category: .memory)
                 self.hasReleasedForBackground = true
             }
         }
@@ -384,7 +382,7 @@ final class MemoryManager {
         let startMemory = currentMemoryUsageMB()
 
         // 1. Hard-release Kokoro (sets isKokoroReady = false)
-        if let ttsService = dependencies?.ttsService as? TTSService {
+        if let ttsService = dependencies?.ttsService {
             await ttsService.releaseForBackground()
             needsKokoroWarmUp = true
             AppLogger.info("  Hard-released Kokoro TTS (isKokoroReady=false)", category: .memory)

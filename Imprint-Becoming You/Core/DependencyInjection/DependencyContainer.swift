@@ -197,7 +197,11 @@ final class DependencyContainer: Sendable {
         if let existing = _ttsService {
             return existing
         }
+        #if targetEnvironment(simulator)
+        let service: any TTSServiceProtocol = MockTTSService()
+        #else
         let service: any TTSServiceProtocol = isPreview ? MockTTSService() : TTSService()
+        #endif
         _ttsService = service
         return service
     }
@@ -534,12 +538,23 @@ extension View {
 
 // MARK: - Preview Model Container
 
-/// Creates an in-memory SwiftData container for previews
+/// Shared in-memory SwiftData container for previews.
 ///
-/// Returns an optional container to avoid force unwrapping.
-/// If creation fails, returns nil and logs the error.
+/// Uses a lazy singleton to prevent `ModelContext.reset` crashes when
+/// switching between Xcode Previews. Each call to a non-cached factory
+/// would create a new container, invalidating model instances still
+/// referenced by the previous preview — triggering a `fatalError` in
+/// `BackingData.swift`. A single shared instance keeps all preview
+/// model references stable across preview switches.
+@MainActor
+private var _previewModelContainer: ModelContainer?
+
 @MainActor
 func previewModelContainer() -> ModelContainer {
+    if let existing = _previewModelContainer {
+        return existing
+    }
+
     let schema = Schema([
         UserProfile.self,
         Affirmation.self,
@@ -549,18 +564,18 @@ func previewModelContainer() -> ModelContainer {
         VoiceRecord.self,
         VoiceUsageRecord.self
     ])
-    
+
     let configuration = ModelConfiguration(
         schema: schema,
         isStoredInMemoryOnly: true
     )
-    
+
     do {
         let container = try ModelContainer(for: schema, configurations: [configuration])
-        
+
         // Insert sample data
         let context = container.mainContext
-        
+
         // Sample user profile
         let profile = UserProfile(
             selectedGoals: [
@@ -572,20 +587,21 @@ func previewModelContainer() -> ModelContainer {
             includeFaithContent: true
         )
         context.insert(profile)
-        
+
         // Sample affirmations
         for affirmation in Affirmation.samples {
             context.insert(affirmation)
         }
-        
+
         // Sample prompts
         for prompt in CustomPrompt.samples {
             context.insert(prompt)
         }
-        
+
         // Sample progress
         context.insert(ProgressData.sample)
-        
+
+        _previewModelContainer = container
         return container
     } catch {
         // For previews, we still need to return something
@@ -594,9 +610,11 @@ func previewModelContainer() -> ModelContainer {
         print("⚠️ PreviewContainer: Failed to create container with sample data: \(error)")
         print("⚠️ PreviewContainer: Attempting minimal container...")
         #endif
-        
+
         do {
-            return try ModelContainer(for: schema, configurations: [configuration])
+            let container = try ModelContainer(for: schema, configurations: [configuration])
+            _previewModelContainer = container
+            return container
         } catch {
             // This is a preview-only path, so fatalError is acceptable here
             // as it only affects Xcode Canvas, not production

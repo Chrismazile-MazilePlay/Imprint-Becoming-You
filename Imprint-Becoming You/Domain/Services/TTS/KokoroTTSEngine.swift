@@ -5,6 +5,7 @@
 //  Created by Christopher Mazile on 1/24/26.
 //
 
+#if !targetEnvironment(simulator)
 import Foundation
 import AVFoundation
 import iOS_TTS
@@ -565,3 +566,4 @@ actor KokoroTTSEngine {
         return data
     }
 }
+#endif

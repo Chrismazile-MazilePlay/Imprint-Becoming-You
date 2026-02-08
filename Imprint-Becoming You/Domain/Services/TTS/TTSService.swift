@@ -5,6 +5,7 @@
 //  Created by Christopher Mazile on 12/24/25.
 //
 
+#if !targetEnvironment(simulator)
 import Foundation
 import AVFoundation
 import iOS_TTS
@@ -901,3 +902,4 @@ private final class TTSAudioPlayerDelegate: NSObject, AVAudioPlayerDelegate {
         completion(false)
     }
 }
+#endif

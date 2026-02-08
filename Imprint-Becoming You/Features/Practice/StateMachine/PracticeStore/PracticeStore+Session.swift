@@ -412,12 +412,10 @@ extension PracticeStore {
             queueService.onBackgroundSynthesisComplete = { [weak self] in
                 guard let self = self else { return }
                 Task {
-                    if let ttsService = self.dependencies.ttsService as? TTSService {
-                        await ttsService.releasePipelineMemory()
-                        #if DEBUG
-                        AppLogger.debug("Released Kokoro pipeline after background synthesis (~1.3GB freed)", category: .practice)
-                        #endif
-                    }
+                    await self.dependencies.ttsService.releasePipelineMemory()
+                    #if DEBUG
+                    AppLogger.debug("Released Kokoro pipeline after background synthesis (~1.3GB freed)", category: .practice)
+                    #endif
                 }
             }
 
@@ -429,12 +427,10 @@ extension PracticeStore {
             // Soft-release frees CoreML buffers while keeping isKokoroReady=true,
             // so the pipeline transparently reloads on next session preparation.
             Task {
-                if let ttsService = self.dependencies.ttsService as? TTSService {
-                    await ttsService.releasePipelineMemory()
-                    #if DEBUG
-                    AppLogger.debug("Released Kokoro pipeline after full preparation (~1.3GB freed)", category: .practice)
-                    #endif
-                }
+                await self.dependencies.ttsService.releasePipelineMemory()
+                #if DEBUG
+                AppLogger.debug("Released Kokoro pipeline after full preparation (~1.3GB freed)", category: .practice)
+                #endif
             }
         }
     }
@@ -481,12 +477,10 @@ extension PracticeStore {
         // cancelAll() only schedules release via a 30s idle timer — this
         // bypasses the delay for instant memory recovery.
         Task {
-            if let ttsService = self.dependencies.ttsService as? TTSService {
-                await ttsService.releasePipelineMemory()
-                #if DEBUG
-                AppLogger.debug("Released Kokoro pipeline on cancel preparation (~1.3GB freed)", category: .practice)
-                #endif
-            }
+            await self.dependencies.ttsService.releasePipelineMemory()
+            #if DEBUG
+            AppLogger.debug("Released Kokoro pipeline on cancel preparation (~1.3GB freed)", category: .practice)
+            #endif
         }
 
         // 4. Reset session-scoped flags

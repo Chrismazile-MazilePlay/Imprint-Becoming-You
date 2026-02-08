@@ -7,6 +7,8 @@
 
 import Foundation
 import iOS_TTS
+
+#if !targetEnvironment(simulator)
 import MisakiSwift
 import MLXUtilsLibrary
 
@@ -92,3 +94,4 @@ final class MisakiG2PAdapter: iOS_TTS.G2P {
         )
     }
 }
+#endif

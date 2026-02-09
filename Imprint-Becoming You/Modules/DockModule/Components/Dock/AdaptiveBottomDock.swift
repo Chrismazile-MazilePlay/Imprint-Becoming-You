@@ -198,6 +198,8 @@ private extension AdaptiveBottomDock {
             }
 
             // Center row: Nav + Content + Nav
+            // Horizontal inset matches button row so nav buttons align
+            // vertically with binaural (left) and gear (right) buttons.
             HStack(spacing: 0) {
                 DockNavigationButton(
                     direction: .previous,
@@ -220,6 +222,7 @@ private extension AdaptiveBottomDock {
                     adapter.navigateNext()
                 }
             }
+            .padding(.horizontal, Constants.DockSizes.alignmentInset)
 
             // Bottom row: Unified 3-button row
             // Slight inset to align with progress segments

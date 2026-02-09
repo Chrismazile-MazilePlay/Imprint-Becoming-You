@@ -100,7 +100,7 @@ struct FloatingHUDLayer: View {
     // MARK: - Chip Dimensions
     
     /// Standard height for all HUD chips to ensure visual consistency
-    private let chipHeight: CGFloat = 36
+    private let chipHeight: CGFloat = 44
     
     /// Fixed width for Exit and Loop chips for perfect symmetry
     private let symmetricChipWidth: CGFloat = 78
@@ -147,8 +147,8 @@ struct FloatingHUDLayer: View {
             if showLoopChip {
                 loopProgressChip
             } else {
-                // Invisible spacer to maintain layout - same size as Exit chip
-                Color.clear.frame(width: symmetricChipWidth, height: chipHeight)
+                // Invisible spacer to maintain layout - same size as Exit button
+                Color.clear.frame(width: 44, height: 44)
             }
         } else {
             profileButton
@@ -171,7 +171,7 @@ struct FloatingHUDLayer: View {
     private var loopProgressChip: some View {
         HStack(spacing: AppTheme.Spacing.xs) {
             Image(systemName: "repeat")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 17, weight: .semibold))
             
             Text(loopChipNumbers)
                 .font(AppTypography.caption1.weight(.medium))
@@ -224,16 +224,12 @@ struct FloatingHUDLayer: View {
             store.send(.exitSession)
             HapticFeedback.impact(.light)
         } label: {
-            HStack(spacing: AppTheme.Spacing.xs) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .semibold))
-                Text("Exit")
-                    .font(AppTypography.caption1.weight(.medium))
-            }
-            .foregroundStyle(AppColors.textSecondary)
-            .frame(width: symmetricChipWidth, height: chipHeight)
-            .background(AppColors.surfaceTertiary.opacity(0.8))
-            .clipShape(Capsule())
+            Image(systemName: "xmark")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(AppColors.textSecondary)
+                .frame(width: 44, height: 44)
+                .background(AppColors.surfaceTertiary.opacity(0.8))
+                .clipShape(Circle())
         }
         .accessibilityLabel("Exit session")
     }

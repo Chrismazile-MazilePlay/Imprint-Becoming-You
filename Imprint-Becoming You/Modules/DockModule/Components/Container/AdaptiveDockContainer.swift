@@ -94,7 +94,7 @@ public struct AdaptiveDockContainer<Content: View>: View {
                         adapter.play()
                     }
                     .padding(.trailing, tokens.spacingLG)
-                    .padding(.bottom, tokens.spacingSM)
+                    .padding(.bottom, tokens.spacingMD)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                 }
 

@@ -131,7 +131,7 @@ public struct ConfigSelectorExpanded: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Loop")
                     .font(tokens.headline)
-                    .foregroundStyle(loopCount > 1 ? tokens.accent : tokens.textPrimary)
+                    .foregroundStyle(tokens.textPrimary)
                 Text("Repeat affirmations")
                     .font(tokens.caption1)
                     .foregroundStyle(tokens.textTertiary)
@@ -168,15 +168,8 @@ public struct ConfigSelectorExpanded: View {
             haptics.selectionFeedback()
             onSelectLoopCount(count)
         } label: {
-            Group {
-                if count == 1 {
-                    Image(systemName: "repeat.1")
-                        .font(.system(size: 17, weight: .semibold))
-                } else {
-                    Text("\(count)")
-                        .font(.system(size: 19, weight: .bold))
-                }
-            }
+            Text("\(count)")
+                .font(.system(size: 19, weight: .bold))
             .foregroundStyle(isSelected ? tokens.accent : tokens.textSecondary)
             .frame(width: tokens.chipHeight, height: tokens.chipHeight)
             .background(
@@ -220,10 +213,11 @@ public struct ConfigSelectorExpanded: View {
 
                 Spacer(minLength: 0)
 
-                // State text
+                // State text — identity transition for instant swap (no fade)
                 Text(isShuffleEnabled ? "On" : "Off")
                     .font(tokens.headline)
                     .foregroundStyle(isShuffleEnabled ? tokens.accent : tokens.textTertiary)
+                    .contentTransition(.identity)
             }
             .padding(.horizontal, tokens.spacingMD)
             .padding(.vertical, tokens.spacingSM)

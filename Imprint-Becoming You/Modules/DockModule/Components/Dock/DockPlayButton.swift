@@ -53,7 +53,7 @@ public struct DockPlayButton: View {
             action()
         } label: {
             Image(systemName: "play.fill")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(isEnabled ? tokens.textPrimary : tokens.textTertiary)
                 .frame(width: tokens.playButtonSize, height: tokens.playButtonSize)
                 .background(

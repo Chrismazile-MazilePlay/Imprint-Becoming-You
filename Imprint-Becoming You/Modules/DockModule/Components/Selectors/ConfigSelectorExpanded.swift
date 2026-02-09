@@ -131,7 +131,7 @@ public struct ConfigSelectorExpanded: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Loop")
                     .font(tokens.headline)
-                    .foregroundStyle(tokens.textPrimary)
+                    .foregroundStyle(loopCount > 1 ? tokens.accent : tokens.textPrimary)
                 Text("Repeat affirmations")
                     .font(tokens.caption1)
                     .foregroundStyle(tokens.textTertiary)
@@ -213,11 +213,13 @@ public struct ConfigSelectorExpanded: View {
 
                 Spacer(minLength: 0)
 
-                // State text — identity transition for instant swap (no fade)
+                // State text — fixed width prevents layout shift, fully non-animated
                 Text(isShuffleEnabled ? "On" : "Off")
                     .font(tokens.headline)
                     .foregroundStyle(isShuffleEnabled ? tokens.accent : tokens.textTertiary)
+                    .frame(width: 32, alignment: .center)
                     .contentTransition(.identity)
+                    .animation(nil, value: isShuffleEnabled)
             }
             .padding(.horizontal, tokens.spacingMD)
             .padding(.vertical, tokens.spacingSM)

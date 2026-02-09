@@ -26,10 +26,7 @@ struct SavedSessionsFullListView: View {
     // MARK: - Properties
     
     @Bindable var store: PracticeStore
-    
-    /// Called when user starts a session - should pop to root and navigate to Practice
-    let onStartSession: () -> Void
-    
+
     // MARK: - Queries
     
     @Query(sort: \SavedSession.sortOrder, order: .forward)
@@ -73,12 +70,10 @@ struct SavedSessionsFullListView: View {
     // MARK: - Initialization
     
     init(
-        store: PracticeStore,
-        onStartSession: @escaping () -> Void
+        store: PracticeStore
     ) {
         self.store = store
-        self.onStartSession = onStartSession
-        
+
         self._dockAdapter = State(initialValue: ListDockAdapter(
             showsShuffleOption: true,
             labelText: "",
@@ -332,12 +327,11 @@ struct SavedSessionsFullListView: View {
         )
     }
     
-    /// Stages a saved session and triggers navigation to Practice.
+    /// Starts a saved session via fullScreenCover presentation.
     ///
-    /// Uses the "Stage, Navigate, Execute" pattern:
-    /// 1. Stage session config in the store (no execution yet)
-    /// 2. Navigate (pop to root + scroll to Practice)
-    /// 3. Store executes after pager settles via `executePendingSession`
+    /// Sends a single `.startRemoteSession` event that immediately presents
+    /// the fullScreenCover and begins session setup inside it.
+    /// No navigation choreography needed — the cover is a separate view hierarchy.
     private func playSelectedSession(mode: SessionMode, loopCount: Int, shuffle: Bool) {
         guard let session = selectedSession else { return }
 
@@ -348,14 +342,10 @@ struct SavedSessionsFullListView: View {
         )
         session.setDefaultMode(mode)
 
-        let pending = PendingRemoteSession(
+        store.send(.startRemoteSession(
             source: .savedSession(session),
             loopConfiguration: config
-        )
-        store.send(.stageRemoteSession(pending))
-
-        // Navigate: pop to root and scroll to Practice page
-        onStartSession()
+        ))
     }
     
     private func renameSession(_ session: SavedSession, to newName: String) {
@@ -524,8 +514,7 @@ struct SavedSessionInfoView: View {
 #Preview("Saved Sessions Full List") {
     NavigationStack {
         SavedSessionsFullListView(
-            store: .preview,
-            onStartSession: {}
+            store: .preview
         )
     }
     .previewEnvironment()

@@ -145,58 +145,42 @@ extension PracticeStore {
     }
 }
 
-// MARK: - Remote Session Staging & Execution
+// MARK: - Remote Session Start
 
 extension PracticeStore {
 
-    /// Stages a remote session configuration for deferred execution.
+    /// Starts a session from a remote page (Favorites or Saved Sessions).
     ///
-    /// Called by Favorites/Saved Sessions views BEFORE navigation begins.
-    /// The session config is saved but NOT executed — execution is deferred
-    /// until the pager settles on the Practice page via `executePendingSession`.
+    /// Replaces the old "Stage, Navigate, Execute" pattern. The fullScreenCover
+    /// presents immediately via `setSessionPresented(true)`, then session data
+    /// loads inside the cover. No pager navigation choreography needed.
     ///
-    /// Performs minimal pre-navigation state cleanup:
-    /// - Closes open menus
-    /// - Cancels any current activity
-    /// - Stores the pending configuration
-    func handleStageRemoteSession(_ pending: PendingRemoteSession) {
+    /// - Parameters:
+    ///   - source: The session data source (favorites or saved session)
+    ///   - loopConfiguration: Loop settings for the session
+    func handleStartRemoteSession(source: RemoteSessionSource, loopConfiguration: LoopConfiguration) {
         send(.closeSelectors)
         cancelCurrentActivity()
         flowGeneration += 1
-        setPendingRemoteSession(pending)
 
-        #if DEBUG
-        AppLogger.info("Staged remote session for deferred execution", category: .practice)
-        #endif
-    }
-
-    /// Executes the staged remote session after navigation has settled.
-    ///
-    /// Called by MainPracticeView when the HorizontalPager confirms the
-    /// Practice page is visible via `scrollViewDidEndScrollingAnimation`.
-    /// Consumes the pending configuration and routes to the appropriate handler.
-    func handleExecutePendingSession() {
-        guard let pending = pendingRemoteSession else {
-            #if DEBUG
-            AppLogger.warning("executePendingSession with no pending session", category: .practice)
-            #endif
-            return
-        }
-
-        // Clear the pending session FIRST to prevent re-execution
-        setPendingRemoteSession(nil)
+        // Present fullScreenCover immediately — user sees instant response
+        setSessionPresented(true)
 
         // Apply loop configuration
-        setLoopConfiguration(pending.loopConfiguration)
+        setLoopConfiguration(loopConfiguration)
 
-        // Route to the appropriate handler
-        switch pending.source {
+        // Route to the appropriate handler (data loads inside the cover)
+        switch source {
         case .favorites(let affirmations, let mode, let shuffle):
             handleStartFavoritesSession(affirmations: affirmations, mode: mode, shuffle: shuffle)
 
         case .savedSession(let savedSession):
             handleStartSavedSession(savedSession)
         }
+
+        #if DEBUG
+        AppLogger.info("Started remote session via fullScreenCover", category: .practice)
+        #endif
     }
 }
 

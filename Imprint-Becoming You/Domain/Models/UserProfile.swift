@@ -97,6 +97,12 @@ final class UserProfile {
     /// References a `Voice.id` value. If `nil`, the app uses the default voice.
     /// Can be a preset voice ID (e.g., "kokoro_af_heart") or a custom voice ID.
     var selectedVoiceId: String?
+
+    /// User's preferred background style for practice and session views.
+    ///
+    /// Stored as raw value string for SwiftData compatibility.
+    /// Use `backgroundStyle` computed property for type-safe access.
+    var backgroundStyleRawValue: String = BackgroundStyle.morphingGradient.rawValue
     
     // MARK: - Initialization
     
@@ -119,7 +125,8 @@ final class UserProfile {
         hasCompletedOnboarding: Bool = false,
         includeFaithContent: Bool? = nil,
         trialExpiresAt: Date? = nil,
-        selectedVoiceId: String? = nil
+        selectedVoiceId: String? = nil,
+        backgroundStyleRawValue: String = BackgroundStyle.morphingGradient.rawValue
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -139,6 +146,7 @@ final class UserProfile {
         self.includeFaithContent = includeFaithContent
         self.trialExpiresAt = trialExpiresAt
         self.selectedVoiceId = selectedVoiceId
+        self.backgroundStyleRawValue = backgroundStyleRawValue
     }
 }
 
@@ -301,6 +309,21 @@ extension UserProfile {
         }
         set {
             preferredWaveformType = newValue.rawValue
+        }
+    }
+
+    // MARK: - Background Style
+
+    /// The user's preferred background style for practice and session views.
+    ///
+    /// Provides type-safe access to the stored `backgroundStyleRawValue` string.
+    /// Falls back to `.morphingGradient` if the stored value is invalid.
+    var backgroundStyle: BackgroundStyle {
+        get {
+            BackgroundStyle(rawValue: backgroundStyleRawValue) ?? .morphingGradient
+        }
+        set {
+            backgroundStyleRawValue = newValue.rawValue
         }
     }
 }

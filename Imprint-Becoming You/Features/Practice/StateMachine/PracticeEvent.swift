@@ -153,19 +153,20 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
 
     // MARK: - Remote Session Start Events
 
-    /// Stage a session for deferred execution after navigation completes.
+    /// Start a session from a remote page (Favorites or Saved Sessions).
     ///
-    /// Part of the "Stage, Navigate, Execute" pattern. The store saves the config
-    /// but does NOT start the session. Navigation completes first, then
-    /// `executePendingSession` fires when the pager settles.
-    case stageRemoteSession(PendingRemoteSession)
+    /// Replaces the old "Stage, Navigate, Execute" pattern. The fullScreenCover
+    /// presents immediately, then session data loads inside the cover.
+    /// No navigation choreography needed — the cover is a separate view hierarchy.
+    case startRemoteSession(source: RemoteSessionSource, loopConfiguration: LoopConfiguration)
 
-    /// Execute the staged remote session after navigation has settled.
+    // MARK: - Session Cover Lifecycle
+
+    /// Fired from the fullScreenCover's `onDismiss` callback after dismiss animation completes.
     ///
-    /// Dispatched by MainPracticeView when the HorizontalPager's
-    /// `scrollViewDidEndScrollingAnimation` fires, confirming the pager
-    /// has settled on the Practice page.
-    case executePendingSession
+    /// Performs consolidated cleanup: stops audio, clears session state, resets flow to home,
+    /// releases TTS resources, and resets all presentation flags.
+    case sessionCoverDismissed
     
     // MARK: - TTS Events
     
@@ -371,7 +372,9 @@ extension PracticeEvent {
             return true
         case .repeatSession, .repeatSessionWithConfig, .startSavedSession, .startFavoritesSession:
             return true
-        case .stageRemoteSession, .executePendingSession:
+        case .startRemoteSession:
+            return true
+        case .sessionCoverDismissed:
             return true
         case .cancelSessionPreparation:
             return true
@@ -397,7 +400,7 @@ extension PracticeEvent {
             return true
         case .repeatSession, .repeatSessionWithConfig, .startSavedSession, .startFavoritesSession, .saveSession:
             return true
-        case .stageRemoteSession:
+        case .startRemoteSession:
             return true
         default:
             return false
@@ -508,15 +511,15 @@ extension PracticeEvent: CustomStringConvertible {
             return "saveSession(\(name))"
         case .startFavoritesSession(let affs, let mode, let shuffle):
             return "startFavoritesSession(\(affs.count) affirmations, \(mode.rawValue), shuffle: \(shuffle))"
-        case .stageRemoteSession(let pending):
-            switch pending.source {
+        case .startRemoteSession(let source, _):
+            switch source {
             case .favorites(let affs, let mode, _):
-                return "stageRemoteSession(favorites: \(affs.count) affirmations, \(mode.rawValue))"
+                return "startRemoteSession(favorites: \(affs.count) affirmations, \(mode.rawValue))"
             case .savedSession(let session):
-                return "stageRemoteSession(savedSession: \(session.name))"
+                return "startRemoteSession(savedSession: \(session.name))"
             }
-        case .executePendingSession:
-            return "executePendingSession"
+        case .sessionCoverDismissed:
+            return "sessionCoverDismissed"
         case .startFlow:
             return "startFlow"
         case .pauseFlow:

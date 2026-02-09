@@ -48,40 +48,34 @@ import UIKit
 /// - Auto-advance delay (< 2s with isCancelled check)
 ///
 /// See `PracticeStore+TaskManagement.swift` for centralized cancellation.
-// MARK: - PendingRemoteSession
 
-/// Configuration staged for deferred execution after navigation completes.
+// MARK: - RemoteSessionSource
+
+/// Source configuration for sessions started from remote pages (Favorites, Saved Sessions).
 ///
-/// Used by the "Stage, Navigate, Execute" pattern for sessions started from
-/// remote pages (Favorites, Saved Sessions). The store stages the config here,
-/// navigation completes, then `executePendingSession` consumes and clears it.
+/// Replaces the old "Stage, Navigate, Execute" `PendingRemoteSession` pattern.
+/// Now sessions start immediately via `.startRemoteSession` event, presenting
+/// the fullScreenCover before any navigation occurs.
 ///
 /// ## Sendable / Equatable Safety
 /// Marked `@unchecked Sendable` because `Affirmation` and `SavedSession` are
 /// SwiftData `@Model` (non-Sendable reference types). Safe because `PracticeStore`
 /// is `@MainActor` isolated and all access occurs on the main actor.
 /// `Equatable` conformance uses identity equality (`===`) for reference types.
-struct PendingRemoteSession: Equatable, @unchecked Sendable {
+enum RemoteSessionSource: Equatable, @unchecked Sendable {
+    case favorites(affirmations: [Affirmation], mode: SessionMode, shuffle: Bool)
+    case savedSession(SavedSession)
 
-    /// The source of the pending session and its associated data.
-    enum Source: Equatable {
-        case favorites(affirmations: [Affirmation], mode: SessionMode, shuffle: Bool)
-        case savedSession(SavedSession)
-
-        static func == (lhs: Source, rhs: Source) -> Bool {
-            switch (lhs, rhs) {
-            case (.favorites(let a1, let m1, let s1), .favorites(let a2, let m2, let s2)):
-                return a1.map(\.id) == a2.map(\.id) && m1 == m2 && s1 == s2
-            case (.savedSession(let s1), .savedSession(let s2)):
-                return s1.id == s2.id
-            default:
-                return false
-            }
+    static func == (lhs: RemoteSessionSource, rhs: RemoteSessionSource) -> Bool {
+        switch (lhs, rhs) {
+        case (.favorites(let a1, let m1, let s1), .favorites(let a2, let m2, let s2)):
+            return a1.map(\.id) == a2.map(\.id) && m1 == m2 && s1 == s2
+        case (.savedSession(let s1), .savedSession(let s2)):
+            return s1.id == s2.id
+        default:
+            return false
         }
     }
-
-    let source: Source
-    let loopConfiguration: LoopConfiguration
 }
 
 // MARK: - PracticeStore
@@ -154,8 +148,16 @@ final class PracticeStore {
         sessionResults.count
     }
     
+    // MARK: - Session Presentation State
+
+    /// Whether the fullScreenCover session container is presented.
+    ///
+    /// Set to `true` immediately when a session starts (any trigger).
+    /// Set to `false` by dismiss handlers. Cleanup happens in `onDismiss`.
+    private(set) var isSessionPresented: Bool = false
+
     // MARK: - Session Summary State
-    
+
     /// Whether the results summary is being shown
     private(set) var isShowingSummary: Bool = false
     
@@ -184,16 +186,6 @@ final class PracticeStore {
     
     /// Whether the current session was started from Favorites
     private(set) var isFavoritesSession: Bool = false
-
-    /// Staged remote session awaiting navigation completion.
-    ///
-    /// Set by `stageRemoteSession`, consumed by `executePendingSession`.
-    /// Part of the "Stage, Navigate, Execute" pattern that prevents
-    /// navigation race conditions when starting from Favorites/Saved Sessions.
-    private(set) var pendingRemoteSession: PendingRemoteSession? = nil
-
-    /// Whether a remote session is staged and awaiting execution.
-    var hasPendingRemoteSession: Bool { pendingRemoteSession != nil }
 
     // MARK: - Session Preparation State
     
@@ -670,9 +662,9 @@ final class PracticeStore {
         isFavoritesSession = value
     }
 
-    /// Stages a remote session for deferred execution.
-    func setPendingRemoteSession(_ session: PendingRemoteSession?) {
-        pendingRemoteSession = session
+    /// Sets whether the fullScreenCover session container is presented.
+    func setSessionPresented(_ presented: Bool) {
+        isSessionPresented = presented
     }
 
     /// Clears original session affirmation IDs (for new session)
@@ -715,6 +707,5 @@ final class PracticeStore {
         sessionPreparationPhase = .waitingForKokoro
         sessionPreparationTask?.cancel()
         sessionPreparationTask = nil
-        pendingRemoteSession = nil
     }
 }

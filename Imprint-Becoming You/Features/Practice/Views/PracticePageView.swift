@@ -13,11 +13,15 @@ import SwiftData
 /// The center page containing the affirmation practice experience.
 ///
 /// ## Architecture
-/// Uses `VerticalPager` which shows BOTH current AND adjacent content during drag:
-/// - Current content moves with finger (1:1 tracking)
-/// - Next/Previous content slides in from edge simultaneously
-/// - Background morphs color based on drag progress
-/// - Content fades and scales as it moves (via ContentTransitionModifier)
+/// Uses `PracticePageViewBuilder` to compose four independent layers:
+/// 1. **Background** — `MorphingBackgroundView` or `SolidBackgroundView` (swappable via user preference)
+/// 2. **Content** — `AffirmationContentView` per page index (via VerticalPager)
+/// 3. **HUD** — `FloatingHUDLayer` (fixed position, top)
+/// 4. **Dock** — `AdaptiveDockContainer` (fixed position, bottom)
+///
+/// The builder encapsulates component assembly and background style switching.
+/// This view handles orchestration: bindings, navigation logic, layout calculations,
+/// dock menu state, and auto-advance coordination.
 ///
 /// ## Vertical Centering
 /// Affirmation content is centered between two boundaries:
@@ -30,8 +34,8 @@ import SwiftData
 /// ## Color Morphing
 /// Background colors use true RGB interpolation (not opacity crossfade) for smooth
 /// transitions. The system has two modes:
-/// - **Active navigation** (progress != 0): Uses `interpolatedBackground` for real-time color blending
-/// - **At rest** (progress ~= 0): Uses `staticBackground` with `displayedBackgroundCategory`
+/// - **Active navigation** (progress != 0): Uses interpolated gradient for real-time color blending
+/// - **At rest** (progress ~= 0): Uses static gradient with `displayedBackgroundCategory`
 ///
 /// When navigation completes, `displayedBackgroundCategory` is immediately updated
 /// to match the new index, ensuring seamless handoff between modes.
@@ -59,40 +63,51 @@ import SwiftData
 /// `HorizontalPager`'s gesture entirely. The `DockMenuDismissModifier` handles
 /// closing the menus on touch.
 struct PracticePageView: View {
-    
+
     // MARK: - Properties
-    
+
     @Bindable var store: PracticeStore
-    
+
     /// Callback to navigate to profile page
     let onNavigateToProfile: () -> Void
-    
+
     /// Callback to navigate to prompts page
     let onNavigateToPrompts: () -> Void
-    
+
     /// Binding to communicate dock menu expansion state to parent.
     /// When `true`, parent disables horizontal pager gesture to prevent
     /// page navigation while dock selectors are open.
     @Binding var isDockMenuExpanded: Bool
-    
+
     // MARK: - Environment
-    
+
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dependencies) private var dependencies
     @Environment(\.appState) private var appState
-    
+
     // MARK: - State
-    
+
     /// Tracks the background category to display when at rest (progress ~= 0).
     /// Updated immediately (no animation) when index changes, because the
     /// progress-based interpolation already handles the visual transition.
     @State private var displayedBackgroundCategory: GoalCategory?
-    
+
     /// Dock adapter that bridges PracticeStore to DockModule
     @State private var dockAdapter: PracticeDockAdapter
-    
+
+    // MARK: - Computed Properties
+
+    /// Builder that assembles the layered view composition.
+    /// Reads the user's background style preference for background switching.
+    private var builder: PracticePageViewBuilder {
+        PracticePageViewBuilder(
+            store: store,
+            backgroundStyle: appState.userProfile?.backgroundStyle ?? .morphingGradient
+        )
+    }
+
     // MARK: - Initialization
-    
+
     init(
         store: PracticeStore,
         onNavigateToProfile: @escaping () -> Void,
@@ -105,9 +120,9 @@ struct PracticePageView: View {
         self._isDockMenuExpanded = isDockMenuExpanded
         self._dockAdapter = State(initialValue: PracticeDockAdapter(store: store))
     }
-    
+
     // MARK: - Body
-    
+
     var body: some View {
         ZStack {
             // Vertical pager with auto-advance support
@@ -122,10 +137,22 @@ struct PracticePageView: View {
                 onAutoAdvanceComplete: handleAutoAdvanceComplete
             ) { index in
                 // Content for each index (moves with gesture)
-                affirmationContent(at: index)
+                GeometryReader { geometry in
+                    builder.buildContent(
+                        at: index,
+                        isScrollActive: isScrollActive,
+                        topPadding: topContentOffset + verticalCenteringOffset,
+                        bottomPadding: dockOffset,
+                        maxTextHeight: maxAffirmationTextHeight(in: geometry)
+                    )
+                }
             } background: { currentIndex, progress in
-                // Background with smooth color morphing
-                morphingBackground(currentIndex: currentIndex, progress: progress)
+                // Background with smooth color morphing (or solid color)
+                builder.buildBackground(
+                    currentIndex: currentIndex,
+                    progress: progress,
+                    displayedCategory: $displayedBackgroundCategory
+                )
             }
             .simultaneousGesture(
                 TapGesture()
@@ -141,8 +168,7 @@ struct PracticePageView: View {
 
             VStack {
                 // Top HUD (doesn't move with gesture)
-                FloatingHUDLayer(
-                    store: store,
+                builder.buildHUD(
                     onProfileTap: onNavigateToProfile,
                     onPromptsTap: onNavigateToPrompts
                 )
@@ -156,13 +182,13 @@ struct PracticePageView: View {
                             }
                         }
                 )
-                
+
                 Spacer()
-                
-                AdaptiveDockContainer(adapter: dockAdapter) {
-                    AdaptiveBottomDock(adapter: dockAdapter)
-                }
-                .imprintDockEnvironment(waveformType: appState.userProfile?.waveformType ?? .layeredWaves)
+
+                builder.buildDock(
+                    adapter: dockAdapter,
+                    waveformType: appState.userProfile?.waveformType ?? .layeredWaves
+                )
             }
             .ignoresSafeArea(edges: .bottom)
         }
@@ -192,17 +218,17 @@ struct PracticePageView: View {
             }
         }
     }
-    
+
     // MARK: - Dock Menu State
-    
+
     /// Relays dock selector expansion state to the parent binding.
     /// When any selector or error bar is expanded, horizontal paging is disabled.
     private func updateDockMenuExpanded() {
         isDockMenuExpanded = dockAdapter.expandedSelector != nil || dockAdapter.isErrorBarVisible
     }
-    
+
     // MARK: - Bindings
-    
+
     /// Binding for currentIndex that updates store
     private var currentIndexBinding: Binding<Int> {
         Binding(
@@ -210,7 +236,7 @@ struct PracticePageView: View {
             set: { store.updateIndex($0) }
         )
     }
-    
+
     /// Binding for pendingAutoAdvance
     private var pendingAdvanceBinding: Binding<NavigationDirection?> {
         Binding(
@@ -218,170 +244,44 @@ struct PracticePageView: View {
             set: { store.pendingAutoAdvance = $0 }
         )
     }
-    
+
     // MARK: - Navigation Handlers
-    
+
     /// Called when user swipes to navigate
     private func handleUserNavigation(_ direction: NavigationDirection) {
         store.send(.userNavigated(direction))
     }
-    
+
     /// Called when auto-advance animation completes
     private func handleAutoAdvanceComplete() {
         store.send(.autoAdvanceCompleted)
     }
-    
+
     // MARK: - Navigation Logic
-    
+
     private var canNavigate: Bool {
         // Block if any selector or error bar is expanded
         guard dockAdapter.expandedSelector == nil else { return false }
         guard !dockAdapter.isErrorBarVisible else { return false }
-        
+
         // Block if timeout alert is showing to prevent race conditions
         // that could cause double-skip behavior
         guard !store.isShowingTimeoutAlert else { return false }
-        
+
         // Allow navigation even during active phases - swipe will interrupt
         // The navigate() method handles cancelling current activity
         return true
     }
-    
-    // MARK: - Morphing Background
-    
-    /// Determines the target category based on drag direction
-    private func targetCategory(for currentIndex: Int, progress: CGFloat) -> GoalCategory? {
-        let currentCategory = affirmation(at: currentIndex)?.goalCategory
-        
-        if progress > 0.05 && currentIndex < store.affirmations.count - 1 {
-            return affirmation(at: currentIndex + 1)?.goalCategory
-        } else if progress < -0.05 && currentIndex > 0 {
-            return affirmation(at: currentIndex - 1)?.goalCategory
-        } else {
-            return currentCategory
-        }
-    }
-    
-    /// Background view that smoothly morphs between category colors.
-    ///
-    /// Uses two rendering modes:
-    /// - **At rest** (|progress| < 0.01): Shows static gradient for `displayedBackgroundCategory`
-    /// - **During navigation** (|progress| >= 0.01): Interpolates between current and target colors
-    ///
-    /// The handoff between modes is seamless because `displayedBackgroundCategory`
-    /// is updated immediately when the index changes.
-    @ViewBuilder
-    private func morphingBackground(currentIndex: Int, progress: CGFloat) -> some View {
-        if abs(progress) < 0.01 {
-            // At rest - show static background for current category
-            staticBackground(for: displayedBackgroundCategory)
-        } else {
-            // Active navigation - interpolate colors based on progress
-            interpolatedBackground(currentIndex: currentIndex, progress: progress)
-        }
-    }
-    
-    /// Static background for a single category (used when at rest)
-    @ViewBuilder
-    private func staticBackground(for category: GoalCategory?) -> some View {
-        let gradient = CategoryGradient.forCategory(category)
-        
-        ZStack {
-            LinearGradient(
-                colors: [gradient.primary.opacity(0.3), gradient.secondary],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            
-            RadialGradient(
-                colors: [gradient.primary.opacity(0.12), Color.clear],
-                center: .center,
-                startRadius: 50,
-                endRadius: 400
-            )
-        }
-        .ignoresSafeArea()
-    }
-    
-    /// Interpolated background using true RGB blending (used during navigation)
-    @ViewBuilder
-    private func interpolatedBackground(currentIndex: Int, progress: CGFloat) -> some View {
-        let currentCategory = affirmation(at: currentIndex)?.goalCategory
-        let targetCat = targetCategory(for: currentIndex, progress: progress)
-        
-        let currentGradient = CategoryGradient.forCategory(currentCategory)
-        let targetGradient = CategoryGradient.forCategory(targetCat)
-        
-        // Use absolute progress for interpolation (0 to 1)
-        let t = min(abs(progress), 1.0)
-        
-        // Interpolate primary and secondary colors
-        let blendedPrimary = Color.interpolate(from: currentGradient.primary, to: targetGradient.primary, t: t)
-        let blendedSecondary = Color.interpolate(from: currentGradient.secondary, to: targetGradient.secondary, t: t)
-        
-        ZStack {
-            LinearGradient(
-                colors: [blendedPrimary.opacity(0.3), blendedSecondary],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            
-            RadialGradient(
-                colors: [blendedPrimary.opacity(0.12), Color.clear],
-                center: .center,
-                startRadius: 50,
-                endRadius: 400
-            )
-        }
-        .ignoresSafeArea()
-    }
-    
-    // MARK: - Affirmation Content
-    
-    @ViewBuilder
-    private func affirmationContent(at index: Int) -> some View {
-        if let affirmation = affirmation(at: index) {
-            GeometryReader { geometry in
-                VStack(spacing: 0) {
-                    Spacer()
-                    
-                    // Category badge
-                    if let category = affirmation.goalCategory {
-                        CategoryBadge(category: category)
-                            .padding(.bottom, AppTheme.Spacing.lg)
-                    }
-                    
-                    // Affirmation text — auto-scrolls long texts with fixed timing.
-                    // scrollGeneration guarantees position reset on every segment start.
-                    AutoScrollingAffirmationText(
-                        text: affirmation.text,
-                        isActive: index == store.currentIndex && isScrollActive,
-                        scrollGeneration: store.flowGeneration,
-                        maxHeight: maxAffirmationTextHeight(in: geometry)
-                    )
-                    
-                    Spacer()
-                    
-                    // Action buttons - shown on ALL pages for unified animation
-                    // Buttons animate together with text via ContentTransitionModifier
-                    actionButtons(for: affirmation, isCurrentPage: index == store.currentIndex)
-                        .padding(.bottom, dockOffset)
-                }
-                .padding(.top, topContentOffset + verticalCenteringOffset)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-    }
-    
+
     // MARK: - Content Offset Calculations
-    
+
     /// Offset from top to account for the floating HUD layer.
     ///
     /// This is the base offset for the HUD area (exit button, navigation buttons).
     private var topContentOffset: CGFloat {
         AppTheme.Layout.hudContentOffset
     }
-    
+
     /// Additional top offset that compensates for the dock/HUD height asymmetry.
     ///
     /// The dock (bottom) is significantly taller than the HUD (top). Two equal
@@ -394,7 +294,7 @@ struct PracticePageView: View {
     private var verticalCenteringOffset: CGFloat {
         max(dockOffset - topContentOffset, 0)
     }
-    
+
     /// Offset from bottom to position buttons just above dock.
     /// Uses centralized layout constants from AppTheme.Layout.
     private var dockOffset: CGFloat {
@@ -404,7 +304,7 @@ struct PracticePageView: View {
             return AppTheme.Layout.homeDockOffset
         }
     }
-    
+
     /// Whether auto-scrolling should be active for the current flow state.
     ///
     /// Returns `true` during each mode's active content phase:
@@ -441,7 +341,7 @@ struct PracticePageView: View {
             return false
         }
     }
-    
+
     /// Maximum height available for the affirmation text before auto-scrolling activates.
     ///
     /// Computed from the available content area by subtracting all fixed elements:
@@ -463,61 +363,15 @@ struct PracticePageView: View {
         let maxTextHeight = availableHeight * 0.85
         return max(maxTextHeight, 120)
     }
-    
+
+    /// Safe array access for affirmation at index.
     private func affirmation(at index: Int) -> Affirmation? {
         guard store.affirmations.indices.contains(index) else { return nil }
         return store.affirmations[index]
     }
-    
-    // MARK: - Action Buttons
-    
-    /// Action buttons for share and favorite.
-    ///
-    /// These buttons are part of the affirmation content VStack and move
-    /// together with the text during scroll. No `.id()` is needed because
-    /// VerticalPager already provides unique identity per page index.
-    ///
-    /// The `isCurrentPage` parameter enables/disables interactivity
-    /// without affecting appearance during transitions.
-    private func actionButtons(for affirmation: Affirmation, isCurrentPage: Bool) -> some View {
-        HStack(spacing: AppTheme.Spacing.xxl + 8) {
-            // Share button
-            shareButton(isEnabled: isCurrentPage)
-            
-            // Favorite button
-            FavoriteButton(
-                isFavorited: affirmation.isFavorited,
-                isEnabled: isCurrentPage,
-                onToggle: { store.send(.toggleFavorite) }
-            )
-        }
-    }
-    
-    /// Share button with consistent styling to match FavoriteButton.
-    private func shareButton(isEnabled: Bool) -> some View {
-        Button {
-            store.send(.shareAffirmation)
-            HapticFeedback.impact(.light)
-        } label: {
-            VStack(spacing: AppTheme.Spacing.sm) {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 28, weight: .medium))
-                    .foregroundStyle(AppColors.textSecondary)
-                    .frame(width: 56, height: 56)
-                
-                Text("Share")
-                    .font(AppTypography.caption1.weight(.medium))
-                    .foregroundStyle(AppColors.textSecondary)
-            }
-        }
-        .accessibilityLabel("Share affirmation")
-        .disabled(!isEnabled)
-    }
-    
-    // MARK: - Overlay Layers
-    
+
     // MARK: - Phase Mapping
-    
+
     private var currentPhase: AffirmationPhase {
         switch store.flow {
         case .home:
@@ -561,23 +415,23 @@ extension Color {
     /// - Returns: Interpolated color
     static func interpolate(from: Color, to: Color, t: CGFloat) -> Color {
         let t = min(max(t, 0), 1) // Clamp to 0-1
-        
+
         // Convert to UIColor to extract RGB components
         let fromUIColor = UIColor(from)
         let toUIColor = UIColor(to)
-        
+
         var fromR: CGFloat = 0, fromG: CGFloat = 0, fromB: CGFloat = 0, fromA: CGFloat = 0
         var toR: CGFloat = 0, toG: CGFloat = 0, toB: CGFloat = 0, toA: CGFloat = 0
-        
+
         fromUIColor.getRed(&fromR, green: &fromG, blue: &fromB, alpha: &fromA)
         toUIColor.getRed(&toR, green: &toG, blue: &toB, alpha: &toA)
-        
+
         // Linear interpolation
         let r = fromR + (toR - fromR) * t
         let g = fromG + (toG - fromG) * t
         let b = fromB + (toB - fromB) * t
         let a = fromA + (toA - fromA) * t
-        
+
         return Color(red: r, green: g, blue: b, opacity: a)
     }
 }

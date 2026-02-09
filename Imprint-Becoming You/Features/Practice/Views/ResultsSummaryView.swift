@@ -123,59 +123,57 @@ struct ResultsSummaryView: View {
     // MARK: - Body
     
     var body: some View {
-        NavigationStack {
-            ZStack {
-                AppColors.backgroundPrimary
-                    .ignoresSafeArea()
-                
-                scrollableContent
-            }
-            .overlay {
-                VStack {
-                    Spacer()
-                    AdaptiveDockContainer(adapter: dockAdapter, showsGradient: true) {
-                        AdaptiveBottomDock(adapter: dockAdapter)
-                    }
-                    .imprintDockEnvironment()
+        ZStack {
+            AppColors.backgroundPrimary
+                .ignoresSafeArea()
+
+            scrollableContent
+        }
+        .overlay {
+            VStack {
+                Spacer()
+                AdaptiveDockContainer(adapter: dockAdapter, showsGradient: true) {
+                    AdaptiveBottomDock(adapter: dockAdapter)
                 }
-                .ignoresSafeArea(edges: .bottom)
+                .imprintDockEnvironment()
             }
-            .navigationTitle("Session Complete")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
-                        onClose()
-                    }
-                    .foregroundStyle(AppColors.accent)
+            .ignoresSafeArea(edges: .bottom)
+        }
+        .navigationTitle("Session Complete")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Close") {
+                    onClose()
                 }
-                
-                ToolbarItem(placement: .primaryAction) {
-                    Button(capturedIsSessionSaved ? "Saved" : "Save") {
-                        onSaveSession()
-                    }
-                    .foregroundStyle(stableSaveButtonDisabled ? AppColors.textTertiary : AppColors.accent)
-                    .fontWeight(capturedIsSessionSaved ? .regular : .semibold)
-                    .disabled(stableSaveButtonDisabled)
-                    .accessibilityLabel(saveButtonAccessibilityLabel)
-                }
+                .foregroundStyle(AppColors.accent)
             }
-            .onAppear {
-                // Capture initial state
-                capturedSaveButtonDisabled = isSaveButtonDisabled
-                capturedIsSessionSaved = isSessionSaved
-            }
-            .onChange(of: isSaveButtonDisabled) { _, newValue in
-                // Once disabled, stay disabled (captures state after saving)
-                if newValue {
-                    capturedSaveButtonDisabled = true
+
+            ToolbarItem(placement: .primaryAction) {
+                Button(capturedIsSessionSaved ? "Saved" : "Save") {
+                    onSaveSession()
                 }
+                .foregroundStyle(stableSaveButtonDisabled ? AppColors.textTertiary : AppColors.accent)
+                .fontWeight(capturedIsSessionSaved ? .regular : .semibold)
+                .disabled(stableSaveButtonDisabled)
+                .accessibilityLabel(saveButtonAccessibilityLabel)
             }
-            .onChange(of: isSessionSaved) { _, newValue in
-                // Once saved, stay saved (captures state after saving)
-                if newValue {
-                    capturedIsSessionSaved = true
-                }
+        }
+        .onAppear {
+            // Capture initial state
+            capturedSaveButtonDisabled = isSaveButtonDisabled
+            capturedIsSessionSaved = isSessionSaved
+        }
+        .onChange(of: isSaveButtonDisabled) { _, newValue in
+            // Once disabled, stay disabled (captures state after saving)
+            if newValue {
+                capturedSaveButtonDisabled = true
+            }
+        }
+        .onChange(of: isSessionSaved) { _, newValue in
+            // Once saved, stay saved (captures state after saving)
+            if newValue {
+                capturedIsSessionSaved = true
             }
         }
     }
@@ -248,29 +246,33 @@ struct ResultsSummaryView: View {
 // MARK: - Previews
 
 #Preview("Results Summary") {
-    ResultsSummaryView(
-        summary: .sample,
-        loopConfiguration: LoopConfiguration(loopCount: 3, isShuffleEnabled: true),
-        isPlayingSavedSession: false,
-        isFavoritesSession: false,
-        isSessionSaved: false,
-        onClose: {},
-        onRepeat: { _, _, _ in },
-        onSaveSession: {},
-        onToggleFavorite: { _ in }
-    )
+    NavigationStack {
+        ResultsSummaryView(
+            summary: .sample,
+            loopConfiguration: LoopConfiguration(loopCount: 3, isShuffleEnabled: true),
+            isPlayingSavedSession: false,
+            isFavoritesSession: false,
+            isSessionSaved: false,
+            onClose: {},
+            onRepeat: { _, _, _ in },
+            onSaveSession: {},
+            onToggleFavorite: { _ in }
+        )
+    }
 }
 
 #Preview("Results Summary - Already Saved") {
-    ResultsSummaryView(
-        summary: .sample,
-        loopConfiguration: LoopConfiguration(loopCount: 3, isShuffleEnabled: true),
-        isPlayingSavedSession: false,
-        isFavoritesSession: false,
-        isSessionSaved: true,
-        onClose: {},
-        onRepeat: { _, _, _ in },
-        onSaveSession: {},
-        onToggleFavorite: { _ in }
-    )
+    NavigationStack {
+        ResultsSummaryView(
+            summary: .sample,
+            loopConfiguration: LoopConfiguration(loopCount: 3, isShuffleEnabled: true),
+            isPlayingSavedSession: false,
+            isFavoritesSession: false,
+            isSessionSaved: true,
+            onClose: {},
+            onRepeat: { _, _, _ in },
+            onSaveSession: {},
+            onToggleFavorite: { _ in }
+        )
+    }
 }

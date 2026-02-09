@@ -113,12 +113,6 @@ struct HorizontalPager<Content: View>: UIViewControllerRepresentable {
     /// Child pages can use this to disable their `ScrollView`s during horizontal paging.
     @Binding var isHorizontallyDragging: Bool
 
-    /// Called when a programmatic scroll animation completes (`setContentOffset(animated: true)`).
-    ///
-    /// Used by the "Stage, Navigate, Execute" pattern to signal that the pager has
-    /// settled on the target page after a programmatic navigation.
-    var onProgrammaticScrollComplete: (() -> Void)? = nil
-
     /// The pages to display
     @ViewBuilder let content: () -> Content
     
@@ -326,10 +320,8 @@ struct HorizontalPager<Content: View>: UIViewControllerRepresentable {
             // Update binding in case the target page differs from current binding.
             updatePageFromOffset(scrollView)
 
-            // Notify parent that programmatic scroll has settled.
-            // Used by the "Stage, Navigate, Execute" pattern to trigger
-            // deferred session execution after navigation completes.
-            parent.onProgrammaticScrollComplete?()
+            // Programmatic scroll settled — no additional action needed.
+            // (Previously used by "Stage, Navigate, Execute" pattern, now removed.)
         }
         
         /// Called when user-driven scrolling finishes (drag end without deceleration,

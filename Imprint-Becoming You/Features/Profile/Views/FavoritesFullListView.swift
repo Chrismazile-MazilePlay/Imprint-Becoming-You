@@ -27,9 +27,6 @@ struct FavoritesFullListView: View {
     @Bindable var store: PracticeStore
     let dependencies: DependencyContainer
 
-    /// Called when user starts a session - should pop to root and navigate to Practice
-    let onStartSession: () -> Void
-
     // MARK: - State
 
     @State private var favorites: [Affirmation] = []
@@ -43,12 +40,10 @@ struct FavoritesFullListView: View {
 
     init(
         store: PracticeStore,
-        dependencies: DependencyContainer,
-        onStartSession: @escaping () -> Void
+        dependencies: DependencyContainer
     ) {
         self.store = store
         self.dependencies = dependencies
-        self.onStartSession = onStartSession
 
         self._dockAdapter = State(initialValue: ListDockAdapter(
             showsShuffleOption: true,
@@ -172,15 +167,11 @@ struct FavoritesFullListView: View {
         }
     }
 
-    /// Stages a favorites session and triggers navigation to Practice.
+    /// Starts a favorites session via fullScreenCover presentation.
     ///
-    /// Uses the "Stage, Navigate, Execute" pattern:
-    /// 1. Stage session config in the store (no execution yet)
-    /// 2. Navigate (pop to root + scroll to Practice)
-    /// 3. Store executes after pager settles via `executePendingSession`
-    ///
-    /// This prevents the navigation race condition where NavigationStack pop
-    /// and HorizontalPager scroll compete, causing visible bounce-back.
+    /// Sends a single `.startRemoteSession` event that immediately presents
+    /// the fullScreenCover and begins session setup inside it.
+    /// No navigation choreography needed — the cover is a separate view hierarchy.
     private func startFavoritesSession(mode: SessionMode, loopCount: Int, shuffle: Bool) {
         let config = LoopConfiguration(
             loopCount: loopCount,
@@ -188,14 +179,10 @@ struct FavoritesFullListView: View {
             currentLoopIteration: 1
         )
 
-        let pending = PendingRemoteSession(
+        store.send(.startRemoteSession(
             source: .favorites(affirmations: favorites, mode: mode, shuffle: shuffle),
             loopConfiguration: config
-        )
-        store.send(.stageRemoteSession(pending))
-
-        // Navigate: pop to root and scroll to Practice page
-        onStartSession()
+        ))
     }
 
     private func unfavorite(_ affirmation: Affirmation) {
@@ -213,8 +200,7 @@ struct FavoritesFullListView: View {
     NavigationStack {
         FavoritesFullListView(
             store: .preview,
-            dependencies: .preview,
-            onStartSession: {}
+            dependencies: .preview
         )
     }
     .previewEnvironment()

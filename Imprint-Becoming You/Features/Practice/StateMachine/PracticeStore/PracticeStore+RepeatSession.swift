@@ -66,15 +66,9 @@ extension PracticeStore {
 
             if stillFavorited.isEmpty {
                 // User unfavorited everything — cannot repeat.
-                // Dismiss summary and return to home.
-                withAnimation(.easeInOut(duration: PracticeTiming.summaryDismissDuration)) {
-                    setShowingSummary(false)
-                }
-                Task { [weak self] in
-                    try? await Task.sleep(for: .milliseconds(Int(PracticeTiming.summaryDismissDuration * 1000) + 50))
-                    self?.send(.exitSession)
-                }
+                // Dismiss the cover; cleanup in onDismiss.
                 HapticFeedback.notification(.warning)
+                setSessionPresented(false)
                 return
             }
 
@@ -121,16 +115,16 @@ extension PracticeStore {
         AppLogger.info("Repeating session with mode=\(mode.displayName), loops=\(loopCount), shuffle=\(shuffle), voiceId: \(selectedVoiceId ?? "nil")", category: .practice)
         #endif
 
-        // Dismiss summary first, then restart flow after animation completes
-        withAnimation(.easeInOut(duration: PracticeTiming.summaryDismissDuration)) {
-            setShowingSummary(false)
-        }
+        // Pop summary from NavigationStack (cover stays presented).
+        // SessionContainerView.onChange(of: store.isShowingSummary) handles the pop.
+        setShowingSummary(false)
 
         // Guard against rapid re-tap: capture flowGeneration so the delayed
         // callback becomes a no-op if the user taps repeat again before delay.
         let repeatGeneration = flowGeneration
         Task { [weak self] in
             guard let self = self else { return }
+            // Wait for NavigationStack pop animation to complete
             try? await Task.sleep(for: .milliseconds(Int(PracticeTiming.summaryDismissDuration * 1000) + 50))
             guard !Task.isCancelled else { return }
             guard self.flowGeneration == repeatGeneration else { return }

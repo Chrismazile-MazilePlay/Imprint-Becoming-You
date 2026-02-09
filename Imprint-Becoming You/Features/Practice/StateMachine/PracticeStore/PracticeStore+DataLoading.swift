@@ -5,7 +5,7 @@
 //  Created by Christopher Mazile on 1/11/26.
 //
 
-import Foundation
+import SwiftUI
 
 // MARK: - Data Loading
 
@@ -141,6 +141,61 @@ extension PracticeStore {
             setSessionState(index: newIndex)
         } else {
             setBrowseState(index: newIndex)
+        }
+    }
+}
+
+// MARK: - Remote Session Staging & Execution
+
+extension PracticeStore {
+
+    /// Stages a remote session configuration for deferred execution.
+    ///
+    /// Called by Favorites/Saved Sessions views BEFORE navigation begins.
+    /// The session config is saved but NOT executed — execution is deferred
+    /// until the pager settles on the Practice page via `executePendingSession`.
+    ///
+    /// Performs minimal pre-navigation state cleanup:
+    /// - Closes open menus
+    /// - Cancels any current activity
+    /// - Stores the pending configuration
+    func handleStageRemoteSession(_ pending: PendingRemoteSession) {
+        send(.closeSelectors)
+        cancelCurrentActivity()
+        flowGeneration += 1
+        setPendingRemoteSession(pending)
+
+        #if DEBUG
+        AppLogger.info("Staged remote session for deferred execution", category: .practice)
+        #endif
+    }
+
+    /// Executes the staged remote session after navigation has settled.
+    ///
+    /// Called by MainPracticeView when the HorizontalPager confirms the
+    /// Practice page is visible via `scrollViewDidEndScrollingAnimation`.
+    /// Consumes the pending configuration and routes to the appropriate handler.
+    func handleExecutePendingSession() {
+        guard let pending = pendingRemoteSession else {
+            #if DEBUG
+            AppLogger.warning("executePendingSession with no pending session", category: .practice)
+            #endif
+            return
+        }
+
+        // Clear the pending session FIRST to prevent re-execution
+        setPendingRemoteSession(nil)
+
+        // Apply loop configuration
+        setLoopConfiguration(pending.loopConfiguration)
+
+        // Route to the appropriate handler
+        switch pending.source {
+        case .favorites(let affirmations, let mode, let shuffle):
+            handleStartFavoritesSession(affirmations: affirmations, mode: mode, shuffle: shuffle)
+
+        case .savedSession(let savedSession):
+            handleStartSavedSession(savedSession)
         }
     }
 }

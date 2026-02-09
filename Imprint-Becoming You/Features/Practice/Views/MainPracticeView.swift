@@ -109,18 +109,27 @@ struct MainPracticeView: View {
     ///
     /// Disabled when:
     /// - Active session is running (user focused on practice)
+    /// - Remote session is staged awaiting navigation completion
+    /// - Session preparation (loading screen) is active
     /// - Profile has navigation depth > 0 (let NavigationStack handle back gesture)
     /// - Dock selector menus are expanded (prevent navigation during menu interaction)
     private var isPagerGestureEnabled: Bool {
         // Disable during active sessions
         guard !store.isSessionActive else { return false }
-        
+
+        // Disable while a remote session is staged (prevents isScrollEnabled flip
+        // during the NavigationStack pop → pager scroll navigation sequence)
+        guard !store.hasPendingRemoteSession else { return false }
+
+        // Disable during session preparation (loading screen is showing)
+        guard !store.isPreparingSession else { return false }
+
         // Disable when Profile has navigation depth (NavigationStack needs the gesture)
         guard profileNavigationDepth == 0 else { return false }
-        
+
         // Disable when dock menus are expanded (DockMenuDismissModifier closes them on touch)
         guard !isDockMenuExpanded else { return false }
-        
+
         return true
     }
     
@@ -209,7 +218,15 @@ struct MainPracticeView: View {
                     currentPage: currentPageIndex,
                     pageCount: AppPage.allCases.count,
                     isGestureEnabled: isPagerGestureEnabled,
-                    isHorizontallyDragging: $isHorizontallyDragging
+                    isHorizontallyDragging: $isHorizontallyDragging,
+                    onProgrammaticScrollComplete: {
+                        // "Stage, Navigate, Execute" pattern:
+                        // Pager has settled after programmatic scroll.
+                        // If a remote session is staged, execute it now.
+                        if store.hasPendingRemoteSession {
+                            store.send(.executePendingSession)
+                        }
+                    }
                 ) {
                     // Page 0: Prompts (Left)
                     PromptsPageView(

@@ -470,6 +470,7 @@ extension PracticeStore {
         // 3. Cancel TTS queue and clear preparation state.
         // cancelAll() internally resumes the synthesis idle timer.
         clearSessionPreparation()
+        setPendingRemoteSession(nil)
         dependencies.sessionTTSQueueService.cancelAll()
 
         // 3b. Release Kokoro ML pipeline immediately (~1.3GB).

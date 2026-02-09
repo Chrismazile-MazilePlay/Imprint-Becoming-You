@@ -332,19 +332,29 @@ struct SavedSessionsFullListView: View {
         )
     }
     
+    /// Stages a saved session and triggers navigation to Practice.
+    ///
+    /// Uses the "Stage, Navigate, Execute" pattern:
+    /// 1. Stage session config in the store (no execution yet)
+    /// 2. Navigate (pop to root + scroll to Practice)
+    /// 3. Store executes after pager settles via `executePendingSession`
     private func playSelectedSession(mode: SessionMode, loopCount: Int, shuffle: Bool) {
         guard let session = selectedSession else { return }
-        
+
         let config = LoopConfiguration(
             loopCount: loopCount,
             isShuffleEnabled: shuffle,
             currentLoopIteration: 1
         )
-        store.setLoopConfiguration(config)
         session.setDefaultMode(mode)
-        store.send(.startSavedSession(session))
-        
-        // Pop to root and navigate to Practice
+
+        let pending = PendingRemoteSession(
+            source: .savedSession(session),
+            loopConfiguration: config
+        )
+        store.send(.stageRemoteSession(pending))
+
+        // Navigate: pop to root and scroll to Practice page
         onStartSession()
     }
     

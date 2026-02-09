@@ -267,6 +267,7 @@ extension PracticeStore {
         // cancelAll() internally resumes the synthesis idle timer.
         dependencies.sessionTTSQueueService.cancelAll()
         clearSessionPreparation()
+        setPendingRemoteSession(nil)
 
         // 4b. Reset session-scoped voice flag so next session uses proper voice
         forceSystemTTSForSession = false
@@ -326,10 +327,11 @@ extension PracticeStore {
         // cancelAll() internally resumes the synthesis idle timer.
         dependencies.sessionTTSQueueService.cancelAll()
         clearSessionPreparation()
-        
+        setPendingRemoteSession(nil)
+
         // Reset session-scoped voice flag so next session uses proper voice
         forceSystemTTSForSession = false
-        
+
         // Dismiss summary if showing (no animation needed since we're resetting)
         if isShowingSummary {
             setShowingSummary(false)

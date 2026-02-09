@@ -172,27 +172,29 @@ struct FavoritesFullListView: View {
         }
     }
 
-    /// Starts a favorites session using the synchronous event-driven pattern.
+    /// Stages a favorites session and triggers navigation to Practice.
     ///
-    /// Mirrors the saved session flow in `SavedSessionsFullListView`:
-    /// set loop config -> send event -> pop to root.
-    /// Affirmations are passed directly (already loaded), avoiding any `async`
-    /// suspension that could cause voice ID staleness.
+    /// Uses the "Stage, Navigate, Execute" pattern:
+    /// 1. Stage session config in the store (no execution yet)
+    /// 2. Navigate (pop to root + scroll to Practice)
+    /// 3. Store executes after pager settles via `executePendingSession`
+    ///
+    /// This prevents the navigation race condition where NavigationStack pop
+    /// and HorizontalPager scroll compete, causing visible bounce-back.
     private func startFavoritesSession(mode: SessionMode, loopCount: Int, shuffle: Bool) {
         let config = LoopConfiguration(
             loopCount: loopCount,
             isShuffleEnabled: shuffle,
             currentLoopIteration: 1
         )
-        store.setLoopConfiguration(config)
 
-        store.send(.startFavoritesSession(
-            affirmations: favorites,
-            mode: mode,
-            shuffle: shuffle
-        ))
+        let pending = PendingRemoteSession(
+            source: .favorites(affirmations: favorites, mode: mode, shuffle: shuffle),
+            loopConfiguration: config
+        )
+        store.send(.stageRemoteSession(pending))
 
-        // Pop to root and navigate to Practice
+        // Navigate: pop to root and scroll to Practice page
         onStartSession()
     }
 

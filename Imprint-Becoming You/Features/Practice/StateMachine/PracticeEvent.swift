@@ -143,13 +143,29 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     case saveSession(name: String)
     
     // MARK: - Favorites Session Events
-    
+
     /// User tapped play on favorites list.
     ///
     /// Follows the same synchronous event-driven pattern as `startSavedSession`.
     /// Affirmations are pre-fetched by `FavoritesFullListView` and passed directly,
     /// avoiding unnecessary `async` suspension that could cause voice ID staleness.
     case startFavoritesSession(affirmations: [Affirmation], mode: SessionMode, shuffle: Bool)
+
+    // MARK: - Remote Session Start Events
+
+    /// Stage a session for deferred execution after navigation completes.
+    ///
+    /// Part of the "Stage, Navigate, Execute" pattern. The store saves the config
+    /// but does NOT start the session. Navigation completes first, then
+    /// `executePendingSession` fires when the pager settles.
+    case stageRemoteSession(PendingRemoteSession)
+
+    /// Execute the staged remote session after navigation has settled.
+    ///
+    /// Dispatched by MainPracticeView when the HorizontalPager's
+    /// `scrollViewDidEndScrollingAnimation` fires, confirming the pager
+    /// has settled on the Practice page.
+    case executePendingSession
     
     // MARK: - TTS Events
     
@@ -355,6 +371,8 @@ extension PracticeEvent {
             return true
         case .repeatSession, .repeatSessionWithConfig, .startSavedSession, .startFavoritesSession:
             return true
+        case .stageRemoteSession, .executePendingSession:
+            return true
         case .cancelSessionPreparation:
             return true
         default:
@@ -378,6 +396,8 @@ extension PracticeEvent {
         case .cycleLoopCount, .toggleShuffle:
             return true
         case .repeatSession, .repeatSessionWithConfig, .startSavedSession, .startFavoritesSession, .saveSession:
+            return true
+        case .stageRemoteSession:
             return true
         default:
             return false
@@ -488,6 +508,15 @@ extension PracticeEvent: CustomStringConvertible {
             return "saveSession(\(name))"
         case .startFavoritesSession(let affs, let mode, let shuffle):
             return "startFavoritesSession(\(affs.count) affirmations, \(mode.rawValue), shuffle: \(shuffle))"
+        case .stageRemoteSession(let pending):
+            switch pending.source {
+            case .favorites(let affs, let mode, _):
+                return "stageRemoteSession(favorites: \(affs.count) affirmations, \(mode.rawValue))"
+            case .savedSession(let session):
+                return "stageRemoteSession(savedSession: \(session.name))"
+            }
+        case .executePendingSession:
+            return "executePendingSession"
         case .startFlow:
             return "startFlow"
         case .pauseFlow:

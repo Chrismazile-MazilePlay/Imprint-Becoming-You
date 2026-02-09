@@ -188,6 +188,13 @@ extension PracticeStore {
         // MARK: Favorites Session Events
         case .startFavoritesSession(let affirmations, let mode, let shuffle):
             handleStartFavoritesSession(affirmations: affirmations, mode: mode, shuffle: shuffle)
+
+        // MARK: Remote Session Start Events
+        case .stageRemoteSession(let pending):
+            handleStageRemoteSession(pending)
+
+        case .executePendingSession:
+            handleExecutePendingSession()
             
         // MARK: TTS Events
         case .ttsStarted:

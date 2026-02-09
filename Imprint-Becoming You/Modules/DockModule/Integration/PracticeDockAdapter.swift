@@ -56,14 +56,8 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     
     // MARK: - Local State
 
-    /// Whether the mode selector menu is expanded.
-    var isModeSelectorExpanded: Bool = false
-
-    /// Whether the binaural selector menu is expanded.
-    var isBinauralSelectorExpanded: Bool = false
-
-    /// Whether the config selector (gear menu) is expanded.
-    var isConfigSelectorExpanded: Bool = false
+    /// Which selector menu is currently expanded, if any.
+    var expandedSelector: DockExpandedSelector?
 
     /// Shuffle option hidden on home/session screens (no predefined set to shuffle).
     var showsShuffleOption: Bool { false }
@@ -149,18 +143,6 @@ final class PracticeDockAdapter: DockAdapterProtocol {
         )
     }
     
-    /// Legacy progress (deprecated - use sessionSegments instead).
-    var progress: DockProgress? {
-        guard store.isSessionActive else { return nil }
-        
-        return DockProgress(
-            currentIndex: store.displayCurrentIndex,
-            totalCount: store.sessionAffirmations.count,
-            segmentProgress: Float(store.segmentProgress),
-            isAnimating: isSegmentAnimating(for: store.flow)
-        )
-    }
-    
     var canNavigatePrevious: Bool {
         store.canGoPrevious
     }
@@ -192,14 +174,14 @@ final class PracticeDockAdapter: DockAdapterProtocol {
         // Check mic availability for modes that require it
         if mode.requiresMicrophone && !ListDockAdapter.isMicrophoneAccessible() {
             // Close mode selector, then show error bar
-            isModeSelectorExpanded = false
+            expandedSelector = nil
             showError("The microphone is being used by another app")
             return
         }
 
         let sessionMode = mapDockModeToSessionMode(mode)
         store.send(.selectMode(sessionMode))
-        isModeSelectorExpanded = false
+        expandedSelector = nil
 
         // Apply loop configuration after session starts (overrides the store's reset).
         // send() is synchronous, so setLoopConfiguration runs on the same MainActor turn.
@@ -218,7 +200,7 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     func selectBinaural(_ preset: DockBinauralPreset) {
         let binauralPreset = mapDockBinauralToPreset(preset)
         store.send(.selectBinaural(binauralPreset))
-        isBinauralSelectorExpanded = false
+        expandedSelector = nil
     }
     
     // MARK: - Navigation Actions
@@ -244,9 +226,7 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     // MARK: - Selector Actions
     
     func closeAllSelectors() {
-        isModeSelectorExpanded = false
-        isBinauralSelectorExpanded = false
-        isConfigSelectorExpanded = false
+        expandedSelector = nil
         dismissErrorBar()
     }
     

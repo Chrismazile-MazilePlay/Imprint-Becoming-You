@@ -139,9 +139,7 @@ struct FavoritesFullListView: View {
             .padding(.vertical, AppTheme.Spacing.md)
         }
         .onTapGesture {
-            guard dockAdapter.isModeSelectorExpanded
-               || dockAdapter.isBinauralSelectorExpanded
-               || dockAdapter.isConfigSelectorExpanded
+            guard dockAdapter.expandedSelector != nil
                || dockAdapter.isErrorBarVisible else { return }
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 dockAdapter.closeAllSelectors()

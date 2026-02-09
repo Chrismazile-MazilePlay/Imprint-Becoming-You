@@ -118,7 +118,7 @@ public protocol DockDesignTokens {
     /// Bottom padding for the dock: 24pt
     var dockBottomPadding: CGFloat { get }
     
-    /// Height for chip buttons: 36pt
+    /// Height for chip buttons: 44pt (Apple HIG minimum tap target)
     var chipHeight: CGFloat { get }
     
     /// Size for the play button: 48pt

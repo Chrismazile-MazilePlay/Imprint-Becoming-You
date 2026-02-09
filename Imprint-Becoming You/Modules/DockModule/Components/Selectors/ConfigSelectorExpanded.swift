@@ -171,10 +171,10 @@ public struct ConfigSelectorExpanded: View {
             Group {
                 if count == 1 {
                     Image(systemName: "repeat.1")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 17, weight: .semibold))
                 } else {
                     Text("\(count)")
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.system(size: 19, weight: .bold))
                 }
             }
             .foregroundStyle(isSelected ? tokens.accent : tokens.textSecondary)

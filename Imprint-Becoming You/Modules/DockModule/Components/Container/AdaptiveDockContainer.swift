@@ -128,7 +128,7 @@ public struct AdaptiveDockContainer<Content: View>: View {
     @ViewBuilder
     private var expandedMenus: some View {
         // Binaural selector — left-aligned (matches left binaural button)
-        if adapter.isBinauralSelectorExpanded {
+        if adapter.expandedSelector == .binaural {
             HStack {
                 BinauralSelectorExpanded(
                     selectedPreset: adapter.binauralPreset
@@ -145,7 +145,7 @@ public struct AdaptiveDockContainer<Content: View>: View {
         }
 
         // Mode selector — left-aligned
-        if adapter.isModeSelectorExpanded {
+        if adapter.expandedSelector == .mode {
             HStack {
                 ModeSelectorExpanded(
                     modes: adapter.availableModes,
@@ -163,7 +163,7 @@ public struct AdaptiveDockContainer<Content: View>: View {
         }
 
         // Config selector — right-aligned (matches right gear button)
-        if adapter.isConfigSelectorExpanded {
+        if adapter.expandedSelector == .config {
             HStack {
                 Spacer(minLength: 0)
                 ConfigSelectorExpanded(
@@ -274,7 +274,7 @@ public struct AdaptiveDockContainer<Content: View>: View {
     struct PreviewWrapper: View {
         @State private var adapter: MockDockAdapter = {
             let a = MockDockAdapter.favorites
-            a.isModeSelectorExpanded = true
+            a.expandedSelector = .mode
             return a
         }()
 
@@ -300,7 +300,7 @@ public struct AdaptiveDockContainer<Content: View>: View {
     struct PreviewWrapper: View {
         @State private var adapter: MockDockAdapter = {
             let a = MockDockAdapter.home
-            a.isModeSelectorExpanded = true
+            a.expandedSelector = .mode
             return a
         }()
         

@@ -84,33 +84,20 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
     /// Order is preserved in the UI.
     var availableModes: [DockMode] { get }
     
-    /// Whether the mode selector menu is expanded.
+    /// Which selector menu is currently expanded, if any.
     ///
-    /// When `true`, the mode selector panel is visible above the dock.
-    /// Setting this to `false` closes the menu.
-    var isModeSelectorExpanded: Bool { get set }
-    
+    /// Only one selector can be open at a time — enforced by the type system.
+    /// Setting to `nil` closes all selector menus.
+    ///
+    /// - `.mode`: Mode selector panel visible above dock
+    /// - `.binaural`: Binaural selector panel visible above dock
+    /// - `.config`: Config/settings panel visible above dock
+    var expandedSelector: DockExpandedSelector? { get set }
+
     // MARK: - Binaural State
-    
+
     /// The currently selected binaural preset.
     var binauralPreset: DockBinauralPreset { get }
-    
-    /// Whether the binaural selector menu is expanded.
-    ///
-    /// When `true`, the binaural selector panel is visible above the dock.
-    /// Setting this to `false` closes the menu.
-    var isBinauralSelectorExpanded: Bool { get set }
-
-    // MARK: - Config Selector State
-
-    /// Whether the config selector menu (gear menu) is expanded.
-    ///
-    /// When `true`, the config selector panel is visible above the dock showing
-    /// loop count and shuffle options. Setting this to `false` closes the menu.
-    ///
-    /// Unlike mode and binaural selectors, the config menu does NOT auto-dismiss
-    /// on selection — only on outside tap or second gear button tap.
-    var isConfigSelectorExpanded: Bool { get set }
 
     /// Whether the shuffle option appears in the config menu.
     ///
@@ -325,16 +312,8 @@ public extension DockAdapterProtocol {
     
     /// Default implementation closes all selectors and error bar.
     func closeAllSelectors() {
-        isModeSelectorExpanded = false
-        isBinauralSelectorExpanded = false
-        isConfigSelectorExpanded = false
+        expandedSelector = nil
         isErrorBarVisible = false
-    }
-
-    /// Default config selector state — not expanded.
-    var isConfigSelectorExpanded: Bool {
-        get { false }
-        set { }
     }
 
     /// Default shuffle option visibility — hidden.
@@ -356,15 +335,6 @@ public extension DockAdapterProtocol {
     /// Override in adapters that use session segments.
     func segmentAnimationCompleted() {
         // No-op by default
-    }
-    
-    /// Legacy progress information for backwards compatibility.
-    ///
-    /// - Note: This property is deprecated. Use `sessionSegments` instead.
-    ///   Provided as a default implementation to avoid breaking existing conformers.
-    @available(*, deprecated, message: "Use sessionSegments instead for session progress")
-    var progress: DockProgress? {
-        nil
     }
     
     /// Default error bar state — not visible.

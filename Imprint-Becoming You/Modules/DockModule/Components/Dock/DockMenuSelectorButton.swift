@@ -92,7 +92,7 @@ public struct DockMenuSelectorButton: View {
         } label: {
             HStack(spacing: tokens.spacingXS) {
                 Image(systemName: icon)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 17, weight: .medium))
 
                 if !label.isEmpty {
                     Text(label)
@@ -100,7 +100,7 @@ public struct DockMenuSelectorButton: View {
                 }
 
                 Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
             }
             .foregroundStyle(foregroundColor)
             .padding(.horizontal, tokens.spacingSM)

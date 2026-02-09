@@ -84,11 +84,11 @@ public struct DockLoopButton: View {
                 if count == 1 {
                     // Default: show repeat.1 icon
                     Image(systemName: "repeat.1")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 17, weight: .semibold))
                 } else {
                     // Active (3 or 5): show just the number
                     Text("\(count)")
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.system(size: 19, weight: .bold))
                 }
             }
             .foregroundStyle(foregroundColor)

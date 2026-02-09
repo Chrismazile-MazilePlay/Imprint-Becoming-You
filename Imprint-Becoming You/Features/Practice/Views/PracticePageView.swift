@@ -47,7 +47,7 @@ import SwiftData
 /// - Store sets `pendingAutoAdvance` to trigger animated transition
 /// - VerticalPager performs animation and calls `onAutoAdvanceComplete`
 /// - Store's `continueFlow()` starts the next affirmation flow
-/// - DockProgressBars stay in sync via store state
+/// - DockSegmentsView stays in sync via store state
 ///
 /// ## Gesture Architecture
 /// Vertical gestures are handled by `VerticalPager` (child). Horizontal gestures
@@ -130,9 +130,7 @@ struct PracticePageView: View {
             .simultaneousGesture(
                 TapGesture()
                     .onEnded {
-                        guard dockAdapter.isModeSelectorExpanded
-                           || dockAdapter.isBinauralSelectorExpanded
-                           || dockAdapter.isConfigSelectorExpanded
+                        guard dockAdapter.expandedSelector != nil
                            || dockAdapter.isErrorBarVisible else { return }
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                             dockAdapter.closeAllSelectors()
@@ -151,9 +149,7 @@ struct PracticePageView: View {
                 .simultaneousGesture(
                     TapGesture()
                         .onEnded {
-                            guard dockAdapter.isModeSelectorExpanded
-                               || dockAdapter.isBinauralSelectorExpanded
-                               || dockAdapter.isConfigSelectorExpanded
+                            guard dockAdapter.expandedSelector != nil
                                || dockAdapter.isErrorBarVisible else { return }
                             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                                 dockAdapter.closeAllSelectors()
@@ -181,10 +177,7 @@ struct PracticePageView: View {
             // the correct color when progress returns to 0.
             displayedBackgroundCategory = affirmation(at: newIndex)?.goalCategory
         }
-        .onChange(of: dockAdapter.isModeSelectorExpanded) { _, _ in
-            updateDockMenuExpanded()
-        }
-        .onChange(of: dockAdapter.isBinauralSelectorExpanded) { _, _ in
+        .onChange(of: dockAdapter.expandedSelector) { _, _ in
             updateDockMenuExpanded()
         }
         .onChange(of: dockAdapter.isErrorBarVisible) { _, _ in
@@ -205,7 +198,7 @@ struct PracticePageView: View {
     /// Relays dock selector expansion state to the parent binding.
     /// When any selector or error bar is expanded, horizontal paging is disabled.
     private func updateDockMenuExpanded() {
-        isDockMenuExpanded = dockAdapter.isModeSelectorExpanded || dockAdapter.isBinauralSelectorExpanded || dockAdapter.isErrorBarVisible
+        isDockMenuExpanded = dockAdapter.expandedSelector != nil || dockAdapter.isErrorBarVisible
     }
     
     // MARK: - Bindings
@@ -241,10 +234,8 @@ struct PracticePageView: View {
     // MARK: - Navigation Logic
     
     private var canNavigate: Bool {
-        // Block if selectors or error bar are expanded
-        guard !dockAdapter.isModeSelectorExpanded else { return false }
-        guard !dockAdapter.isBinauralSelectorExpanded else { return false }
-        guard !dockAdapter.isConfigSelectorExpanded else { return false }
+        // Block if any selector or error bar is expanded
+        guard dockAdapter.expandedSelector == nil else { return false }
         guard !dockAdapter.isErrorBarVisible else { return false }
         
         // Block if timeout alert is showing to prevent race conditions

@@ -80,19 +80,13 @@ public final class MockDockAdapter: DockAdapterProtocol {
     /// All available modes.
     public var availableModes: [DockMode] = DockMode.allCases
     
-    /// Whether the mode selector is expanded.
-    public var isModeSelectorExpanded: Bool = false
-    
+    /// Which selector menu is currently expanded, if any.
+    public var expandedSelector: DockExpandedSelector?
+
     // MARK: - Binaural State
-    
+
     /// The currently selected binaural preset.
     public var binauralPreset: DockBinauralPreset = .off
-    
-    /// Whether the binaural selector is expanded.
-    public var isBinauralSelectorExpanded: Bool = false
-
-    /// Whether the config selector (gear menu) is expanded.
-    public var isConfigSelectorExpanded: Bool = false
 
     /// Whether the shuffle option appears in the config menu.
     public var showsShuffleOption: Bool = false
@@ -104,9 +98,6 @@ public final class MockDockAdapter: DockAdapterProtocol {
     
     /// Session segments for Stories-style progress display.
     public var sessionSegments: DockSessionSegments?
-    
-    /// Legacy progress information (deprecated).
-    public var progress: DockProgress?
     
     /// Whether backward navigation is available.
     public var canNavigatePrevious: Bool = false
@@ -152,7 +143,7 @@ public final class MockDockAdapter: DockAdapterProtocol {
     /// Handles mode selection.
     public func selectMode(_ mode: DockMode) {
         currentMode = mode
-        isModeSelectorExpanded = false
+        expandedSelector = nil
         #if DEBUG
         print("[MockDockAdapter] Selected mode: \(mode.displayName)")
         #endif
@@ -163,7 +154,7 @@ public final class MockDockAdapter: DockAdapterProtocol {
     /// Handles binaural preset selection.
     public func selectBinaural(_ preset: DockBinauralPreset) {
         binauralPreset = preset
-        isBinauralSelectorExpanded = false
+        expandedSelector = nil
         #if DEBUG
         print("[MockDockAdapter] Selected binaural: \(preset.displayName)")
         #endif
@@ -209,9 +200,7 @@ public final class MockDockAdapter: DockAdapterProtocol {
     
     /// Closes all selector menus.
     public func closeAllSelectors() {
-        isModeSelectorExpanded = false
-        isBinauralSelectorExpanded = false
-        isConfigSelectorExpanded = false
+        expandedSelector = nil
         dismissErrorBar()
     }
     

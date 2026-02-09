@@ -73,9 +73,9 @@ public struct AdaptiveBottomDock: View {
 
     /// Key that changes only when selector expansion state changes.
     ///
-    /// Combines all selector states into a single key for efficient animation tracking.
-    private var selectorAnimationKey: String {
-        "\(adapter.isModeSelectorExpanded)-\(adapter.isBinauralSelectorExpanded)-\(adapter.isConfigSelectorExpanded)"
+    /// Uses the expanded selector enum for efficient animation tracking.
+    private var selectorAnimationKey: DockExpandedSelector? {
+        adapter.expandedSelector
     }
     
     // MARK: - Initialization
@@ -132,7 +132,7 @@ private extension AdaptiveBottomDock {
     ///
     /// Binaural and Gear are circular icon-only buttons. Mode is a chip with
     /// icon + label + chevron. Since both circular buttons share the same fixed
-    /// width (`chipHeight` = 36pt), the Spacers distribute equally, keeping the
+    /// width (`chipHeight` = 44pt), the Spacers distribute equally, keeping the
     /// Mode chip perfectly centered.
     ///
     /// Used in both `.home` and `.session` configurations.
@@ -141,11 +141,11 @@ private extension AdaptiveBottomDock {
             // Binaural (left) — circular icon-only
             DockCircularButton(
                 icon: adapter.binauralPreset.iconName,
-                isExpanded: adapter.isBinauralSelectorExpanded,
+                isExpanded: adapter.expandedSelector == .binaural,
                 isActive: adapter.binauralPreset.isActive,
                 accessibilityLabel: adapter.binauralPreset.accessibilityLabel
             ) {
-                toggleBinauralSelector()
+                toggleSelector(.binaural)
             }
 
             Spacer(minLength: 0)
@@ -154,10 +154,10 @@ private extension AdaptiveBottomDock {
             DockMenuSelectorButton(
                 icon: adapter.currentMode.iconName,
                 label: adapter.currentMode.displayName,
-                isExpanded: adapter.isModeSelectorExpanded,
+                isExpanded: adapter.expandedSelector == .mode,
                 isActive: false
             ) {
-                toggleModeSelector()
+                toggleSelector(.mode)
             }
 
             Spacer(minLength: 0)
@@ -165,11 +165,11 @@ private extension AdaptiveBottomDock {
             // Gear / Settings (right) — circular icon-only
             DockCircularButton(
                 icon: "gearshape.fill",
-                isExpanded: adapter.isConfigSelectorExpanded,
+                isExpanded: adapter.expandedSelector == .config,
                 isActive: isConfigActive,
                 accessibilityLabel: "Settings"
             ) {
-                toggleConfigSelector()
+                toggleSelector(.config)
             }
         }
     }
@@ -233,66 +233,20 @@ private extension AdaptiveBottomDock {
 
 private extension AdaptiveBottomDock {
 
-    func toggleModeSelector() {
-        guard !isAnimatingSelector else { return }
-        isAnimatingSelector = true
-
-        withAnimation(.spring(
-            response: Constants.UITiming.springResponse,
-            dampingFraction: Constants.UITiming.springDamping
-        )) {
-            if adapter.isBinauralSelectorExpanded {
-                adapter.isBinauralSelectorExpanded = false
-            }
-            if adapter.isConfigSelectorExpanded {
-                adapter.isConfigSelectorExpanded = false
-            }
-            if adapter.isErrorBarVisible {
-                adapter.dismissErrorBar()
-            }
-            adapter.isModeSelectorExpanded.toggle()
-        }
-
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(Constants.UITiming.standardAnimationDuration))
-            isAnimatingSelector = false
-        }
-    }
-
-    func toggleBinauralSelector() {
-        guard !isAnimatingSelector else { return }
-        isAnimatingSelector = true
-
-        withAnimation(.spring(
-            response: Constants.UITiming.springResponse,
-            dampingFraction: Constants.UITiming.springDamping
-        )) {
-            if adapter.isModeSelectorExpanded {
-                adapter.isModeSelectorExpanded = false
-            }
-            if adapter.isConfigSelectorExpanded {
-                adapter.isConfigSelectorExpanded = false
-            }
-            if adapter.isErrorBarVisible {
-                adapter.dismissErrorBar()
-            }
-            adapter.isBinauralSelectorExpanded.toggle()
-        }
-
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(Constants.UITiming.standardAnimationDuration))
-            isAnimatingSelector = false
-        }
-    }
-
-    /// Toggles the config selector (gear menu).
+    /// Toggles the specified selector menu.
+    ///
+    /// Handles all selector types (mode, binaural, config) through a single
+    /// function. Since `expandedSelector` is a single optional enum, opening
+    /// one selector automatically closes any other — no manual close-before-open
+    /// logic needed.
     ///
     /// During an active session (`.session` configuration), tapping the gear
-    /// shows an error bar instead of opening the menu, since settings cannot
-    /// be changed mid-session.
-    func toggleConfigSelector() {
-        // Block during active session — show error instead
-        if adapter.configuration == .session {
+    /// shows an error bar instead of opening the config menu.
+    ///
+    /// - Parameter selector: The selector to toggle
+    func toggleSelector(_ selector: DockExpandedSelector) {
+        // Block config during active session — show error instead
+        if selector == .config && adapter.configuration == .session {
             adapter.showError("Settings can't be changed during a session")
             return
         }
@@ -304,16 +258,8 @@ private extension AdaptiveBottomDock {
             response: Constants.UITiming.springResponse,
             dampingFraction: Constants.UITiming.springDamping
         )) {
-            if adapter.isModeSelectorExpanded {
-                adapter.isModeSelectorExpanded = false
-            }
-            if adapter.isBinauralSelectorExpanded {
-                adapter.isBinauralSelectorExpanded = false
-            }
-            if adapter.isErrorBarVisible {
-                adapter.dismissErrorBar()
-            }
-            adapter.isConfigSelectorExpanded.toggle()
+            adapter.dismissErrorBar()
+            adapter.expandedSelector = (adapter.expandedSelector == selector) ? nil : selector
         }
 
         Task { @MainActor in

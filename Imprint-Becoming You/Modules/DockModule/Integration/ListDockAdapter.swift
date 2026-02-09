@@ -26,7 +26,7 @@ import AVFoundation
 ///
 /// 1. Always returns `.home` configuration (unified 3-button layout)
 /// 2. Full binaural support (was `.off`/disabled in ConfigurationDockAdapter)
-/// 3. Has `isConfigSelectorExpanded` and `showsShuffleOption`
+/// 3. Has `expandedSelector` and `showsShuffleOption`
 /// 4. Created once, properties mutated directly (no replacement pattern)
 /// 5. `onPlayHandler` is mutable for late binding
 ///
@@ -79,21 +79,13 @@ final class ListDockAdapter: DockAdapterProtocol {
         DockMode.allCases.filter { $0 != .readOnly }
     }
 
-    /// Whether the mode selector is expanded.
-    var isModeSelectorExpanded: Bool = false
+    /// Which selector menu is currently expanded, if any.
+    var expandedSelector: DockExpandedSelector?
 
     // MARK: - Binaural State
 
     /// The currently selected binaural preset.
     var binauralPreset: DockBinauralPreset = .off
-
-    /// Whether the binaural selector is expanded.
-    var isBinauralSelectorExpanded: Bool = false
-
-    // MARK: - Config Selector State
-
-    /// Whether the config selector (gear menu) is expanded.
-    var isConfigSelectorExpanded: Bool = false
 
     /// Whether the shuffle option appears in the config menu.
     ///
@@ -193,20 +185,20 @@ final class ListDockAdapter: DockAdapterProtocol {
     func selectMode(_ mode: DockMode) {
         // Check mic availability for modes that require it
         if mode.requiresMicrophone && !Self.isMicrophoneAccessible() {
-            isModeSelectorExpanded = false
+            expandedSelector = nil
             showError("The microphone is being used by another app")
             return
         }
 
         currentMode = mode
-        isModeSelectorExpanded = false
+        expandedSelector = nil
     }
 
     // MARK: - Binaural Actions
 
     func selectBinaural(_ preset: DockBinauralPreset) {
         binauralPreset = preset
-        isBinauralSelectorExpanded = false
+        expandedSelector = nil
     }
 
     // MARK: - Navigation Actions (No-op)
@@ -222,9 +214,7 @@ final class ListDockAdapter: DockAdapterProtocol {
     // MARK: - Selector Actions
 
     func closeAllSelectors() {
-        isModeSelectorExpanded = false
-        isBinauralSelectorExpanded = false
-        isConfigSelectorExpanded = false
+        expandedSelector = nil
         dismissErrorBar()
     }
 

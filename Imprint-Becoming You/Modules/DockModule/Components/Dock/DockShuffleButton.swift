@@ -51,7 +51,7 @@ public struct DockShuffleButton: View {
             action()
         } label: {
             Image(systemName: "shuffle")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(isEnabled ? tokens.accent : tokens.textSecondary)
                 .frame(width: tokens.chipHeight, height: tokens.chipHeight)
                 .background(

@@ -234,9 +234,7 @@ struct SavedSessionsFullListView: View {
         .onTapGesture {
             // Dismiss any open swipe actions when tapping outside cards
             SwipeActionSharedState.shared.dismissAll()
-            guard dockAdapter.isModeSelectorExpanded
-               || dockAdapter.isBinauralSelectorExpanded
-               || dockAdapter.isConfigSelectorExpanded
+            guard dockAdapter.expandedSelector != nil
                || dockAdapter.isErrorBarVisible else { return }
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 dockAdapter.closeAllSelectors()
@@ -268,9 +266,7 @@ struct SavedSessionsFullListView: View {
         guard !isAnyCardEditing else { return }
 
         // Close any expanded menus with animation before changing selection
-        if dockAdapter.isModeSelectorExpanded
-            || dockAdapter.isBinauralSelectorExpanded
-            || dockAdapter.isConfigSelectorExpanded
+        if dockAdapter.expandedSelector != nil
             || dockAdapter.isErrorBarVisible {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 dockAdapter.closeAllSelectors()

@@ -16,8 +16,8 @@ import SwiftUI
 ///
 /// ## Design Specifications
 ///
-/// - **Shape:** Circle, diameter = `chipHeight` (36pt) to match dock row proportion
-/// - **Icon:** 14pt medium weight SF Symbol (matches chip button icon size)
+/// - **Shape:** Circle, diameter = `chipHeight` (44pt) to meet Apple HIG minimum tap target
+/// - **Icon:** 17pt medium weight SF Symbol (proportionally scaled with 44pt container)
 /// - **Colors (inactive):** `textSecondary` foreground, `backgroundTertiary` background
 /// - **Colors (active):** `accent` foreground, `accent.opacity(0.15)` background
 /// - **Haptics:** `lightImpact` on tap (matches chip button haptics)
@@ -98,7 +98,7 @@ public struct DockCircularButton: View {
             action()
         } label: {
             Image(systemName: icon)
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(foregroundColor)
                 .frame(width: tokens.chipHeight, height: tokens.chipHeight)
                 .background(

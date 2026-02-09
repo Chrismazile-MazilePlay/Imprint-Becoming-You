@@ -152,8 +152,8 @@ public struct DefaultDockDesignTokens: DockDesignTokens {
     /// Bottom padding for the dock: 24pt
     public var dockBottomPadding: CGFloat { 24 }
     
-    /// Height for chip buttons: 36pt
-    public var chipHeight: CGFloat { 36 }
+    /// Height for chip buttons: 44pt (Apple HIG minimum tap target)
+    public var chipHeight: CGFloat { 44 }
     
     /// Size for the play button: 48pt
     public var playButtonSize: CGFloat { 48 }

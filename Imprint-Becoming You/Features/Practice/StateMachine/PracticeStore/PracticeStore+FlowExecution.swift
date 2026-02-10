@@ -559,31 +559,7 @@ extension PracticeStore {
 // MARK: - Scheduling Helpers
 
 extension PracticeStore {
-    
-    /// Schedules auto-advance after a delay.
-    ///
-    /// **Task Lifecycle:** Fire-and-forget with `isCancelled` check.
-    /// Short-lived (< 2s), self-terminating, no tracking needed.
-    func scheduleAutoAdvance() {
-        Task { [weak self] in
-            guard let self = self else { return }
-            try? await Task.sleep(for: PracticeTiming.readAloudCompletePause)
-            guard !Task.isCancelled else { return }
-            
-            // Check if we've reached the last affirmation in the session
-            if self.isSessionActive && self.sessionIndex >= Constants.Session.sessionSize - 1 {
-                // Use handleLoopIterationCompleted to properly check for loops
-                // This ensures Read Aloud mode respects loop configuration
-                self.handleLoopIterationCompleted()
-                return
-            }
-            
-            if self.canGoNext {
-                self.pendingAutoAdvance = .next
-            }
-        }
-    }
-    
+
     /// Locks navigation for a brief period (during score display).
     ///
     /// **Task Lifecycle:** Fire-and-forget.

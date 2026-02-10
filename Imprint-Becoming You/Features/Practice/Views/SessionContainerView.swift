@@ -81,6 +81,19 @@ struct SessionContainerView: View {
     /// if the cover is dismissed very quickly (< 400ms).
     @State private var coverPresentTask: Task<Void, Never>?
 
+    /// Dock adapter for the session pager (inside fullScreenCover).
+    ///
+    /// Uses default configuration (no segment suppression) so the dock's
+    /// segment timer drives auto-advance during active sessions.
+    @State private var sessionDockAdapter: PracticeDockAdapter
+
+    // MARK: - Initialization
+
+    init(store: PracticeStore) {
+        self.store = store
+        self._sessionDockAdapter = State(initialValue: PracticeDockAdapter(store: store))
+    }
+
     // MARK: - Computed Properties
 
     /// Whether the "Start Now" button should be enabled for large sessions.
@@ -172,7 +185,8 @@ struct SessionContainerView: View {
                 onNavigateToProfile: { },  // Disabled in session
                 onNavigateToPrompts: { },  // Disabled in session
                 isDockMenuExpanded: $isDockMenuExpanded,
-                isSessionContext: true
+                pendingAdvance: $store.pendingAutoAdvance,
+                dockAdapter: sessionDockAdapter
             )
             .ignoresSafeArea()
 

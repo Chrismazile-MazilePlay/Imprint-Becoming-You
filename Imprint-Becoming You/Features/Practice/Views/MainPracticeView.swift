@@ -78,6 +78,14 @@ struct MainPracticeView: View {
 
     /// The single source of truth for practice state
     @State private var store = PracticeStore()
+
+    /// Dock adapter for the home pager (behind fullScreenCover).
+    ///
+    /// Configured with `suppressSegments: true` to prevent phantom segment
+    /// timers from running invisibly while the session cover is presented.
+    /// Initialized lazily on first body evaluation since `store` is needed.
+    @State private var homeDockAdapter: PracticeDockAdapter?
+
     @State private var currentPage: AppPage = .practice
     @State private var isInitialized = false
 
@@ -233,12 +241,15 @@ struct MainPracticeView: View {
             )
 
             // Page 1: Practice (Center - Main)
-            PracticePageView(
-                store: store,
-                onNavigateToProfile: { navigateToPage(.profile) },
-                onNavigateToPrompts: { navigateToPage(.prompts) },
-                isDockMenuExpanded: $isDockMenuExpanded
-            )
+            if let homeDockAdapter {
+                PracticePageView(
+                    store: store,
+                    onNavigateToProfile: { navigateToPage(.profile) },
+                    onNavigateToPrompts: { navigateToPage(.prompts) },
+                    isDockMenuExpanded: $isDockMenuExpanded,
+                    dockAdapter: homeDockAdapter
+                )
+            }
 
             // Page 2: Profile (Right)
             ProfilePageView(
@@ -398,6 +409,12 @@ struct MainPracticeView: View {
         // Initialize voice selection from user profile
         updateStoreVoice(from: appState.userProfile?.selectedVoiceId)
 
+        // Create the home dock adapter with suppressed segments.
+        // Must be created before isInitialized triggers PracticePageView rendering.
+        if homeDockAdapter == nil {
+            homeDockAdapter = PracticeDockAdapter(store: store, suppressSegments: true)
+        }
+
         // Ensure we're on practice page when starting
         currentPage = .practice
         isInitialized = true
@@ -433,17 +450,22 @@ struct MainPracticeView: View {
     struct ActiveModePreview: View {
         @State private var store = PracticeStore()
         @State private var isDockMenuExpanded = false
+        @State private var dockAdapter: PracticeDockAdapter?
 
         var body: some View {
             ZStack {
-                PracticePageView(
-                    store: store,
-                    onNavigateToProfile: {},
-                    onNavigateToPrompts: {},
-                    isDockMenuExpanded: $isDockMenuExpanded
-                )
+                if let dockAdapter {
+                    PracticePageView(
+                        store: store,
+                        onNavigateToProfile: {},
+                        onNavigateToPrompts: {},
+                        isDockMenuExpanded: $isDockMenuExpanded,
+                        dockAdapter: dockAdapter
+                    )
+                }
             }
             .onAppear {
+                dockAdapter = PracticeDockAdapter(store: store)
                 store.send(.affirmationsLoaded(Affirmation.samples))
                 store.send(.selectMode(.readAloud))
             }

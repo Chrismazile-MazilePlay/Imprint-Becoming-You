@@ -50,10 +50,19 @@ import AVFoundation
 final class PracticeDockAdapter: DockAdapterProtocol {
     
     // MARK: - Dependencies
-    
+
     /// The practice store being adapted.
     private let store: PracticeStore
-    
+
+    /// When `true`, this adapter never produces session segments or fires
+    /// segment completion callbacks.
+    ///
+    /// Used by the home dock (behind the fullScreenCover) to prevent phantom
+    /// segment timers from running invisibly during active sessions. Without
+    /// this, both the home and session docks would produce timers that fire
+    /// `segmentTimerCompleted`, contributing to double-advance bugs.
+    let suppressSegments: Bool
+
     // MARK: - Local State
 
     /// Which selector menu is currently expanded, if any.
@@ -61,25 +70,29 @@ final class PracticeDockAdapter: DockAdapterProtocol {
 
     /// Shuffle option hidden on home/session screens (no predefined set to shuffle).
     var showsShuffleOption: Bool { false }
-    
+
     // MARK: - Error Bar State
-    
+
     /// Whether the error bar is visible.
     var isErrorBarVisible: Bool = false
-    
+
     /// The current error bar message.
     private(set) var errorBarMessage: String = ""
-    
+
     /// Task managing the auto-dismiss timer for the error bar.
     private var errorDismissTask: Task<Void, Never>?
-    
+
     // MARK: - Initialization
-    
+
     /// Creates an adapter wrapping the given practice store.
     ///
-    /// - Parameter store: The practice store to adapt
-    init(store: PracticeStore) {
+    /// - Parameters:
+    ///   - store: The practice store to adapt
+    ///   - suppressSegments: When `true`, suppresses session segment timers.
+    ///     Use `true` for the home dock behind the fullScreenCover.
+    init(store: PracticeStore, suppressSegments: Bool = false) {
         self.store = store
+        self.suppressSegments = suppressSegments
     }
     
     // MARK: - Configuration
@@ -116,6 +129,7 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     }
     
     var sessionSegments: DockSessionSegments? {
+        guard !suppressSegments else { return nil }
         guard store.isSessionActive else { return nil }
         
         // Build configs from affirmation speech durations
@@ -266,6 +280,7 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     // MARK: - Segment Animation Callback
     
     func segmentAnimationCompleted() {
+        guard !suppressSegments else { return }
         // Dock's segment timer completed - trigger auto-advance
         store.send(.segmentTimerCompleted)
     }

@@ -156,6 +156,15 @@ final class PracticeStore {
     /// Set to `false` by dismiss handlers. Cleanup happens in `onDismiss`.
     private(set) var isSessionPresented: Bool = false
 
+    /// Signal that the session cover has fully presented (animation complete).
+    ///
+    /// Set by `SessionContainerView.onAppear` after a short delay (~400ms)
+    /// to allow the `fullScreenCover` present animation to finish.
+    /// Observed by `MainPracticeView` to trigger behind-cover cleanup
+    /// (instant pager jump to Practice + Profile pop-to-root).
+    /// Reset to `false` immediately after the cleanup executes.
+    var sessionCoverDidPresent: Bool = false
+
     // MARK: - Session Summary State
 
     /// Whether the results summary is being shown

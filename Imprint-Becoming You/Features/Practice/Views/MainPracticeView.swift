@@ -39,10 +39,10 @@ enum AppPage: Int, CaseIterable {
 ///
 /// ## Cosmetic Cleanup
 /// When the cover presents from a non-Practice page (e.g., Profile → Favorites),
-/// a deferred cleanup task (400ms after cover presents) invisibly:
-/// - Scrolls the pager to the Practice page
-/// - Pops the Profile NavigationStack to root
-/// This ensures the user lands on the Practice page after the cover dismisses.
+/// `SessionContainerView` signals `sessionCoverDidPresent` after a ~400ms delay
+/// (allowing the present animation to complete). `MainPracticeView` then performs
+/// an instant non-animated pager jump to Practice and pops Profile's NavigationStack.
+/// This cleanup is invisible because the cover is fully opaque by then.
 ///
 /// ## Active Mode Behavior
 /// During an active session, horizontal swiping is disabled by the cover.
@@ -103,8 +103,12 @@ struct MainPracticeView: View {
     @State private var resetProfileScroll: Bool = false
 
     /// Signal to pop Profile's NavigationStack to root.
-    /// Set to `true` during deferred cosmetic cleanup after cover presents.
+    /// Set to `true` during cosmetic cleanup when cover presents.
     @State private var popProfileToRoot: Bool = false
+
+    /// Controls whether the next programmatic page change is animated.
+    /// Set to `false` for instant behind-cover jumps, auto-resets to `true`.
+    @State private var animatePageChange: Bool = true
 
     // MARK: - Computed Properties
 
@@ -168,17 +172,16 @@ struct MainPracticeView: View {
         .task {
             await initializePractice()
         }
-        .onChange(of: store.isSessionPresented) { wasPresented, isPresented in
-            // Deferred cosmetic cleanup: when cover presents, invisibly reset
-            // the pager to Practice page and pop Profile nav.
-            // This runs AFTER the cover is fully presented (400ms delay),
-            // so the changes are invisible behind the opaque cover.
-            if isPresented && !wasPresented {
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(400))
-                    currentPage = .practice
-                    popProfileToRoot = true
-                }
+        .onChange(of: store.sessionCoverDidPresent) { _, didPresent in
+            // Behind-cover cleanup: triggered by SessionContainerView after the
+            // fullScreenCover present animation completes (~400ms delay).
+            // The cover is now fully opaque, so the instant pager jump and
+            // Profile pop are invisible to the user.
+            if didPresent {
+                animatePageChange = false
+                currentPage = .practice
+                popProfileToRoot = true
+                store.sessionCoverDidPresent = false
             }
         }
         .onChange(of: appState.userProfile?.selectedVoiceId) { _, newVoiceId in
@@ -220,7 +223,8 @@ struct MainPracticeView: View {
             currentPage: currentPageIndex,
             pageCount: AppPage.allCases.count,
             isGestureEnabled: isPagerGestureEnabled,
-            isHorizontallyDragging: $isHorizontallyDragging
+            isHorizontallyDragging: $isHorizontallyDragging,
+            animatePageChange: $animatePageChange
         ) {
             // Page 0: Prompts (Left)
             PromptsPageView(
@@ -319,7 +323,8 @@ struct MainPracticeView: View {
                 AppLogger.debug("Full reset after \(Int(timeInBackground))s in background", category: .practice)
                 #endif
 
-                // Navigate to Practice page
+                // Navigate to Practice page (instant, no animation after background)
+                animatePageChange = false
                 currentPage = .practice
 
                 // Reset Profile scroll position (invisible since we're on Practice page)

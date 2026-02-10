@@ -113,6 +113,14 @@ struct HorizontalPager<Content: View>: UIViewControllerRepresentable {
     /// Child pages can use this to disable their `ScrollView`s during horizontal paging.
     @Binding var isHorizontallyDragging: Bool
 
+    /// When `false`, the next programmatic page change uses
+    /// `setContentOffset(animated: false)` for an instant jump.
+    /// Auto-resets to `true` after the scroll executes.
+    ///
+    /// Use for behind-cover cleanup where the scroll animation is invisible
+    /// (e.g., scrolling to Practice page while `fullScreenCover` is opaque).
+    @Binding var animatePageChange: Bool
+
     /// The pages to display
     @ViewBuilder let content: () -> Content
     
@@ -147,10 +155,18 @@ struct HorizontalPager<Content: View>: UIViewControllerRepresentable {
             let targetOffset = CGFloat(currentPage) * pageWidth
             if abs(controller.scrollView.contentOffset.x - targetOffset) > 1,
                !coordinator.isScrollDriven {
+                let shouldAnimate = animatePageChange
                 controller.scrollView.setContentOffset(
                     CGPoint(x: targetOffset, y: 0),
-                    animated: true
+                    animated: shouldAnimate
                 )
+                // Auto-reset: after a non-animated jump, restore default animated
+                // behavior for subsequent page changes (user taps, swipe snaps).
+                if !shouldAnimate {
+                    DispatchQueue.main.async {
+                        coordinator.parent.animatePageChange = true
+                    }
+                }
             }
         }
         coordinator.isScrollDriven = false
@@ -590,7 +606,8 @@ final class PagingScrollView: UIScrollView, UIGestureRecognizerDelegate {
                     currentPage: $currentPage,
                     pageCount: 3,
                     isGestureEnabled: gesturesEnabled,
-                    isHorizontallyDragging: $isDragging
+                    isHorizontallyDragging: $isDragging,
+                    animatePageChange: .constant(true)
                 ) {
                     Color.red.opacity(0.3)
                         .overlay(Text("Page 0 (Prompts)").font(.title))
@@ -618,7 +635,8 @@ final class PagingScrollView: UIScrollView, UIGestureRecognizerDelegate {
                 currentPage: $currentPage,
                 pageCount: 3,
                 isGestureEnabled: true,
-                isHorizontallyDragging: $isDragging
+                isHorizontallyDragging: $isDragging,
+                animatePageChange: .constant(true)
             ) {
                 ZStack {
                     AppColors.backgroundPrimary

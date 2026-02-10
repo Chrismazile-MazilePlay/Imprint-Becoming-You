@@ -269,7 +269,11 @@ extension PracticeStore {
         // 2. Cancel all active work (tasks, TTS, speech capture, continuations)
         cancelCurrentActivity()
 
-        // 3. Dismiss the fullScreenCover — all cleanup in onDismiss
+        // 3. Reset to home mode before dismiss — underlying pager shows clean content
+        sessionMode = .readOnly
+        setFlow(.home)
+
+        // 4. Dismiss the fullScreenCover — full cleanup in onDismiss
         setSessionPresented(false)
 
         AppLogger.debug("Exit session: cover dismiss initiated", category: .practice)
@@ -292,6 +296,11 @@ extension PracticeStore {
             dependencies.audioPlayerService.immediateStop()
             cancelAllManagedTasks()
             cancelCurrentActivity()
+
+            // Reset to home mode before dismiss — underlying pager shows clean content
+            sessionMode = .readOnly
+            setFlow(.home)
+
             setSessionPresented(false)
         } else {
             // No cover — direct cleanup of any lingering state

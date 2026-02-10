@@ -483,7 +483,11 @@ extension PracticeStore {
             #endif
         }
 
-        // 4. Dismiss the fullScreenCover — remaining cleanup in onDismiss
+        // 4. Reset to home mode before dismiss — underlying pager shows clean content
+        sessionMode = .readOnly
+        setFlow(.home)
+
+        // 5. Dismiss the fullScreenCover — remaining cleanup in onDismiss
         setSessionPresented(false)
     }
 
@@ -559,12 +563,22 @@ extension PracticeStore {
     /// This prevents the bug where the completed session was briefly visible
     /// as the summary dismissed, because the underlying PracticePageView
     /// was still showing session content.
-    /// Handles dismissing the summary by dismissing the fullScreenCover.
+    /// Handles dismissing the summary by resetting to home mode and dismissing the cover.
     ///
-    /// All state cleanup is deferred to `handleSessionCoverDismissed()` which
-    /// fires from the cover's `onDismiss` callback after the animation completes.
-    /// This prevents visible NavigationStack pops during the dismiss animation.
+    /// Resets `flow` to `.home` BEFORE the dismiss animation starts so the
+    /// underlying PracticePageView (behind the cover) shows clean home content
+    /// as the cover slides away. Without this, stale session content is visible
+    /// during the ~350ms dismiss animation.
+    ///
+    /// Full cleanup (TTS queue, session data, NavigationStack pop) is deferred to
+    /// `handleSessionCoverDismissed()` via the cover's `onDismiss` callback.
     func handleDismissSummary() {
+        // Reset to home mode before dismiss — underlying pager shows clean content
+        dependencies.audioPlayerService.immediateStop()
+        sessionMode = .readOnly
+        setFlow(.home)
+
+        // Dismiss the cover — animation reveals clean home content
         setSessionPresented(false)
     }
 

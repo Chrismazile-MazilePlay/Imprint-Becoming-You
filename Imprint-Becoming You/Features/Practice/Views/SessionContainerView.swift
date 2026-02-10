@@ -123,6 +123,16 @@ struct SessionContainerView: View {
         .onChange(of: scenePhase) { oldPhase, newPhase in
             handleSessionScenePhase(from: oldPhase, to: newPhase)
         }
+        .onAppear {
+            // Signal MainPracticeView that the cover is fully presented.
+            // Delay allows the fullScreenCover present animation (~350ms)
+            // to complete so the behind-cover cleanup (instant pager jump
+            // to Practice + Profile pop) is invisible to the user.
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(400))
+                store.sessionCoverDidPresent = true
+            }
+        }
     }
 
     // MARK: - Opaque Base Layer

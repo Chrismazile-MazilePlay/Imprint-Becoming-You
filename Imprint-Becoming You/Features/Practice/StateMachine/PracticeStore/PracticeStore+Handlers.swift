@@ -291,8 +291,11 @@ extension PracticeStore {
         AppLogger.debug("Full reset to home (extended background)", category: .practice)
 
         if isSessionPresented {
-            // Cover is showing — silence audio, cancel work, then dismiss.
-            // All cleanup deferred to handleSessionCoverDismissed.
+            // MINIMAL CLEANUP + DISMISS: When the cover is showing, we only need
+            // to stop audio and cancel active work here. All comprehensive state
+            // cleanup (MemoryManager, TTS queue, session data, summary, menus)
+            // is handled by handleSessionCoverDismissed() via the cover's onDismiss.
+            // Do NOT duplicate that cleanup here — it would execute twice.
             dependencies.audioPlayerService.immediateStop()
             cancelAllManagedTasks()
             cancelCurrentActivity()
@@ -303,7 +306,9 @@ extension PracticeStore {
 
             setSessionPresented(false)
         } else {
-            // No cover — direct cleanup of any lingering state
+            // FULL INLINE CLEANUP: No cover is showing, so handleSessionCoverDismissed()
+            // will NOT be called. We must perform all cleanup that it would have done.
+            // This mirrors handleSessionCoverDismissed()'s steps 1–10 for completeness.
             cancelAllManagedTasks()
             cancelCurrentActivity()
 

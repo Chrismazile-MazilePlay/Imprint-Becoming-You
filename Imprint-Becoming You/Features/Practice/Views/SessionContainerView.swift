@@ -76,6 +76,11 @@ struct SessionContainerView: View {
     /// Communicated from PracticePageView via binding.
     @State private var isDockMenuExpanded: Bool = false
 
+    /// Task that signals MainPracticeView after cover present animation completes.
+    /// Stored for cancellation in `.onDisappear` to prevent stale signals
+    /// if the cover is dismissed very quickly (< 400ms).
+    @State private var coverPresentTask: Task<Void, Never>?
+
     // MARK: - Computed Properties
 
     /// Whether the "Start Now" button should be enabled for large sessions.
@@ -128,10 +133,15 @@ struct SessionContainerView: View {
             // Delay allows the fullScreenCover present animation (~350ms)
             // to complete so the behind-cover cleanup (instant pager jump
             // to Practice + Profile pop) is invisible to the user.
-            Task { @MainActor in
+            coverPresentTask = Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(400))
+                guard !Task.isCancelled else { return }
                 store.sessionCoverDidPresent = true
             }
+        }
+        .onDisappear {
+            coverPresentTask?.cancel()
+            coverPresentTask = nil
         }
     }
 

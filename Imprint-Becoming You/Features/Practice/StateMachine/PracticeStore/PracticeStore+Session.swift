@@ -631,6 +631,12 @@ extension PracticeStore {
         // 7. CRITICAL: Reset mode and flow to home BEFORE clearing data.
         //    setFlow(.home) makes isSessionActive = false immediately.
         //    If we cleared data first, VerticalPager could see empty array mid-render.
+        //    NOTE: These are intentionally idempotent — the early dismiss handlers
+        //    (handleDismissSummary, handleExitSession, handleCancelSessionPreparation,
+        //    handleResetToHome) already set these before the cover begins dismissing,
+        //    so the underlying pager shows clean home content during the animation.
+        //    This second call is the safety net for any future dismiss path that
+        //    might not perform the early reset.
         sessionMode = .readOnly
         setFlow(.home)
         setSegmentProgress(0)

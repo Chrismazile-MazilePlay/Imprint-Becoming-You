@@ -79,6 +79,22 @@ struct PracticePageView: View {
     /// page navigation while dock selectors are open.
     @Binding var isDockMenuExpanded: Bool
 
+    /// Whether this PracticePageView is the active session context.
+    ///
+    /// When `true`, this instance processes `pendingAutoAdvance` and
+    /// `onAutoAdvanceComplete`. When `false`, auto-advance is ignored.
+    ///
+    /// ## Why This Exists
+    ///
+    /// Two PracticePageView instances share the same `PracticeStore`:
+    /// - Home pager (MainPracticeView) — behind the fullScreenCover
+    /// - Session pager (SessionContainerView) — inside the fullScreenCover
+    ///
+    /// Without this flag, both VerticalPagers react to `pendingAutoAdvance`,
+    /// each independently incrementing `currentIndex` via the binding.
+    /// This causes a double-advance that skips every other affirmation.
+    let isSessionContext: Bool
+
     // MARK: - Environment
 
     @Environment(\.modelContext) private var modelContext
@@ -112,12 +128,14 @@ struct PracticePageView: View {
         store: PracticeStore,
         onNavigateToProfile: @escaping () -> Void,
         onNavigateToPrompts: @escaping () -> Void,
-        isDockMenuExpanded: Binding<Bool>
+        isDockMenuExpanded: Binding<Bool>,
+        isSessionContext: Bool = false
     ) {
         self.store = store
         self.onNavigateToProfile = onNavigateToProfile
         self.onNavigateToPrompts = onNavigateToPrompts
         self._isDockMenuExpanded = isDockMenuExpanded
+        self.isSessionContext = isSessionContext
         self._dockAdapter = State(initialValue: PracticeDockAdapter(store: store))
     }
 
@@ -237,11 +255,16 @@ struct PracticePageView: View {
         )
     }
 
-    /// Binding for pendingAutoAdvance
+    /// Binding for pendingAutoAdvance.
+    ///
+    /// Non-session contexts always return `nil` to prevent the behind-the-cover
+    /// home pager from reacting to auto-advance signals meant for the session pager.
+    /// Both pagers share the same store, so without this guard both VerticalPagers
+    /// would independently increment `currentIndex`, causing a double-advance.
     private var pendingAdvanceBinding: Binding<NavigationDirection?> {
         Binding(
-            get: { store.pendingAutoAdvance },
-            set: { store.pendingAutoAdvance = $0 }
+            get: { isSessionContext ? store.pendingAutoAdvance : nil },
+            set: { if isSessionContext { store.pendingAutoAdvance = $0 } }
         )
     }
 

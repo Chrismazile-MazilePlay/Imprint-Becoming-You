@@ -171,7 +171,8 @@ struct SessionContainerView: View {
                 store: store,
                 onNavigateToProfile: { },  // Disabled in session
                 onNavigateToPrompts: { },  // Disabled in session
-                isDockMenuExpanded: $isDockMenuExpanded
+                isDockMenuExpanded: $isDockMenuExpanded,
+                isSessionContext: true
             )
             .ignoresSafeArea()
 

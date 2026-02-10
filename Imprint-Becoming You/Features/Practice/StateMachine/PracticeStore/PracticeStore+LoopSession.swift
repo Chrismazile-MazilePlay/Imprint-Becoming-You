@@ -81,10 +81,7 @@ extension PracticeStore {
             // Set up session with saved affirmations
             clearOriginalSessionAffirmationIds()
             setSessionState(affirmations: affirmations)
-            
-            // Record playback
-            try? repo.recordPlayback(sessionId: savedSession.id)
-            
+
             #if DEBUG
             AppLogger.info("Starting saved session '\(savedSession.name)' with \(affirmations.count) affirmations", category: .practice)
             #endif

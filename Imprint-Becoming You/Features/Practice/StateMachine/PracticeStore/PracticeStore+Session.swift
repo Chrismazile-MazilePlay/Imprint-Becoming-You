@@ -256,6 +256,13 @@ extension PracticeStore {
         sessionMode = mode
         sessionStartTime = Date()
 
+        // Record saved session playback at true session start (not on tap).
+        // playingSavedSessionId is set in handleStartSavedSession() and persists
+        // through the entire session lifecycle until handleSessionCoverDismissed().
+        if let savedSessionId = playingSavedSessionId {
+            try? savedSessionRepository?.recordPlayback(sessionId: savedSessionId)
+        }
+
         // Reset loop iteration to 1 when starting fresh
         var config = loopConfiguration
         config.resetIteration()

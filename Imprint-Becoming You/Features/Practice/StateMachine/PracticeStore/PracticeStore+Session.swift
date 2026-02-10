@@ -494,9 +494,11 @@ extension PracticeStore {
     func showSessionSummary() {
         cancelCurrentActivity()
 
-        // Reset loop configuration so summary dock shows default values.
-        // User can reconfigure loop count and shuffle on the summary dock.
-        resetLoopConfiguration()
+        // NOTE: Loop configuration is NOT reset here. It's deferred to just before
+        // the summary animation begins (inside the Task below), so the loop progress
+        // chip (🔁 "3 of 3") stays visible during the sessionCompletePause delay.
+        // Resetting here would set loopCount=1, hiding the chip before the summary
+        // transition covers it — causing a visible "vanish" glitch.
 
         // NOTE: Idle timer is NOT resumed here. The summary view is part of the
         // active session lifecycle — the user may tap "Repeat" which reuses the
@@ -526,6 +528,12 @@ extension PracticeStore {
 
             try? await Task.sleep(for: PracticeTiming.sessionCompletePause)
             guard !Task.isCancelled else { return }
+
+            // Reset loop configuration for the summary dock's default values.
+            // Done here (not earlier) so the loop chip stays visible until
+            // the summary transition covers it. Steps 4→5 in the same run-loop
+            // pass makes the chip hide and summary appear simultaneously.
+            self.resetLoopConfiguration()
 
             self.setNavigationLocked(true)
 

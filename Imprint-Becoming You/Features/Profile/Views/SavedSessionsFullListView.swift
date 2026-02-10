@@ -246,8 +246,8 @@ struct SavedSessionsFullListView: View {
     /// Updates dock adapter properties directly — no instance replacement.
     private func updateDockState() {
         dockAdapter.isPlayEnabled = isPlayEnabled
-        dockAdapter.onPlayHandler = { [self] mode, loopCount, shuffle in
-            playSelectedSession(mode: mode, loopCount: loopCount, shuffle: shuffle)
+        dockAdapter.onPlayHandler = { [self] mode, loopCount, shuffle, spacedRepetition in
+            playSelectedSession(mode: mode, loopCount: loopCount, shuffle: shuffle, spacedRepetition: spacedRepetition)
         }
         // Show error when disabled play is tapped — but not in empty state
         dockAdapter.onDisabledPlayHandler = isEmpty ? nil : { [self] in
@@ -332,14 +332,14 @@ struct SavedSessionsFullListView: View {
     /// Sends a single `.startRemoteSession` event that immediately presents
     /// the fullScreenCover and begins session setup inside it.
     /// No navigation choreography needed — the cover is a separate view hierarchy.
-    private func playSelectedSession(mode: SessionMode, loopCount: Int, shuffle: Bool) {
+    private func playSelectedSession(mode: SessionMode, loopCount: Int, shuffle: Bool, spacedRepetition: Bool) {
         guard let session = selectedSession else { return }
 
-        let config = LoopConfiguration(
-            loopCount: loopCount,
-            isShuffleEnabled: shuffle,
-            currentLoopIteration: 1
-        )
+        var config = LoopConfiguration()
+        config.loopCount = loopCount
+        config.isShuffleEnabled = shuffle
+        config.isSpacedRepetitionEnabled = spacedRepetition
+        config.currentLoopIteration = 1
         session.setDefaultMode(mode)
 
         store.send(.startRemoteSession(

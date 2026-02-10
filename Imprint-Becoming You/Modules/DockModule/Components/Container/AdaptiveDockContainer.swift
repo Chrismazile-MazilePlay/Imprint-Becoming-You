@@ -170,11 +170,15 @@ public struct AdaptiveDockContainer<Content: View>: View {
                     loopCount: adapter.loopCount,
                     isShuffleEnabled: adapter.isShuffleEnabled,
                     showsShuffleOption: adapter.showsShuffleOption,
+                    isSpacedRepetitionEnabled: adapter.isSpacedRepetitionEnabled,
                     onSelectLoopCount: { count in
                         adapter.selectLoopCount(count)
                     },
                     onToggleShuffle: {
                         adapter.toggleShuffle()
+                    },
+                    onToggleSpacedRepetition: {
+                        adapter.toggleSpacedRepetition()
                     }
                 )
             }

@@ -110,11 +110,11 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     /// User tapped repeat session (with current loop/shuffle config)
     case repeatSession
     
-    /// User tapped repeat session with custom mode/loop/shuffle from summary dock.
+    /// User tapped repeat session with custom mode/loop/shuffle/spaced-rep from summary dock.
     ///
     /// Routes through `prepareAndStartSession` to ensure TTS is properly prepared
     /// when the mode changes (e.g. Speak Only -> Read Aloud on repeat).
-    case repeatSessionWithConfig(mode: SessionMode, loopCount: Int, shuffle: Bool)
+    case repeatSessionWithConfig(mode: SessionMode, loopCount: Int, shuffle: Bool, spacedRepetition: Bool)
     
     /// User toggled favorite on an affirmation in the summary
     /// - Parameter affirmationId: The ID of the affirmation to toggle
@@ -493,8 +493,8 @@ extension PracticeEvent: CustomStringConvertible {
             return "dismissSummary"
         case .repeatSession:
             return "repeatSession"
-        case .repeatSessionWithConfig(let mode, let loopCount, let shuffle):
-            return "repeatSessionWithConfig(\(mode.rawValue), loops: \(loopCount), shuffle: \(shuffle))"
+        case .repeatSessionWithConfig(let mode, let loopCount, let shuffle, let spacedRepetition):
+            return "repeatSessionWithConfig(\(mode.rawValue), loops: \(loopCount), shuffle: \(shuffle), spacedRep: \(spacedRepetition))"
         case .toggleFavoriteInSummary(let id):
             return "toggleFavoriteInSummary(\(id.uuidString.prefix(8)))"
         case .cycleLoopCount:

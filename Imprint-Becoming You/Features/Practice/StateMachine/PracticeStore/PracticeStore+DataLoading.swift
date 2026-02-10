@@ -102,9 +102,17 @@ extension PracticeStore {
         
         // Clear original IDs so setSessionState captures fresh ones
         clearOriginalSessionAffirmationIds()
-        
+
+        // If spaced rep is enabled with more than sessionSize favorites,
+        // randomly select sessionSize (10) from the pool as the base set.
+        // The expansion to 20 happens later in startSession().
+        var sessionQueue = affirmations
+        if loopConfiguration.isSpacedRepetitionEnabled && affirmations.count > Constants.Session.sessionSize {
+            sessionQueue = Array(affirmations.shuffled().prefix(Constants.Session.sessionSize))
+        }
+
         // Set up session state - this captures originalSessionAffirmationIds
-        setSessionState(affirmations: affirmations, index: 0)
+        setSessionState(affirmations: sessionQueue, index: 0)
         setSessionResults([])
         sessionStartTime = Date()
         
@@ -114,7 +122,7 @@ extension PracticeStore {
         }
         
         #if DEBUG
-        AppLogger.info("Starting favorites session with \(affirmations.count) affirmations, mode: \(mode.displayName), voiceId: \(selectedVoiceId ?? "nil")", category: .practice)
+        AppLogger.info("Starting favorites session with \(sessionQueue.count) of \(affirmations.count) affirmations, mode: \(mode.displayName), spacedRep: \(loopConfiguration.isSpacedRepetitionEnabled), voiceId: \(selectedVoiceId ?? "nil")", category: .practice)
         #endif
         
         // Use preparation flow for TTS modes (identical path to saved sessions)

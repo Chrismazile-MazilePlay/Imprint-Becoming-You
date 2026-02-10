@@ -268,6 +268,21 @@ extension PracticeStore {
         config.resetIteration()
         setLoopConfiguration(config)
 
+        // Apply spaced repetition expansion BEFORE setting flow.
+        // originalSessionAffirmationIds already captured the base unique IDs.
+        // TTS prep already synthesized audio for the unique set.
+        // Expansion inserts duplicate Affirmation references — UUID-keyed cache serves both.
+        if loopConfiguration.isSpacedRepetitionEnabled && sessionAffirmations.count > 1 {
+            let expanded = SpacedRepetitionBuilder.expand(sessionAffirmations)
+            setSessionAffirmationsForShuffle(expanded)
+
+            // Update TTS queue with expanded order for index-based progress tracking
+            let expandedInfos = expanded.enumerated().map { index, affirmation in
+                SessionAffirmationInfo(affirmation: affirmation, index: index)
+            }
+            dependencies.sessionTTSQueueService.updateAffirmationOrder(expandedInfos)
+        }
+
         withAnimation(AppTheme.Animation.standard) {
             switch mode {
             case .readOnly:

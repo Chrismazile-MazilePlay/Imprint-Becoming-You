@@ -29,7 +29,8 @@ extension PracticeStore {
     ///   - mode: The session mode to use for the repeat
     ///   - loopCount: Number of loops (1, 3, or 5)
     ///   - shuffle: Whether to shuffle affirmations
-    func handleRepeatSessionWithConfig(mode: SessionMode, loopCount: Int, shuffle: Bool) {
+    ///   - spacedRepetition: Whether to expand with spaced repetition interleaving
+    func handleRepeatSessionWithConfig(mode: SessionMode, loopCount: Int, shuffle: Bool, spacedRepetition: Bool) {
         // Close any open menus
         send(.closeSelectors)
 
@@ -37,6 +38,7 @@ extension PracticeStore {
         var config = LoopConfiguration()
         config.loopCount = loopCount
         config.isShuffleEnabled = shuffle
+        config.isSpacedRepetitionEnabled = spacedRepetition
         config.resetIteration()
         setLoopConfiguration(config)
 
@@ -62,7 +64,9 @@ extension PracticeStore {
         // the user still has favorited. TTS cache is keyed by UUID, so removing
         // entries doesn't require re-synthesis.
         if isFavoritesSession {
-            let stillFavorited = sessionAffirmations.filter { $0.isFavorited }
+            // Deduplicate first (session may have been expanded by spaced rep)
+            let uniqueFavorites = sessionAffirmations.uniqueByID()
+            let stillFavorited = uniqueFavorites.filter { $0.isFavorited }
 
             if stillFavorited.isEmpty {
                 // User unfavorited everything — cannot repeat.
@@ -76,13 +80,67 @@ extension PracticeStore {
             clearOriginalSessionAffirmationIds()
             setSessionState(affirmations: stillFavorited, index: 0)
 
-            // Update TTS queue to reflect the filtered list
-            let filteredOrder = stillFavorited.enumerated().map { index, affirmation in
-                SessionAffirmationInfo(affirmation: affirmation, index: index)
+            // Apply spaced repetition expansion if enabled
+            if spacedRepetition && stillFavorited.count > 1 {
+                let expanded = SpacedRepetitionBuilder.expand(stillFavorited)
+                setSessionAffirmationsForShuffle(expanded)
+
+                let expandedInfos = expanded.enumerated().map { index, affirmation in
+                    SessionAffirmationInfo(affirmation: affirmation, index: index)
+                }
+                dependencies.sessionTTSQueueService.updateAffirmationOrder(expandedInfos)
+            } else {
+                // Update TTS queue to reflect the filtered list (no expansion)
+                let filteredOrder = stillFavorited.enumerated().map { index, affirmation in
+                    SessionAffirmationInfo(affirmation: affirmation, index: index)
+                }
+                dependencies.sessionTTSQueueService.updateAffirmationOrder(filteredOrder)
             }
-            dependencies.sessionTTSQueueService.updateAffirmationOrder(filteredOrder)
         } else {
-            setSessionState(index: 0)
+            // Handle spaced repetition expansion/collapse for non-favorites repeat
+            if spacedRepetition && !originalSessionAffirmationIds.isEmpty {
+                // Collapse to unique base using original IDs, then expand
+                let baseAffirmations: [Affirmation]
+                if let repo = savedSessionRepository {
+                    baseAffirmations = (try? repo.fetchAffirmations(byIds: originalSessionAffirmationIds))
+                        ?? sessionAffirmations.uniqueByID()
+                } else {
+                    baseAffirmations = sessionAffirmations.uniqueByID()
+                }
+
+                // Reset to base, then expand with fresh random sequence
+                setSessionAffirmationsForShuffle(baseAffirmations)
+                setSessionState(index: 0)
+
+                let expanded = SpacedRepetitionBuilder.expand(baseAffirmations)
+                setSessionAffirmationsForShuffle(expanded)
+
+                let expandedInfos = expanded.enumerated().map { index, affirmation in
+                    SessionAffirmationInfo(affirmation: affirmation, index: index)
+                }
+                dependencies.sessionTTSQueueService.updateAffirmationOrder(expandedInfos)
+            } else if !spacedRepetition
+                      && sessionAffirmations.count > originalSessionAffirmationIds.count
+                      && !originalSessionAffirmationIds.isEmpty {
+                // Was expanded, now turned OFF — collapse to unique base
+                let baseAffirmations: [Affirmation]
+                if let repo = savedSessionRepository {
+                    baseAffirmations = (try? repo.fetchAffirmations(byIds: originalSessionAffirmationIds))
+                        ?? sessionAffirmations.uniqueByID()
+                } else {
+                    baseAffirmations = sessionAffirmations.uniqueByID()
+                }
+
+                setSessionAffirmationsForShuffle(baseAffirmations)
+                setSessionState(index: 0)
+
+                let collapsedInfos = baseAffirmations.enumerated().map { index, affirmation in
+                    SessionAffirmationInfo(affirmation: affirmation, index: index)
+                }
+                dependencies.sessionTTSQueueService.updateAffirmationOrder(collapsedInfos)
+            } else {
+                setSessionState(index: 0)
+            }
         }
 
         // Shuffle if enabled — cache remains valid (keyed by UUID, not index)
@@ -112,7 +170,7 @@ extension PracticeStore {
         }
 
         #if DEBUG
-        AppLogger.info("Repeating session with mode=\(mode.displayName), loops=\(loopCount), shuffle=\(shuffle), voiceId: \(selectedVoiceId ?? "nil")", category: .practice)
+        AppLogger.info("Repeating session with mode=\(mode.displayName), loops=\(loopCount), shuffle=\(shuffle), spacedRep=\(spacedRepetition), voiceId: \(selectedVoiceId ?? "nil")", category: .practice)
         #endif
 
         // Pop summary from NavigationStack (cover stays presented).

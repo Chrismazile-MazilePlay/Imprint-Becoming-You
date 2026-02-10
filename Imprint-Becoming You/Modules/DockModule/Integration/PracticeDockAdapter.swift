@@ -173,6 +173,12 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     /// Defaults to `1` (single play).
     var loopCount: Int = 1
 
+    /// Whether spaced repetition (Reinforce) is enabled on the home screen.
+    ///
+    /// Applied to the store's loop configuration when a session starts via mode selection.
+    /// Defaults to `false` (standard 10-segment session).
+    var isSpacedRepetitionEnabled: Bool = false
+
     /// Not applicable for practice mode.
     var isShuffleEnabled: Bool { false }
     
@@ -197,14 +203,15 @@ final class PracticeDockAdapter: DockAdapterProtocol {
         store.send(.selectMode(sessionMode))
         expandedSelector = nil
 
-        // Apply loop configuration after session starts (overrides the store's reset).
+        // Apply loop + spaced repetition configuration after session starts
+        // (overrides the store's reset).
         // send() is synchronous, so setLoopConfiguration runs on the same MainActor turn.
-        if loopCount > 1 {
-            let config = LoopConfiguration(
-                loopCount: loopCount,
-                isShuffleEnabled: false,
-                currentLoopIteration: 1
-            )
+        if loopCount > 1 || isSpacedRepetitionEnabled {
+            var config = LoopConfiguration()
+            config.loopCount = loopCount
+            config.isShuffleEnabled = false
+            config.isSpacedRepetitionEnabled = isSpacedRepetitionEnabled
+            config.currentLoopIteration = 1
             store.setLoopConfiguration(config)
         }
     }
@@ -298,6 +305,10 @@ final class PracticeDockAdapter: DockAdapterProtocol {
 
     func toggleShuffle() {
         // Not applicable for practice mode
+    }
+
+    func toggleSpacedRepetition() {
+        isSpacedRepetitionEnabled.toggle()
     }
     
     func play() {

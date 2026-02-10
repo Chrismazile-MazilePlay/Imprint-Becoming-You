@@ -64,11 +64,17 @@ public struct ConfigSelectorExpanded: View {
     /// `true` on Favorites, Saved Sessions, and Results views.
     public let showsShuffleOption: Bool
 
+    /// Whether spaced repetition (Reinforce) is currently enabled.
+    public let isSpacedRepetitionEnabled: Bool
+
     /// Called when the user selects a loop count.
     public let onSelectLoopCount: (Int) -> Void
 
     /// Called when the user toggles shuffle.
     public let onToggleShuffle: () -> Void
+
+    /// Called when the user toggles spaced repetition (Reinforce).
+    public let onToggleSpacedRepetition: () -> Void
 
     // MARK: - Constants
 
@@ -80,14 +86,18 @@ public struct ConfigSelectorExpanded: View {
         loopCount: Int,
         isShuffleEnabled: Bool,
         showsShuffleOption: Bool,
+        isSpacedRepetitionEnabled: Bool,
         onSelectLoopCount: @escaping (Int) -> Void,
-        onToggleShuffle: @escaping () -> Void
+        onToggleShuffle: @escaping () -> Void,
+        onToggleSpacedRepetition: @escaping () -> Void
     ) {
         self.loopCount = loopCount
         self.isShuffleEnabled = isShuffleEnabled
         self.showsShuffleOption = showsShuffleOption
+        self.isSpacedRepetitionEnabled = isSpacedRepetitionEnabled
         self.onSelectLoopCount = onSelectLoopCount
         self.onToggleShuffle = onToggleShuffle
+        self.onToggleSpacedRepetition = onToggleSpacedRepetition
     }
 
     // MARK: - Body
@@ -97,7 +107,14 @@ public struct ConfigSelectorExpanded: View {
             // Row 1: Loop
             loopRow
 
-            // Divider + Row 2: Shuffle (conditional)
+            // Divider + Row 2: Reinforce (always visible)
+            Divider()
+                .background(tokens.textTertiary.opacity(0.2))
+                .padding(.leading, 48)
+
+            reinforceRow
+
+            // Divider + Row 3: Shuffle (conditional)
             if showsShuffleOption {
                 Divider()
                     .background(tokens.textTertiary.opacity(0.2))
@@ -183,6 +200,56 @@ public struct ConfigSelectorExpanded: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
+    // MARK: - Reinforce Row
+
+    /// Row with reinforce icon, "Reinforce" label, and On/Off state text.
+    ///
+    /// Tapping the entire row toggles spaced repetition.
+    /// When enabled, the session doubles by interleaving repeated affirmations.
+    private var reinforceRow: some View {
+        Button {
+            haptics.selectionFeedback()
+            onToggleSpacedRepetition()
+        } label: {
+            HStack(spacing: tokens.spacingSM) {
+                // Icon
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(isSpacedRepetitionEnabled ? tokens.accent : tokens.textSecondary)
+                    .frame(width: 24)
+
+                // Label
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Reinforce")
+                        .font(tokens.headline)
+                        .foregroundStyle(isSpacedRepetitionEnabled ? tokens.accent : tokens.textPrimary)
+                    Text("Repeat key affirmations")
+                        .font(tokens.caption1)
+                        .foregroundStyle(tokens.textTertiary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                // State text — fixed width prevents layout shift, fully non-animated
+                Text(isSpacedRepetitionEnabled ? "On" : "Off")
+                    .font(tokens.headline)
+                    .foregroundStyle(isSpacedRepetitionEnabled ? tokens.accent : tokens.textTertiary)
+                    .frame(width: 32, alignment: .center)
+                    .contentTransition(.identity)
+                    .animation(nil, value: isSpacedRepetitionEnabled)
+            }
+            .padding(.horizontal, tokens.spacingMD)
+            .padding(.vertical, tokens.spacingSM)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Reinforce")
+        .accessibilityValue(isSpacedRepetitionEnabled ? "On" : "Off")
+        .accessibilityHint("Double tap to toggle spaced repetition")
+        .accessibilityAddTraits(isSpacedRepetitionEnabled ? .isSelected : [])
+    }
+
     // MARK: - Shuffle Row
 
     /// Row with shuffle icon, "Shuffle" label, and On/Off state text.
@@ -244,8 +311,10 @@ public struct ConfigSelectorExpanded: View {
                 loopCount: 1,
                 isShuffleEnabled: false,
                 showsShuffleOption: false,
+                isSpacedRepetitionEnabled: false,
                 onSelectLoopCount: { _ in },
-                onToggleShuffle: { }
+                onToggleShuffle: { },
+                onToggleSpacedRepetition: { }
             )
             .padding()
         }
@@ -261,8 +330,10 @@ public struct ConfigSelectorExpanded: View {
                 loopCount: 3,
                 isShuffleEnabled: true,
                 showsShuffleOption: true,
+                isSpacedRepetitionEnabled: true,
                 onSelectLoopCount: { _ in },
-                onToggleShuffle: { }
+                onToggleShuffle: { },
+                onToggleSpacedRepetition: { }
             )
             .padding()
         }
@@ -278,8 +349,10 @@ public struct ConfigSelectorExpanded: View {
                 loopCount: 5,
                 isShuffleEnabled: false,
                 showsShuffleOption: true,
+                isSpacedRepetitionEnabled: false,
                 onSelectLoopCount: { _ in },
-                onToggleShuffle: { }
+                onToggleShuffle: { },
+                onToggleSpacedRepetition: { }
             )
             .padding()
         }

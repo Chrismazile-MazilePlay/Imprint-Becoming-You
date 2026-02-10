@@ -160,8 +160,8 @@ extension PracticeStore {
         case .repeatSession:
             handleRepeatSession()
             
-        case .repeatSessionWithConfig(let mode, let loopCount, let shuffle):
-            handleRepeatSessionWithConfig(mode: mode, loopCount: loopCount, shuffle: shuffle)
+        case .repeatSessionWithConfig(let mode, let loopCount, let shuffle, let spacedRepetition):
+            handleRepeatSessionWithConfig(mode: mode, loopCount: loopCount, shuffle: shuffle, spacedRepetition: spacedRepetition)
             
         case .toggleFavoriteInSummary(let affirmationId):
             handleToggleFavoriteInSummary(affirmationId: affirmationId)

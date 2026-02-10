@@ -26,7 +26,7 @@ struct ResultsSummaryView: View {
     let isFavoritesSession: Bool
     let isSessionSaved: Bool
     let onClose: () -> Void
-    let onRepeat: (_ mode: SessionMode, _ loopCount: Int, _ shuffle: Bool) -> Void
+    let onRepeat: (_ mode: SessionMode, _ loopCount: Int, _ shuffle: Bool, _ spacedRepetition: Bool) -> Void
     let onSaveSession: () -> Void
     let onToggleFavorite: (_ affirmationId: UUID) -> Void
     
@@ -85,7 +85,7 @@ struct ResultsSummaryView: View {
         isFavoritesSession: Bool,
         isSessionSaved: Bool,
         onClose: @escaping () -> Void,
-        onRepeat: @escaping (_ mode: SessionMode, _ loopCount: Int, _ shuffle: Bool) -> Void,
+        onRepeat: @escaping (_ mode: SessionMode, _ loopCount: Int, _ shuffle: Bool, _ spacedRepetition: Bool) -> Void,
         onSaveSession: @escaping () -> Void,
         onToggleFavorite: @escaping (_ affirmationId: UUID) -> Void
     ) {
@@ -112,6 +112,7 @@ struct ResultsSummaryView: View {
             initialMode: initialDockMode,
             initialLoopCount: loopConfiguration.loopCount,
             initialShuffle: loopConfiguration.isShuffleEnabled,
+            initialSpacedRepetition: loopConfiguration.isSpacedRepetitionEnabled,
             showsShuffleOption: true,
             labelText: "Repeat Session",
             isPlayEnabled: true
@@ -254,7 +255,7 @@ struct ResultsSummaryView: View {
             isFavoritesSession: false,
             isSessionSaved: false,
             onClose: {},
-            onRepeat: { _, _, _ in },
+            onRepeat: { _, _, _, _ in },
             onSaveSession: {},
             onToggleFavorite: { _ in }
         )
@@ -270,7 +271,7 @@ struct ResultsSummaryView: View {
             isFavoritesSession: false,
             isSessionSaved: true,
             onClose: {},
-            onRepeat: { _, _, _ in },
+            onRepeat: { _, _, _, _ in },
             onSaveSession: {},
             onToggleFavorite: { _ in }
         )

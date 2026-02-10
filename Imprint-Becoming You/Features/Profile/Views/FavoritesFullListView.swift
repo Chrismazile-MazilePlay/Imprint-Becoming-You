@@ -162,8 +162,8 @@ struct FavoritesFullListView: View {
         let count = favorites.count
         dockAdapter.labelText = count > 0 ? "Practice \(count) affirmation\(count == 1 ? "" : "s")" : "No favorites yet"
         dockAdapter.isPlayEnabled = count > 0
-        dockAdapter.onPlayHandler = { [self] mode, loopCount, shuffle in
-            startFavoritesSession(mode: mode, loopCount: loopCount, shuffle: shuffle)
+        dockAdapter.onPlayHandler = { [self] mode, loopCount, shuffle, spacedRepetition in
+            startFavoritesSession(mode: mode, loopCount: loopCount, shuffle: shuffle, spacedRepetition: spacedRepetition)
         }
     }
 
@@ -172,12 +172,18 @@ struct FavoritesFullListView: View {
     /// Sends a single `.startRemoteSession` event that immediately presents
     /// the fullScreenCover and begins session setup inside it.
     /// No navigation choreography needed — the cover is a separate view hierarchy.
-    private func startFavoritesSession(mode: SessionMode, loopCount: Int, shuffle: Bool) {
-        let config = LoopConfiguration(
-            loopCount: loopCount,
-            isShuffleEnabled: shuffle,
-            currentLoopIteration: 1
-        )
+    private func startFavoritesSession(mode: SessionMode, loopCount: Int, shuffle: Bool, spacedRepetition: Bool) {
+        // Validate minimum favorites count for spaced repetition
+        if spacedRepetition && favorites.count < Constants.Session.sessionSize {
+            dockAdapter.showError("At least \(Constants.Session.sessionSize) favorites required for Reinforce mode")
+            return
+        }
+
+        var config = LoopConfiguration()
+        config.loopCount = loopCount
+        config.isShuffleEnabled = shuffle
+        config.isSpacedRepetitionEnabled = spacedRepetition
+        config.currentLoopIteration = 1
 
         store.send(.startRemoteSession(
             source: .favorites(affirmations: favorites, mode: mode, shuffle: shuffle),

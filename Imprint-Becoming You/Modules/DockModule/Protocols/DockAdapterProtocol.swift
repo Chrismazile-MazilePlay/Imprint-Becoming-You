@@ -168,7 +168,15 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
     ///
     /// Only used when `configuration == .configuration`.
     var isShuffleEnabled: Bool { get }
-    
+
+    /// Whether spaced repetition is enabled.
+    ///
+    /// When enabled, the session doubles to 2x segments by interleaving
+    /// randomized repeats. Each affirmation appears 1-3 times total.
+    ///
+    /// Only used when `configuration == .configuration`.
+    var isSpacedRepetitionEnabled: Bool { get }
+
     /// Whether the play button is visible above the dock.
     ///
     /// When `true`, the play button renders above the dock background.
@@ -269,7 +277,12 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
     ///
     /// The adapter should toggle the shuffle state.
     func toggleShuffle()
-    
+
+    /// Called when the user taps the spaced repetition (Reinforce) button.
+    ///
+    /// The adapter should toggle the spaced repetition state.
+    func toggleSpacedRepetition()
+
     /// Called when the user taps the play button.
     ///
     /// The adapter should start the configured practice session.
@@ -321,6 +334,12 @@ public extension DockAdapterProtocol {
 
     /// Default play button visibility — hidden.
     var showsPlayButton: Bool { false }
+
+    /// Default spaced repetition state — disabled.
+    var isSpacedRepetitionEnabled: Bool { false }
+
+    /// Default spaced repetition toggle — no-op.
+    func toggleSpacedRepetition() { }
 
     /// Default loop count selection — no-op.
     func selectLoopCount(_ count: Int) { }

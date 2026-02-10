@@ -263,8 +263,8 @@ struct SessionContainerView: View {
             onClose: {
                 store.send(.dismissSummary)
             },
-            onRepeat: { mode, loopCount, shuffle in
-                store.send(.repeatSessionWithConfig(mode: mode, loopCount: loopCount, shuffle: shuffle))
+            onRepeat: { mode, loopCount, shuffle, spacedRepetition in
+                store.send(.repeatSessionWithConfig(mode: mode, loopCount: loopCount, shuffle: shuffle, spacedRepetition: spacedRepetition))
             },
             onSaveSession: {
                 refreshSavedSessionCount()

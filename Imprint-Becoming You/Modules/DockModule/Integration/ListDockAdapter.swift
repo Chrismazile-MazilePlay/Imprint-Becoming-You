@@ -101,6 +101,9 @@ final class ListDockAdapter: DockAdapterProtocol {
     /// Whether shuffle is enabled.
     var isShuffleEnabled: Bool = false
 
+    /// Whether spaced repetition (Reinforce) is enabled.
+    var isSpacedRepetitionEnabled: Bool = false
+
     // MARK: - Play State
 
     /// Play button is always visible on list/results views.
@@ -144,7 +147,7 @@ final class ListDockAdapter: DockAdapterProtocol {
     /// Called when play is tapped with current configuration.
     ///
     /// Mutable to support late binding — parent views set this after initialization.
-    var onPlayHandler: ((SessionMode, Int, Bool) -> Void)?
+    var onPlayHandler: ((SessionMode, Int, Bool, Bool) -> Void)?
 
     /// Called when play is tapped while disabled.
     ///
@@ -161,6 +164,7 @@ final class ListDockAdapter: DockAdapterProtocol {
     ///   - initialMode: Starting mode selection (default: `.readAloud`)
     ///   - initialLoopCount: Starting loop count (default: `1`)
     ///   - initialShuffle: Starting shuffle state (default: `false`)
+    ///   - initialSpacedRepetition: Starting spaced repetition state (default: `false`)
     ///   - showsShuffleOption: Whether shuffle appears in config menu (default: `true`)
     ///   - labelText: Text for floating play button (default: `""`)
     ///   - isPlayEnabled: Whether play button starts enabled (default: `false`)
@@ -168,6 +172,7 @@ final class ListDockAdapter: DockAdapterProtocol {
         initialMode: DockMode = .readAloud,
         initialLoopCount: Int = 1,
         initialShuffle: Bool = false,
+        initialSpacedRepetition: Bool = false,
         showsShuffleOption: Bool = true,
         labelText: String = "",
         isPlayEnabled: Bool = false
@@ -175,6 +180,7 @@ final class ListDockAdapter: DockAdapterProtocol {
         self.currentMode = initialMode
         self.loopCount = initialLoopCount
         self.isShuffleEnabled = initialShuffle
+        self.isSpacedRepetitionEnabled = initialSpacedRepetition
         self.showsShuffleOption = showsShuffleOption
         self.labelText = labelText
         self.isPlayEnabled = isPlayEnabled
@@ -279,6 +285,10 @@ final class ListDockAdapter: DockAdapterProtocol {
         isShuffleEnabled.toggle()
     }
 
+    func toggleSpacedRepetition() {
+        isSpacedRepetitionEnabled.toggle()
+    }
+
     func play() {
         guard isPlayEnabled else {
             onDisabledPlayHandler?()
@@ -286,7 +296,7 @@ final class ListDockAdapter: DockAdapterProtocol {
         }
 
         let sessionMode = mapDockModeToSessionMode(currentMode)
-        onPlayHandler?(sessionMode, loopCount, isShuffleEnabled)
+        onPlayHandler?(sessionMode, loopCount, isShuffleEnabled, isSpacedRepetitionEnabled)
     }
 
     // MARK: - Helpers

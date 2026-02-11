@@ -113,6 +113,7 @@ struct ResultsSummaryView: View {
             initialLoopCount: loopConfiguration.loopCount,
             initialShuffle: loopConfiguration.isShuffleEnabled,
             initialSpacedRepetition: loopConfiguration.isSpacedRepetitionEnabled,
+            baseAffirmationCount: summary.results.count,
             showsShuffleOption: true,
             labelText: "Repeat Session",
             isPlayEnabled: true

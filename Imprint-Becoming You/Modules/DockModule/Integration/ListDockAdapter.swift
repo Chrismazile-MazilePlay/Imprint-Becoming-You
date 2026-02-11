@@ -104,6 +104,20 @@ final class ListDockAdapter: DockAdapterProtocol {
     /// Whether spaced repetition (Reinforce) is enabled.
     var isSpacedRepetitionEnabled: Bool = false
 
+    /// The number of unique base affirmations available for the session.
+    ///
+    /// Used to validate Reinforce mode requirements at `play()` time.
+    /// Reinforce requires at least `Constants.Session.sessionSize` (10) base affirmations.
+    /// This count should reflect the **unique** affirmation pool — before any
+    /// spaced repetition expansion — so that validation is accurate regardless of
+    /// whether a previous session was expanded.
+    ///
+    /// Set by the consumer view at initialization or when selection changes:
+    /// - `FavoritesFullListView`: `favorites.count`
+    /// - `SavedSessionsFullListView`: `session.affirmationIds.count`
+    /// - `ResultsSummaryView`: `summary.results.count`
+    var baseAffirmationCount: Int = 0
+
     // MARK: - Play State
 
     /// Play button is always visible on list/results views.
@@ -165,6 +179,7 @@ final class ListDockAdapter: DockAdapterProtocol {
     ///   - initialLoopCount: Starting loop count (default: `1`)
     ///   - initialShuffle: Starting shuffle state (default: `false`)
     ///   - initialSpacedRepetition: Starting spaced repetition state (default: `false`)
+    ///   - baseAffirmationCount: Number of unique base affirmations available (default: `0`)
     ///   - showsShuffleOption: Whether shuffle appears in config menu (default: `true`)
     ///   - labelText: Text for floating play button (default: `""`)
     ///   - isPlayEnabled: Whether play button starts enabled (default: `false`)
@@ -173,6 +188,7 @@ final class ListDockAdapter: DockAdapterProtocol {
         initialLoopCount: Int = 1,
         initialShuffle: Bool = false,
         initialSpacedRepetition: Bool = false,
+        baseAffirmationCount: Int = 0,
         showsShuffleOption: Bool = true,
         labelText: String = "",
         isPlayEnabled: Bool = false
@@ -181,6 +197,7 @@ final class ListDockAdapter: DockAdapterProtocol {
         self.loopCount = initialLoopCount
         self.isShuffleEnabled = initialShuffle
         self.isSpacedRepetitionEnabled = initialSpacedRepetition
+        self.baseAffirmationCount = baseAffirmationCount
         self.showsShuffleOption = showsShuffleOption
         self.labelText = labelText
         self.isPlayEnabled = isPlayEnabled
@@ -292,6 +309,15 @@ final class ListDockAdapter: DockAdapterProtocol {
     func play() {
         guard isPlayEnabled else {
             onDisabledPlayHandler?()
+            return
+        }
+
+        // Validate Reinforce mode requirements before starting session.
+        // This is the single chokepoint for all session starts through ListDockAdapter
+        // (Favorites, Saved Sessions, Results Summary repeat).
+        if isSpacedRepetitionEnabled && baseAffirmationCount < Constants.Session.sessionSize {
+            expandedSelector = nil
+            showError("At least \(Constants.Session.sessionSize) affirmations required for Reinforce mode")
             return
         }
 

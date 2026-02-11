@@ -246,6 +246,7 @@ struct SavedSessionsFullListView: View {
     /// Updates dock adapter properties directly — no instance replacement.
     private func updateDockState() {
         dockAdapter.isPlayEnabled = isPlayEnabled
+        dockAdapter.baseAffirmationCount = selectedSession?.affirmationIds.count ?? 0
         dockAdapter.onPlayHandler = { [self] mode, loopCount, shuffle, spacedRepetition in
             playSelectedSession(mode: mode, loopCount: loopCount, shuffle: shuffle, spacedRepetition: spacedRepetition)
         }

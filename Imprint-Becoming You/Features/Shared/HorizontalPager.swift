@@ -342,22 +342,35 @@ struct HorizontalPager<Content: View>: UIViewControllerRepresentable {
         
         /// Called when user-driven scrolling finishes (drag end without deceleration,
         /// or deceleration complete). Updates dragging state and page binding.
+        ///
+        /// All binding updates are batched into a single `DispatchQueue.main.async`
+        /// so SwiftUI processes them in one update cycle. Without batching,
+        /// `isHorizontallyDragging` and `currentPage` would trigger two separate
+        /// `updateUIViewController` calls — each re-evaluating the full ViewBuilder
+        /// closure and Mirror-extracting all pages (~10-15ms per call).
         private func finishScrolling(_ scrollView: UIScrollView) {
             let newPage = pageIndex(from: scrollView)
             let pageChanged = newPage != parent.currentPage
-            
+
             // Haptic on page change (fires before binding update)
             if pageChanged {
                 HapticFeedback.selection()
             }
-            
-            DispatchQueue.main.async { [weak self] in
-                self?.parent.isHorizontallyDragging = false
+
+            // Batch all binding updates into a single dispatch to avoid
+            // multiple updateUIViewController calls at scroll settle time.
+            if pageChanged {
+                isScrollDriven = true
             }
-            
-            updatePageFromOffset(scrollView)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.parent.isHorizontallyDragging = false
+                if pageChanged {
+                    self.parent.currentPage = newPage
+                }
+            }
         }
-        
+
         /// Derives page index from scroll offset and syncs to the SwiftUI binding.
         private func updatePageFromOffset(_ scrollView: UIScrollView) {
             let newPage = pageIndex(from: scrollView)

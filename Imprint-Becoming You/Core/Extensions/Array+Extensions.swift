@@ -12,3 +12,18 @@ public extension Array {
         indices.contains(index) ? self[index] : nil
     }
 }
+
+// MARK: - Array Unique By ID
+
+extension Array where Element: Identifiable {
+
+    /// Returns elements deduplicated by their `id`, preserving first-occurrence order.
+    ///
+    /// Used as a fallback when collapsing a spaced-repetition-expanded array
+    /// back to unique base affirmations. Prefer fetching from the repository
+    /// via `originalSessionAffirmationIds` when available.
+    func uniqueByID() -> [Element] {
+        var seen = Set<Element.ID>()
+        return filter { seen.insert($0.id).inserted }
+    }
+}

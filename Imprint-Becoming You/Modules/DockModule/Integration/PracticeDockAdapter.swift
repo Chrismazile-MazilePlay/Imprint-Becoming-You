@@ -50,36 +50,49 @@ import AVFoundation
 final class PracticeDockAdapter: DockAdapterProtocol {
     
     // MARK: - Dependencies
-    
+
     /// The practice store being adapted.
     private let store: PracticeStore
-    
+
+    /// When `true`, this adapter never produces session segments or fires
+    /// segment completion callbacks.
+    ///
+    /// Used by the home dock (behind the fullScreenCover) to prevent phantom
+    /// segment timers from running invisibly during active sessions. Without
+    /// this, both the home and session docks would produce timers that fire
+    /// `segmentTimerCompleted`, contributing to double-advance bugs.
+    let suppressSegments: Bool
+
     // MARK: - Local State
-    
-    /// Whether the mode selector menu is expanded.
-    var isModeSelectorExpanded: Bool = false
-    
-    /// Whether the binaural selector menu is expanded.
-    var isBinauralSelectorExpanded: Bool = false
-    
+
+    /// Which selector menu is currently expanded, if any.
+    var expandedSelector: DockExpandedSelector?
+
+    /// Shuffle option hidden on home/session screens (no predefined set to shuffle).
+    var showsShuffleOption: Bool { false }
+
     // MARK: - Error Bar State
-    
+
     /// Whether the error bar is visible.
     var isErrorBarVisible: Bool = false
-    
+
     /// The current error bar message.
     private(set) var errorBarMessage: String = ""
-    
+
     /// Task managing the auto-dismiss timer for the error bar.
     private var errorDismissTask: Task<Void, Never>?
-    
+
     // MARK: - Initialization
-    
+
     /// Creates an adapter wrapping the given practice store.
     ///
-    /// - Parameter store: The practice store to adapt
-    init(store: PracticeStore) {
+    /// - Parameters:
+    ///   - store: The practice store to adapt
+    ///   - suppressSegments: When `true`, suppresses session segment timers.
+    ///     Use `true` for the home dock behind the fullScreenCover.
+    init(store: PracticeStore, suppressSegments: Bool = false) {
         self.store = store
+        self.suppressSegments = suppressSegments
     }
     
     // MARK: - Configuration
@@ -116,6 +129,7 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     }
     
     var sessionSegments: DockSessionSegments? {
+        guard !suppressSegments else { return nil }
         guard store.isSessionActive else { return nil }
         
         // Build configs from affirmation speech durations
@@ -143,18 +157,6 @@ final class PracticeDockAdapter: DockAdapterProtocol {
         )
     }
     
-    /// Legacy progress (deprecated - use sessionSegments instead).
-    var progress: DockProgress? {
-        guard store.isSessionActive else { return nil }
-        
-        return DockProgress(
-            currentIndex: store.displayCurrentIndex,
-            totalCount: store.sessionAffirmations.count,
-            segmentProgress: Float(store.segmentProgress),
-            isAnimating: isSegmentAnimating(for: store.flow)
-        )
-    }
-    
     var canNavigatePrevious: Bool {
         store.canGoPrevious
     }
@@ -163,11 +165,20 @@ final class PracticeDockAdapter: DockAdapterProtocol {
         store.canGoNext
     }
     
-    // MARK: - Configuration Mode State (Not Used)
-    
-    /// Not applicable for practice mode.
-    var loopCount: Int { 1 }
-    
+    // MARK: - Configuration Mode State
+
+    /// Loop count selected on the home screen.
+    ///
+    /// Applied to the store's loop configuration when a session starts via mode selection.
+    /// Defaults to `1` (single play).
+    var loopCount: Int = 1
+
+    /// Whether spaced repetition (Reinforce) is enabled on the home screen.
+    ///
+    /// Applied to the store's loop configuration when a session starts via mode selection.
+    /// Defaults to `false` (standard 10-segment session).
+    var isSpacedRepetitionEnabled: Bool = false
+
     /// Not applicable for practice mode.
     var isShuffleEnabled: Bool { false }
     
@@ -181,16 +192,28 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     
     func selectMode(_ mode: DockMode) {
         // Check mic availability for modes that require it
-        if mode.requiresMicrophone && !ConfigurationDockAdapter.isMicrophoneAccessible() {
+        if mode.requiresMicrophone && !ListDockAdapter.isMicrophoneAccessible() {
             // Close mode selector, then show error bar
-            isModeSelectorExpanded = false
+            expandedSelector = nil
             showError("The microphone is being used by another app")
             return
         }
-        
+
         let sessionMode = mapDockModeToSessionMode(mode)
         store.send(.selectMode(sessionMode))
-        isModeSelectorExpanded = false
+        expandedSelector = nil
+
+        // Apply loop + spaced repetition configuration after session starts
+        // (overrides the store's reset).
+        // send() is synchronous, so setLoopConfiguration runs on the same MainActor turn.
+        if loopCount > 1 || isSpacedRepetitionEnabled {
+            var config = LoopConfiguration()
+            config.loopCount = loopCount
+            config.isShuffleEnabled = false
+            config.isSpacedRepetitionEnabled = isSpacedRepetitionEnabled
+            config.currentLoopIteration = 1
+            store.setLoopConfiguration(config)
+        }
     }
     
     // MARK: - Binaural Actions
@@ -198,7 +221,7 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     func selectBinaural(_ preset: DockBinauralPreset) {
         let binauralPreset = mapDockBinauralToPreset(preset)
         store.send(.selectBinaural(binauralPreset))
-        isBinauralSelectorExpanded = false
+        expandedSelector = nil
     }
     
     // MARK: - Navigation Actions
@@ -224,8 +247,7 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     // MARK: - Selector Actions
     
     func closeAllSelectors() {
-        isModeSelectorExpanded = false
-        isBinauralSelectorExpanded = false
+        expandedSelector = nil
         dismissErrorBar()
     }
     
@@ -265,6 +287,7 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     // MARK: - Segment Animation Callback
     
     func segmentAnimationCompleted() {
+        guard !suppressSegments else { return }
         // Dock's segment timer completed - trigger auto-advance
         store.send(.segmentTimerCompleted)
     }
@@ -274,9 +297,18 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     func cycleLoopCount() {
         // Not applicable for practice mode
     }
-    
+
+    func selectLoopCount(_ count: Int) {
+        guard [1, 3, 5].contains(count) else { return }
+        loopCount = count
+    }
+
     func toggleShuffle() {
         // Not applicable for practice mode
+    }
+
+    func toggleSpacedRepetition() {
+        isSpacedRepetitionEnabled.toggle()
     }
     
     func play() {

@@ -100,7 +100,7 @@ struct FloatingHUDLayer: View {
     // MARK: - Chip Dimensions
     
     /// Standard height for all HUD chips to ensure visual consistency
-    private let chipHeight: CGFloat = 36
+    private let chipHeight: CGFloat = 48
     
     /// Fixed width for Exit and Loop chips for perfect symmetry
     private let symmetricChipWidth: CGFloat = 78
@@ -147,8 +147,8 @@ struct FloatingHUDLayer: View {
             if showLoopChip {
                 loopProgressChip
             } else {
-                // Invisible spacer to maintain layout - same size as Exit chip
-                Color.clear.frame(width: symmetricChipWidth, height: chipHeight)
+                // Invisible spacer to maintain layout - same size as Exit button
+                Color.clear.frame(width: 48, height: 48)
             }
         } else {
             profileButton
@@ -171,7 +171,7 @@ struct FloatingHUDLayer: View {
     private var loopProgressChip: some View {
         HStack(spacing: AppTheme.Spacing.xs) {
             Image(systemName: "repeat")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 17, weight: .semibold))
             
             Text(loopChipNumbers)
                 .font(AppTypography.caption1.weight(.medium))
@@ -195,9 +195,9 @@ struct FloatingHUDLayer: View {
             HapticFeedback.impact(.light)
         } label: {
             Image(systemName: "sparkles")
-                .font(.system(size: 18, weight: .medium))
+                .font(.system(size: 20, weight: .medium))
                 .foregroundStyle(AppColors.accent)
-                .frame(width: 44, height: 44)
+                .frame(width: 48, height: 48)
                 .background(AppColors.accent.opacity(0.15))
                 .clipShape(Circle())
         }
@@ -210,9 +210,9 @@ struct FloatingHUDLayer: View {
             HapticFeedback.impact(.light)
         } label: {
             Image(systemName: "person.circle")
-                .font(.system(size: 22, weight: .medium))
+                .font(.system(size: 24, weight: .medium))
                 .foregroundStyle(AppColors.textSecondary)
-                .frame(width: 44, height: 44)
+                .frame(width: 48, height: 48)
                 .background(AppColors.surfaceTertiary.opacity(0.8))
                 .clipShape(Circle())
         }
@@ -224,16 +224,12 @@ struct FloatingHUDLayer: View {
             store.send(.exitSession)
             HapticFeedback.impact(.light)
         } label: {
-            HStack(spacing: AppTheme.Spacing.xs) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .semibold))
-                Text("Exit")
-                    .font(AppTypography.caption1.weight(.medium))
-            }
-            .foregroundStyle(AppColors.textSecondary)
-            .frame(width: symmetricChipWidth, height: chipHeight)
-            .background(AppColors.surfaceTertiary.opacity(0.8))
-            .clipShape(Capsule())
+            Image(systemName: "xmark")
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(AppColors.textSecondary)
+                .frame(width: 48, height: 48)
+                .background(AppColors.surfaceTertiary.opacity(0.8))
+                .clipShape(Circle())
         }
         .accessibilityLabel("Exit session")
     }

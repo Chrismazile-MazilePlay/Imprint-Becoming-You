@@ -47,11 +47,13 @@ public struct DockPlayButton: View {
     
     public var body: some View {
         Button {
-            haptics.mediumImpact()
+            if isEnabled {
+                haptics.mediumImpact()
+            }
             action()
         } label: {
             Image(systemName: "play.fill")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(isEnabled ? tokens.textPrimary : tokens.textTertiary)
                 .frame(width: tokens.playButtonSize, height: tokens.playButtonSize)
                 .background(
@@ -59,7 +61,6 @@ public struct DockPlayButton: View {
                         .fill(isEnabled ? tokens.accent : tokens.backgroundTertiary)
                 )
         }
-        .disabled(!isEnabled)
         // MARK: Accessibility
         .accessibilityLabel("Start session")
         .accessibilityHint(isEnabled ? "Double tap to begin your practice session" : "Select affirmations first")

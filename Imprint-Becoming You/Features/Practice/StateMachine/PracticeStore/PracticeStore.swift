@@ -48,6 +48,38 @@ import UIKit
 /// - Auto-advance delay (< 2s with isCancelled check)
 ///
 /// See `PracticeStore+TaskManagement.swift` for centralized cancellation.
+
+// MARK: - RemoteSessionSource
+
+/// Source configuration for sessions started from remote pages (Favorites, Saved Sessions).
+///
+/// Replaces the old "Stage, Navigate, Execute" `PendingRemoteSession` pattern.
+/// Now sessions start immediately via `.startRemoteSession` event, presenting
+/// the fullScreenCover before any navigation occurs.
+///
+/// ## Sendable / Equatable Safety
+/// Marked `@unchecked Sendable` because `Affirmation` and `SavedSession` are
+/// SwiftData `@Model` (non-Sendable reference types). Safe because `PracticeStore`
+/// is `@MainActor` isolated and all access occurs on the main actor.
+/// `Equatable` conformance uses identity equality (`===`) for reference types.
+enum RemoteSessionSource: Equatable, @unchecked Sendable {
+    case favorites(affirmations: [Affirmation], mode: SessionMode, shuffle: Bool)
+    case savedSession(SavedSession)
+
+    static func == (lhs: RemoteSessionSource, rhs: RemoteSessionSource) -> Bool {
+        switch (lhs, rhs) {
+        case (.favorites(let a1, let m1, let s1), .favorites(let a2, let m2, let s2)):
+            return a1.map(\.id) == a2.map(\.id) && m1 == m2 && s1 == s2
+        case (.savedSession(let s1), .savedSession(let s2)):
+            return s1.id == s2.id
+        default:
+            return false
+        }
+    }
+}
+
+// MARK: - PracticeStore
+
 @MainActor
 @Observable
 final class PracticeStore {
@@ -116,8 +148,25 @@ final class PracticeStore {
         sessionResults.count
     }
     
+    // MARK: - Session Presentation State
+
+    /// Whether the fullScreenCover session container is presented.
+    ///
+    /// Set to `true` immediately when a session starts (any trigger).
+    /// Set to `false` by dismiss handlers. Cleanup happens in `onDismiss`.
+    private(set) var isSessionPresented: Bool = false
+
+    /// Signal that the session cover has fully presented (animation complete).
+    ///
+    /// Set by `SessionContainerView.onAppear` after a short delay (~400ms)
+    /// to allow the `fullScreenCover` present animation to finish.
+    /// Observed by `MainPracticeView` to trigger behind-cover cleanup
+    /// (instant pager jump to Practice + Profile pop-to-root).
+    /// Reset to `false` immediately after the cleanup executes.
+    var sessionCoverDidPresent: Bool = false
+
     // MARK: - Session Summary State
-    
+
     /// Whether the results summary is being shown
     private(set) var isShowingSummary: Bool = false
     
@@ -146,7 +195,7 @@ final class PracticeStore {
     
     /// Whether the current session was started from Favorites
     private(set) var isFavoritesSession: Bool = false
-    
+
     // MARK: - Session Preparation State
     
     /// Whether TTS preparation is in progress for a new session
@@ -220,7 +269,21 @@ final class PracticeStore {
     
     /// Current error (if any)
     private(set) var error: PracticeError? = nil
-    
+
+    // MARK: - Profile Stats Invalidation
+
+    /// Monotonically increasing counter that signals profile stats need refresh.
+    ///
+    /// Incremented when favorites, saved sessions, or progress data changes.
+    /// `ProfilePageView` observes this via `@Bindable` and only re-queries
+    /// SwiftData when the version changes, eliminating per-swipe fetches.
+    private(set) var profileStatsVersion: Int = 0
+
+    /// Increments the stats version to signal `ProfilePageView` should refresh.
+    func invalidateProfileStats() {
+        profileStatsVersion += 1
+    }
+
     // MARK: - Internal State (Task Management)
     
     /// Active flow task (cancellable).
@@ -621,7 +684,12 @@ final class PracticeStore {
     func setFavoritesSession(_ value: Bool) {
         isFavoritesSession = value
     }
-    
+
+    /// Sets whether the fullScreenCover session container is presented.
+    func setSessionPresented(_ presented: Bool) {
+        isSessionPresented = presented
+    }
+
     /// Clears original session affirmation IDs (for new session)
     func clearOriginalSessionAffirmationIds() {
         originalSessionAffirmationIds = []

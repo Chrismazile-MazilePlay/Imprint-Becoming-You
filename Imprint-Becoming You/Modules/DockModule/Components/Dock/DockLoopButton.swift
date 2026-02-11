@@ -11,13 +11,13 @@ import SwiftUI
 
 /// A circular button for cycling through loop count options.
 ///
-/// Shows `repeat.1` icon for count of 1, plain number for 3 and 5.
+/// Shows the count as bold text (1, 3, or 5) inside a circular background.
 ///
 /// ## Visual Design
 /// ```
 /// Count = 1:      Count = 3:      Count = 5:
 /// ┌────────┐     ┌────────┐     ┌────────┐
-/// │  ↺ 1   │     │   3    │     │   5    │
+/// │   1    │     │   3    │     │   5    │
 /// └────────┘     └────────┘     └────────┘
 /// ```
 ///
@@ -80,17 +80,8 @@ public struct DockLoopButton: View {
             haptics.selectionFeedback()
             action()
         } label: {
-            Group {
-                if count == 1 {
-                    // Default: show repeat.1 icon
-                    Image(systemName: "repeat.1")
-                        .font(.system(size: 14, weight: .semibold))
-                } else {
-                    // Active (3 or 5): show just the number
-                    Text("\(count)")
-                        .font(.system(size: 16, weight: .bold))
-                }
-            }
+            Text("\(count)")
+                .font(.system(size: 19, weight: .bold))
             .foregroundStyle(foregroundColor)
             .frame(width: tokens.chipHeight, height: tokens.chipHeight)
             .background(

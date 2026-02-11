@@ -26,13 +26,13 @@ struct ResultsSummaryView: View {
     let isFavoritesSession: Bool
     let isSessionSaved: Bool
     let onClose: () -> Void
-    let onRepeat: (_ mode: SessionMode, _ loopCount: Int, _ shuffle: Bool) -> Void
+    let onRepeat: (_ mode: SessionMode, _ loopCount: Int, _ shuffle: Bool, _ spacedRepetition: Bool) -> Void
     let onSaveSession: () -> Void
     let onToggleFavorite: (_ affirmationId: UUID) -> Void
     
     // MARK: - State
     
-    @State private var dockAdapter: ConfigurationDockAdapter
+    @State private var dockAdapter: ListDockAdapter
     
     /// Captured disabled state from when view appeared.
     /// Prevents button from flashing enabled when store state resets during dismissal.
@@ -85,7 +85,7 @@ struct ResultsSummaryView: View {
         isFavoritesSession: Bool,
         isSessionSaved: Bool,
         onClose: @escaping () -> Void,
-        onRepeat: @escaping (_ mode: SessionMode, _ loopCount: Int, _ shuffle: Bool) -> Void,
+        onRepeat: @escaping (_ mode: SessionMode, _ loopCount: Int, _ shuffle: Bool, _ spacedRepetition: Bool) -> Void,
         onSaveSession: @escaping () -> Void,
         onToggleFavorite: @escaping (_ affirmationId: UUID) -> Void
     ) {
@@ -108,73 +108,74 @@ struct ResultsSummaryView: View {
             }
         }()
         
-        self._dockAdapter = State(initialValue: ConfigurationDockAdapter(
+        let adapter = ListDockAdapter(
             initialMode: initialDockMode,
             initialLoopCount: loopConfiguration.loopCount,
             initialShuffle: loopConfiguration.isShuffleEnabled,
+            initialSpacedRepetition: loopConfiguration.isSpacedRepetitionEnabled,
+            baseAffirmationCount: summary.results.count,
+            showsShuffleOption: true,
             labelText: "Repeat Session",
-            isPlayEnabled: true,
-            onPlay: onRepeat
-        ))
+            isPlayEnabled: true
+        )
+        adapter.onPlayHandler = onRepeat
+        self._dockAdapter = State(initialValue: adapter)
     }
     
     // MARK: - Body
     
     var body: some View {
-        NavigationStack {
-            ZStack {
-                AppColors.backgroundPrimary
-                    .ignoresSafeArea()
-                
-                scrollableContent
-            }
-            .dismissesDockMenuOnTouch(adapter: dockAdapter)
-            .overlay {
-                VStack {
-                    Spacer()
-                    AdaptiveDockContainer(adapter: dockAdapter, showsGradient: true) {
-                        AdaptiveBottomDock(adapter: dockAdapter)
-                    }
-                    .imprintDockEnvironment()
+        ZStack {
+            AppColors.backgroundPrimary
+                .ignoresSafeArea()
+
+            scrollableContent
+        }
+        .overlay {
+            VStack {
+                Spacer()
+                AdaptiveDockContainer(adapter: dockAdapter, showsGradient: true) {
+                    AdaptiveBottomDock(adapter: dockAdapter)
                 }
-                .ignoresSafeArea(edges: .bottom)
+                .imprintDockEnvironment()
             }
-            .navigationTitle("Session Complete")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
-                        onClose()
-                    }
-                    .foregroundStyle(AppColors.accent)
+            .ignoresSafeArea(edges: .bottom)
+        }
+        .navigationTitle("Session Complete")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Close") {
+                    onClose()
                 }
-                
-                ToolbarItem(placement: .primaryAction) {
-                    Button(capturedIsSessionSaved ? "Saved" : "Save") {
-                        onSaveSession()
-                    }
-                    .foregroundStyle(stableSaveButtonDisabled ? AppColors.textTertiary : AppColors.accent)
-                    .fontWeight(capturedIsSessionSaved ? .regular : .semibold)
-                    .disabled(stableSaveButtonDisabled)
-                    .accessibilityLabel(saveButtonAccessibilityLabel)
-                }
+                .foregroundStyle(AppColors.accent)
             }
-            .onAppear {
-                // Capture initial state
-                capturedSaveButtonDisabled = isSaveButtonDisabled
-                capturedIsSessionSaved = isSessionSaved
-            }
-            .onChange(of: isSaveButtonDisabled) { _, newValue in
-                // Once disabled, stay disabled (captures state after saving)
-                if newValue {
-                    capturedSaveButtonDisabled = true
+
+            ToolbarItem(placement: .primaryAction) {
+                Button(capturedIsSessionSaved ? "Saved" : "Save") {
+                    onSaveSession()
                 }
+                .foregroundStyle(stableSaveButtonDisabled ? AppColors.textTertiary : AppColors.accent)
+                .fontWeight(capturedIsSessionSaved ? .regular : .semibold)
+                .disabled(stableSaveButtonDisabled)
+                .accessibilityLabel(saveButtonAccessibilityLabel)
             }
-            .onChange(of: isSessionSaved) { _, newValue in
-                // Once saved, stay saved (captures state after saving)
-                if newValue {
-                    capturedIsSessionSaved = true
-                }
+        }
+        .onAppear {
+            // Capture initial state
+            capturedSaveButtonDisabled = isSaveButtonDisabled
+            capturedIsSessionSaved = isSessionSaved
+        }
+        .onChange(of: isSaveButtonDisabled) { _, newValue in
+            // Once disabled, stay disabled (captures state after saving)
+            if newValue {
+                capturedSaveButtonDisabled = true
+            }
+        }
+        .onChange(of: isSessionSaved) { _, newValue in
+            // Once saved, stay saved (captures state after saving)
+            if newValue {
+                capturedIsSessionSaved = true
             }
         }
     }
@@ -188,6 +189,13 @@ struct ResultsSummaryView: View {
                 cardsSection
             }
             .padding(.horizontal, AppTheme.Spacing.lg)
+        }
+        .onTapGesture {
+            guard dockAdapter.expandedSelector != nil
+               || dockAdapter.isErrorBarVisible else { return }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                dockAdapter.closeAllSelectors()
+            }
         }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: dockAreaHeight)
@@ -240,29 +248,33 @@ struct ResultsSummaryView: View {
 // MARK: - Previews
 
 #Preview("Results Summary") {
-    ResultsSummaryView(
-        summary: .sample,
-        loopConfiguration: LoopConfiguration(loopCount: 3, isShuffleEnabled: true),
-        isPlayingSavedSession: false,
-        isFavoritesSession: false,
-        isSessionSaved: false,
-        onClose: {},
-        onRepeat: { _, _, _ in },
-        onSaveSession: {},
-        onToggleFavorite: { _ in }
-    )
+    NavigationStack {
+        ResultsSummaryView(
+            summary: .sample,
+            loopConfiguration: LoopConfiguration(loopCount: 3, isShuffleEnabled: true),
+            isPlayingSavedSession: false,
+            isFavoritesSession: false,
+            isSessionSaved: false,
+            onClose: {},
+            onRepeat: { _, _, _, _ in },
+            onSaveSession: {},
+            onToggleFavorite: { _ in }
+        )
+    }
 }
 
 #Preview("Results Summary - Already Saved") {
-    ResultsSummaryView(
-        summary: .sample,
-        loopConfiguration: LoopConfiguration(loopCount: 3, isShuffleEnabled: true),
-        isPlayingSavedSession: false,
-        isFavoritesSession: false,
-        isSessionSaved: true,
-        onClose: {},
-        onRepeat: { _, _, _ in },
-        onSaveSession: {},
-        onToggleFavorite: { _ in }
-    )
+    NavigationStack {
+        ResultsSummaryView(
+            summary: .sample,
+            loopConfiguration: LoopConfiguration(loopCount: 3, isShuffleEnabled: true),
+            isPlayingSavedSession: false,
+            isFavoritesSession: false,
+            isSessionSaved: true,
+            onClose: {},
+            onRepeat: { _, _, _, _ in },
+            onSaveSession: {},
+            onToggleFavorite: { _ in }
+        )
+    }
 }

@@ -81,10 +81,7 @@ extension PracticeStore {
             // Set up session with saved affirmations
             clearOriginalSessionAffirmationIds()
             setSessionState(affirmations: affirmations)
-            
-            // Record playback
-            try? repo.recordPlayback(sessionId: savedSession.id)
-            
+
             #if DEBUG
             AppLogger.info("Starting saved session '\(savedSession.name)' with \(affirmations.count) affirmations", category: .practice)
             #endif
@@ -196,7 +193,8 @@ extension PracticeStore {
             PracticeStore.incrementSessionCounter()
             
             HapticFeedback.notification(.success)
-            
+            invalidateProfileStats()
+
             #if DEBUG
             AppLogger.info("Saved session '\(name)' with \(affirmationIds.count) affirmations", category: .practice)
             #endif

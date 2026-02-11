@@ -84,23 +84,27 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
     /// Order is preserved in the UI.
     var availableModes: [DockMode] { get }
     
-    /// Whether the mode selector menu is expanded.
+    /// Which selector menu is currently expanded, if any.
     ///
-    /// When `true`, the mode selector panel is visible above the dock.
-    /// Setting this to `false` closes the menu.
-    var isModeSelectorExpanded: Bool { get set }
-    
+    /// Only one selector can be open at a time — enforced by the type system.
+    /// Setting to `nil` closes all selector menus.
+    ///
+    /// - `.mode`: Mode selector panel visible above dock
+    /// - `.binaural`: Binaural selector panel visible above dock
+    /// - `.config`: Config/settings panel visible above dock
+    var expandedSelector: DockExpandedSelector? { get set }
+
     // MARK: - Binaural State
-    
+
     /// The currently selected binaural preset.
     var binauralPreset: DockBinauralPreset { get }
-    
-    /// Whether the binaural selector menu is expanded.
+
+    /// Whether the shuffle option appears in the config menu.
     ///
-    /// When `true`, the binaural selector panel is visible above the dock.
-    /// Setting this to `false` closes the menu.
-    var isBinauralSelectorExpanded: Bool { get set }
-    
+    /// Returns `false` on the home screen (no predefined set to shuffle).
+    /// Returns `true` on Favorites, Saved Sessions, and Results views.
+    var showsShuffleOption: Bool { get }
+
     // MARK: - Session State (Session Configuration Only)
     
     /// The current state of the center content slot.
@@ -164,11 +168,26 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
     ///
     /// Only used when `configuration == .configuration`.
     var isShuffleEnabled: Bool { get }
-    
-    /// Whether the play button is enabled.
+
+    /// Whether spaced repetition is enabled.
     ///
-    /// When `false`, the play button appears disabled.
+    /// When enabled, the session doubles to 2x segments by interleaving
+    /// randomized repeats. Each affirmation appears 1-3 times total.
+    ///
     /// Only used when `configuration == .configuration`.
+    var isSpacedRepetitionEnabled: Bool { get }
+
+    /// Whether the play button is visible above the dock.
+    ///
+    /// When `true`, the play button renders above the dock background.
+    /// The `isPlayEnabled` property controls whether it's tappable or greyed out.
+    /// Default: `false` (hidden on home/session screens).
+    var showsPlayButton: Bool { get }
+
+    /// Whether the play button is enabled (tappable).
+    ///
+    /// When `false`, the play button appears greyed out and non-interactive.
+    /// Only relevant when `showsPlayButton` is `true`.
     var isPlayEnabled: Bool { get }
     
     /// Optional label text displayed below the dock.
@@ -248,12 +267,22 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
     ///
     /// The adapter should cycle through available loop counts (e.g., 1 → 3 → 5 → 1).
     func cycleLoopCount()
-    
+
+    /// Called when the user selects a specific loop count from the config menu.
+    ///
+    /// - Parameter count: The selected loop count (1, 3, or 5)
+    func selectLoopCount(_ count: Int)
+
     /// Called when the user taps the shuffle button.
     ///
     /// The adapter should toggle the shuffle state.
     func toggleShuffle()
-    
+
+    /// Called when the user taps the spaced repetition (Reinforce) button.
+    ///
+    /// The adapter should toggle the spaced repetition state.
+    func toggleSpacedRepetition()
+
     /// Called when the user taps the play button.
     ///
     /// The adapter should start the configured practice session.
@@ -294,12 +323,26 @@ public extension DockAdapterProtocol {
         DockMode.allCases
     }
     
-    /// Default implementation closes both selectors and error bar.
+    /// Default implementation closes all selectors and error bar.
     func closeAllSelectors() {
-        isModeSelectorExpanded = false
-        isBinauralSelectorExpanded = false
+        expandedSelector = nil
         isErrorBarVisible = false
     }
+
+    /// Default shuffle option visibility — hidden.
+    var showsShuffleOption: Bool { false }
+
+    /// Default play button visibility — hidden.
+    var showsPlayButton: Bool { false }
+
+    /// Default spaced repetition state — disabled.
+    var isSpacedRepetitionEnabled: Bool { false }
+
+    /// Default spaced repetition toggle — no-op.
+    func toggleSpacedRepetition() { }
+
+    /// Default loop count selection — no-op.
+    func selectLoopCount(_ count: Int) { }
     
     /// Default session segments returns nil (no session active).
     var sessionSegments: DockSessionSegments? {
@@ -311,15 +354,6 @@ public extension DockAdapterProtocol {
     /// Override in adapters that use session segments.
     func segmentAnimationCompleted() {
         // No-op by default
-    }
-    
-    /// Legacy progress information for backwards compatibility.
-    ///
-    /// - Note: This property is deprecated. Use `sessionSegments` instead.
-    ///   Provided as a default implementation to avoid breaking existing conformers.
-    @available(*, deprecated, message: "Use sessionSegments instead for session progress")
-    var progress: DockProgress? {
-        nil
     }
     
     /// Default error bar state — not visible.

@@ -115,11 +115,12 @@ extension PracticeStore {
         case .resumeSession:
             // Resume when app returns from background - restart flow from beginning of current segment
             if isSessionActive {
-                // Block resume while a modal is presented.
+                // Block resume while a modal or summary is presented.
                 // The modal's action buttons (Try Again / Skip / Exit) handle
                 // resumption — starting TTS behind a modal is disorienting.
-                guard !isShowingTimeoutAlert && !isShowingPermissionAlert else {
-                    AppLogger.debug("Session resume blocked — modal is showing", category: .practice)
+                // Summary: TTS should not auto-play when viewing results.
+                guard !isShowingTimeoutAlert && !isShowingPermissionAlert && !isShowingSummary else {
+                    AppLogger.debug("Session resume blocked — modal or summary is showing", category: .practice)
                     return
                 }
 
@@ -159,8 +160,8 @@ extension PracticeStore {
         case .repeatSession:
             handleRepeatSession()
             
-        case .repeatSessionWithConfig(let mode, let loopCount, let shuffle):
-            handleRepeatSessionWithConfig(mode: mode, loopCount: loopCount, shuffle: shuffle)
+        case .repeatSessionWithConfig(let mode, let loopCount, let shuffle, let spacedRepetition):
+            handleRepeatSessionWithConfig(mode: mode, loopCount: loopCount, shuffle: shuffle, spacedRepetition: spacedRepetition)
             
         case .toggleFavoriteInSummary(let affirmationId):
             handleToggleFavoriteInSummary(affirmationId: affirmationId)
@@ -188,6 +189,14 @@ extension PracticeStore {
         // MARK: Favorites Session Events
         case .startFavoritesSession(let affirmations, let mode, let shuffle):
             handleStartFavoritesSession(affirmations: affirmations, mode: mode, shuffle: shuffle)
+
+        // MARK: Remote Session Start Events
+        case .startRemoteSession(let source, let loopConfiguration):
+            handleStartRemoteSession(source: source, loopConfiguration: loopConfiguration)
+
+        // MARK: Session Cover Lifecycle
+        case .sessionCoverDismissed:
+            handleSessionCoverDismissed()
             
         // MARK: TTS Events
         case .ttsStarted:

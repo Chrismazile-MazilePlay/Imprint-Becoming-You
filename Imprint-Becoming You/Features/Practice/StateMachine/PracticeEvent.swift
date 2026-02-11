@@ -110,11 +110,11 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     /// User tapped repeat session (with current loop/shuffle config)
     case repeatSession
     
-    /// User tapped repeat session with custom mode/loop/shuffle from summary dock.
+    /// User tapped repeat session with custom mode/loop/shuffle/spaced-rep from summary dock.
     ///
     /// Routes through `prepareAndStartSession` to ensure TTS is properly prepared
     /// when the mode changes (e.g. Speak Only -> Read Aloud on repeat).
-    case repeatSessionWithConfig(mode: SessionMode, loopCount: Int, shuffle: Bool)
+    case repeatSessionWithConfig(mode: SessionMode, loopCount: Int, shuffle: Bool, spacedRepetition: Bool)
     
     /// User toggled favorite on an affirmation in the summary
     /// - Parameter affirmationId: The ID of the affirmation to toggle
@@ -143,13 +143,30 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     case saveSession(name: String)
     
     // MARK: - Favorites Session Events
-    
+
     /// User tapped play on favorites list.
     ///
     /// Follows the same synchronous event-driven pattern as `startSavedSession`.
     /// Affirmations are pre-fetched by `FavoritesFullListView` and passed directly,
     /// avoiding unnecessary `async` suspension that could cause voice ID staleness.
     case startFavoritesSession(affirmations: [Affirmation], mode: SessionMode, shuffle: Bool)
+
+    // MARK: - Remote Session Start Events
+
+    /// Start a session from a remote page (Favorites or Saved Sessions).
+    ///
+    /// Replaces the old "Stage, Navigate, Execute" pattern. The fullScreenCover
+    /// presents immediately, then session data loads inside the cover.
+    /// No navigation choreography needed — the cover is a separate view hierarchy.
+    case startRemoteSession(source: RemoteSessionSource, loopConfiguration: LoopConfiguration)
+
+    // MARK: - Session Cover Lifecycle
+
+    /// Fired from the fullScreenCover's `onDismiss` callback after dismiss animation completes.
+    ///
+    /// Performs consolidated cleanup: stops audio, clears session state, resets flow to home,
+    /// releases TTS resources, and resets all presentation flags.
+    case sessionCoverDismissed
     
     // MARK: - TTS Events
     
@@ -355,6 +372,10 @@ extension PracticeEvent {
             return true
         case .repeatSession, .repeatSessionWithConfig, .startSavedSession, .startFavoritesSession:
             return true
+        case .startRemoteSession:
+            return true
+        case .sessionCoverDismissed:
+            return true
         case .cancelSessionPreparation:
             return true
         default:
@@ -378,6 +399,8 @@ extension PracticeEvent {
         case .cycleLoopCount, .toggleShuffle:
             return true
         case .repeatSession, .repeatSessionWithConfig, .startSavedSession, .startFavoritesSession, .saveSession:
+            return true
+        case .startRemoteSession:
             return true
         default:
             return false
@@ -470,8 +493,8 @@ extension PracticeEvent: CustomStringConvertible {
             return "dismissSummary"
         case .repeatSession:
             return "repeatSession"
-        case .repeatSessionWithConfig(let mode, let loopCount, let shuffle):
-            return "repeatSessionWithConfig(\(mode.rawValue), loops: \(loopCount), shuffle: \(shuffle))"
+        case .repeatSessionWithConfig(let mode, let loopCount, let shuffle, let spacedRepetition):
+            return "repeatSessionWithConfig(\(mode.rawValue), loops: \(loopCount), shuffle: \(shuffle), spacedRep: \(spacedRepetition))"
         case .toggleFavoriteInSummary(let id):
             return "toggleFavoriteInSummary(\(id.uuidString.prefix(8)))"
         case .cycleLoopCount:
@@ -488,6 +511,15 @@ extension PracticeEvent: CustomStringConvertible {
             return "saveSession(\(name))"
         case .startFavoritesSession(let affs, let mode, let shuffle):
             return "startFavoritesSession(\(affs.count) affirmations, \(mode.rawValue), shuffle: \(shuffle))"
+        case .startRemoteSession(let source, _):
+            switch source {
+            case .favorites(let affs, let mode, _):
+                return "startRemoteSession(favorites: \(affs.count) affirmations, \(mode.rawValue))"
+            case .savedSession(let session):
+                return "startRemoteSession(savedSession: \(session.name))"
+            }
+        case .sessionCoverDismissed:
+            return "sessionCoverDismissed"
         case .startFlow:
             return "startFlow"
         case .pauseFlow:

@@ -5,7 +5,7 @@
 //  Created by Christopher Mazile on 1/11/26.
 //
 
-import Foundation
+import SwiftUI
 
 // MARK: - Data Loading
 
@@ -102,9 +102,17 @@ extension PracticeStore {
         
         // Clear original IDs so setSessionState captures fresh ones
         clearOriginalSessionAffirmationIds()
-        
+
+        // If spaced rep is enabled with more than sessionSize favorites,
+        // randomly select sessionSize (10) from the pool as the base set.
+        // The expansion to 20 happens later in startSession().
+        var sessionQueue = affirmations
+        if loopConfiguration.isSpacedRepetitionEnabled && affirmations.count > Constants.Session.sessionSize {
+            sessionQueue = Array(affirmations.shuffled().prefix(Constants.Session.sessionSize))
+        }
+
         // Set up session state - this captures originalSessionAffirmationIds
-        setSessionState(affirmations: affirmations, index: 0)
+        setSessionState(affirmations: sessionQueue, index: 0)
         setSessionResults([])
         sessionStartTime = Date()
         
@@ -114,7 +122,7 @@ extension PracticeStore {
         }
         
         #if DEBUG
-        AppLogger.info("Starting favorites session with \(affirmations.count) affirmations, mode: \(mode.displayName), voiceId: \(selectedVoiceId ?? "nil")", category: .practice)
+        AppLogger.info("Starting favorites session with \(sessionQueue.count) of \(affirmations.count) affirmations, mode: \(mode.displayName), spacedRep: \(loopConfiguration.isSpacedRepetitionEnabled), voiceId: \(selectedVoiceId ?? "nil")", category: .practice)
         #endif
         
         // Use preparation flow for TTS modes (identical path to saved sessions)
@@ -142,6 +150,45 @@ extension PracticeStore {
         } else {
             setBrowseState(index: newIndex)
         }
+    }
+}
+
+// MARK: - Remote Session Start
+
+extension PracticeStore {
+
+    /// Starts a session from a remote page (Favorites or Saved Sessions).
+    ///
+    /// Replaces the old "Stage, Navigate, Execute" pattern. The fullScreenCover
+    /// presents immediately via `setSessionPresented(true)`, then session data
+    /// loads inside the cover. No pager navigation choreography needed.
+    ///
+    /// - Parameters:
+    ///   - source: The session data source (favorites or saved session)
+    ///   - loopConfiguration: Loop settings for the session
+    func handleStartRemoteSession(source: RemoteSessionSource, loopConfiguration: LoopConfiguration) {
+        send(.closeSelectors)
+        cancelCurrentActivity()
+        flowGeneration += 1
+
+        // Present fullScreenCover immediately — user sees instant response
+        setSessionPresented(true)
+
+        // Apply loop configuration
+        setLoopConfiguration(loopConfiguration)
+
+        // Route to the appropriate handler (data loads inside the cover)
+        switch source {
+        case .favorites(let affirmations, let mode, let shuffle):
+            handleStartFavoritesSession(affirmations: affirmations, mode: mode, shuffle: shuffle)
+
+        case .savedSession(let savedSession):
+            handleStartSavedSession(savedSession)
+        }
+
+        #if DEBUG
+        AppLogger.info("Started remote session via fullScreenCover", category: .practice)
+        #endif
     }
 }
 

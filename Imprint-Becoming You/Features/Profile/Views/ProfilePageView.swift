@@ -18,6 +18,7 @@ enum ProfileDestination: Hashable {
     case savedSessions
     case voiceSettings
     case waveformStyle
+    case backgroundStyle
     case goals
     case account
     case premium
@@ -70,6 +71,11 @@ struct ProfilePageView: View {
     /// Set to `true` during full reset (extended background timeout).
     /// This view observes the change, scrolls to top, then clears the flag.
     @Binding var resetScrollToTop: Bool
+
+    /// Signal from parent to pop to root navigation level.
+    /// Used for deferred cosmetic cleanup when fullScreenCover presents from a subpage.
+    /// This view observes the change, resets `navigationPath`, then clears the flag.
+    @Binding var popToRoot: Bool
     
     // MARK: - Navigation State
     
@@ -82,6 +88,10 @@ struct ProfilePageView: View {
     @State private var streak: Int = 0
     @State private var totalPracticed: Int = 0
     @State private var savedSessionCount: Int = 0
+
+    /// Tracks the last stats version that was loaded.
+    /// Compared against `store.profileStatsVersion` to decide if refresh needed.
+    @State private var lastLoadedStatsVersion: Int = -1
     
     // MARK: - Body
     
@@ -102,7 +112,8 @@ struct ProfilePageView: View {
         }
         .tint(AppColors.accent) // Accent color for all nested back buttons
         .task {
-            await loadStats()
+            loadStats()
+            lastLoadedStatsVersion = store.profileStatsVersion
         }
         .onChange(of: navigationPath) { _, newPath in
             // Publish depth to parent for gesture control
@@ -110,7 +121,13 @@ struct ProfilePageView: View {
             
             // Reload stats when returning to root (path becomes empty)
             if newPath.isEmpty {
-                Task { await loadStats() }
+                refreshStatsIfNeeded()
+            }
+        }
+        .onChange(of: popToRoot) { _, shouldPop in
+            if shouldPop {
+                navigationPath = NavigationPath()
+                popToRoot = false
             }
         }
         .onAppear {
@@ -169,9 +186,9 @@ struct ProfilePageView: View {
             }
             .scrollDisabled(isHorizontallyDragging)
             .onChange(of: isActive) { _, nowActive in
-                // Reload stats when this page becomes active
+                // Refresh stats when this page becomes active (only if data changed)
                 if nowActive {
-                    Task { await loadStats() }
+                    refreshStatsIfNeeded()
                 }
             }
             .onChange(of: resetScrollToTop) { _, shouldReset in
@@ -193,18 +210,12 @@ struct ProfilePageView: View {
         case .favorites:
             FavoritesFullListView(
                 store: store,
-                dependencies: dependencies,
-                onStartSession: {
-                    popToRootAndNavigateToCenter()
-                }
+                dependencies: dependencies
             )
-            
+
         case .savedSessions:
             SavedSessionsFullListView(
-                store: store,
-                onStartSession: {
-                    popToRootAndNavigateToCenter()
-                }
+                store: store
             )
             
         case .voiceSettings:
@@ -212,7 +223,10 @@ struct ProfilePageView: View {
             
         case .waveformStyle:
             WaveformSelectionView(selectedType: waveformTypeBinding)
-            
+
+        case .backgroundStyle:
+            BackgroundSelectionView()
+
         case .goals:
             GoalsSettingsView(store: store)
             
@@ -221,18 +235,6 @@ struct ProfilePageView: View {
             
         case .premium:
             PremiumView()
-        }
-    }
-    
-    /// Pops navigation stack to root and navigates to Practice page.
-    ///
-    /// Used when starting a session from Favorites or Saved Sessions.
-    /// Ensures clean navigation state before transitioning.
-    private func popToRootAndNavigateToCenter() {
-        navigationPath = NavigationPath()
-        // Small delay to allow stack to clear before page transition
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            onNavigateToCenter()
         }
     }
     
@@ -447,7 +449,19 @@ struct ProfilePageView: View {
                 }
                 .accessibilityLabel("Waveform Style, \(appState.userProfile?.waveformType.displayName ?? "Layered Waves")")
                 .accessibilityHint("Change your waveform visualization style")
-                
+
+                // Background
+                SettingsRow(
+                    icon: "paintpalette.fill",
+                    iconColor: AppColors.accentSecondary,
+                    title: "Background",
+                    subtitle: appState.userProfile?.backgroundStyle.displayName ?? "Morphing Gradient"
+                ) {
+                    navigateTo(.backgroundStyle)
+                }
+                .accessibilityLabel("Background, \(appState.userProfile?.backgroundStyle.displayName ?? "Morphing Gradient")")
+                .accessibilityHint("Change your practice session background")
+
                 // Goals
                 SettingsRow(
                     icon: "target",
@@ -516,8 +530,18 @@ struct ProfilePageView: View {
     }
     
     // MARK: - Data Loading
-    
-    private func loadStats() async {
+
+    /// Refreshes stats only if the underlying data has changed since last load.
+    ///
+    /// Compares `store.profileStatsVersion` against `lastLoadedStatsVersion`.
+    /// If they match, no SwiftData queries run — cached `@State` values display instantly.
+    private func refreshStatsIfNeeded() {
+        guard store.profileStatsVersion != lastLoadedStatsVersion else { return }
+        loadStats()
+        lastLoadedStatsVersion = store.profileStatsVersion
+    }
+
+    private func loadStats() {
         // Load favorites count
         let favoritesDescriptor = FetchDescriptor<Affirmation>(
             predicate: #Predicate { $0.isFavorited }
@@ -703,7 +727,8 @@ struct SettingsRow: View {
     struct PreviewWrapper: View {
         @State private var navigationDepth = 0
         @State private var resetScroll = false
-        
+        @State private var popToRoot = false
+
         var body: some View {
             ProfilePageView(
                 store: .preview,
@@ -711,7 +736,8 @@ struct SettingsRow: View {
                 navigationDepth: $navigationDepth,
                 isHorizontallyDragging: false,
                 isActive: true,
-                resetScrollToTop: $resetScroll
+                resetScrollToTop: $resetScroll,
+                popToRoot: $popToRoot
             )
             .previewEnvironment()
         }

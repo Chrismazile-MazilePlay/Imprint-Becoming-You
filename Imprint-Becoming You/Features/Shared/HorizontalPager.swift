@@ -112,7 +112,15 @@ struct HorizontalPager<Content: View>: UIViewControllerRepresentable {
     /// Binding to communicate horizontal drag state to child pages.
     /// Child pages can use this to disable their `ScrollView`s during horizontal paging.
     @Binding var isHorizontallyDragging: Bool
-    
+
+    /// When `false`, the next programmatic page change uses
+    /// `setContentOffset(animated: false)` for an instant jump.
+    /// Auto-resets to `true` after the scroll executes.
+    ///
+    /// Use for behind-cover cleanup where the scroll animation is invisible
+    /// (e.g., scrolling to Practice page while `fullScreenCover` is opaque).
+    @Binding var animatePageChange: Bool
+
     /// The pages to display
     @ViewBuilder let content: () -> Content
     
@@ -147,10 +155,18 @@ struct HorizontalPager<Content: View>: UIViewControllerRepresentable {
             let targetOffset = CGFloat(currentPage) * pageWidth
             if abs(controller.scrollView.contentOffset.x - targetOffset) > 1,
                !coordinator.isScrollDriven {
+                let shouldAnimate = animatePageChange
                 controller.scrollView.setContentOffset(
                     CGPoint(x: targetOffset, y: 0),
-                    animated: true
+                    animated: shouldAnimate
                 )
+                // Auto-reset: after a non-animated jump, restore default animated
+                // behavior for subsequent page changes (user taps, swipe snaps).
+                if !shouldAnimate {
+                    DispatchQueue.main.async {
+                        coordinator.parent.animatePageChange = true
+                    }
+                }
             }
         }
         coordinator.isScrollDriven = false
@@ -319,26 +335,42 @@ struct HorizontalPager<Content: View>: UIViewControllerRepresentable {
             // Programmatic scrolling completed (setContentOffset animated:true).
             // Update binding in case the target page differs from current binding.
             updatePageFromOffset(scrollView)
+
+            // Programmatic scroll settled — no additional action needed.
+            // (Previously used by "Stage, Navigate, Execute" pattern, now removed.)
         }
         
         /// Called when user-driven scrolling finishes (drag end without deceleration,
         /// or deceleration complete). Updates dragging state and page binding.
+        ///
+        /// All binding updates are batched into a single `DispatchQueue.main.async`
+        /// so SwiftUI processes them in one update cycle. Without batching,
+        /// `isHorizontallyDragging` and `currentPage` would trigger two separate
+        /// `updateUIViewController` calls — each re-evaluating the full ViewBuilder
+        /// closure and Mirror-extracting all pages (~10-15ms per call).
         private func finishScrolling(_ scrollView: UIScrollView) {
             let newPage = pageIndex(from: scrollView)
             let pageChanged = newPage != parent.currentPage
-            
+
             // Haptic on page change (fires before binding update)
             if pageChanged {
                 HapticFeedback.selection()
             }
-            
-            DispatchQueue.main.async { [weak self] in
-                self?.parent.isHorizontallyDragging = false
+
+            // Batch all binding updates into a single dispatch to avoid
+            // multiple updateUIViewController calls at scroll settle time.
+            if pageChanged {
+                isScrollDriven = true
             }
-            
-            updatePageFromOffset(scrollView)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.parent.isHorizontallyDragging = false
+                if pageChanged {
+                    self.parent.currentPage = newPage
+                }
+            }
         }
-        
+
         /// Derives page index from scroll offset and syncs to the SwiftUI binding.
         private func updatePageFromOffset(_ scrollView: UIScrollView) {
             let newPage = pageIndex(from: scrollView)
@@ -587,7 +619,8 @@ final class PagingScrollView: UIScrollView, UIGestureRecognizerDelegate {
                     currentPage: $currentPage,
                     pageCount: 3,
                     isGestureEnabled: gesturesEnabled,
-                    isHorizontallyDragging: $isDragging
+                    isHorizontallyDragging: $isDragging,
+                    animatePageChange: .constant(true)
                 ) {
                     Color.red.opacity(0.3)
                         .overlay(Text("Page 0 (Prompts)").font(.title))
@@ -615,7 +648,8 @@ final class PagingScrollView: UIScrollView, UIGestureRecognizerDelegate {
                 currentPage: $currentPage,
                 pageCount: 3,
                 isGestureEnabled: true,
-                isHorizontallyDragging: $isDragging
+                isHorizontallyDragging: $isDragging,
+                animatePageChange: .constant(true)
             ) {
                 ZStack {
                     AppColors.backgroundPrimary

@@ -17,60 +17,54 @@ import SwiftData
 /// When starting a session, it pops back to Profile root
 /// then triggers navigation to Practice page.
 struct FavoritesFullListView: View {
-    
+
     // MARK: - Environment
-    
+
     @Environment(\.modelContext) private var modelContext
-    
+
     // MARK: - Properties
-    
+
     @Bindable var store: PracticeStore
     let dependencies: DependencyContainer
-    
-    /// Called when user starts a session - should pop to root and navigate to Practice
-    let onStartSession: () -> Void
-    
+
     // MARK: - State
-    
+
     @State private var favorites: [Affirmation] = []
-    @State private var dockAdapter: ConfigurationDockAdapter
-    
+    @State private var dockAdapter: ListDockAdapter
+
     // MARK: - Constants
-    
+
     private let dockAreaHeight: CGFloat = 120
-    
+
     // MARK: - Initialization
-    
+
     init(
         store: PracticeStore,
-        dependencies: DependencyContainer,
-        onStartSession: @escaping () -> Void
+        dependencies: DependencyContainer
     ) {
         self.store = store
         self.dependencies = dependencies
-        self.onStartSession = onStartSession
-        
-        self._dockAdapter = State(initialValue: ConfigurationDockAdapter(
+
+        self._dockAdapter = State(initialValue: ListDockAdapter(
+            showsShuffleOption: true,
             labelText: "Loading...",
-            isPlayEnabled: false,
-            onPlay: { _, _, _ in }
+            isPlayEnabled: false
         ))
     }
-    
+
     // MARK: - Body
-    
+
     var body: some View {
         ZStack {
             AppColors.backgroundPrimary
                 .ignoresSafeArea()
-            
+
             if favorites.isEmpty {
                 emptyState
             } else {
                 favoritesList
             }
         }
-        .dismissesDockMenuOnTouch(adapter: dockAdapter)
         .overlay {
             VStack {
                 Spacer()
@@ -86,36 +80,52 @@ struct FavoritesFullListView: View {
         .task {
             await loadFavorites()
         }
+        .onDisappear {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                dockAdapter.closeAllSelectors()
+            }
+        }
     }
-    
+
     // MARK: - Empty State
-    
+
     private var emptyState: some View {
         VStack(spacing: AppTheme.Spacing.lg) {
             Spacer()
-            
+
             Image(systemName: "heart.slash")
                 .font(.system(size: 48))
                 .foregroundStyle(AppColors.textSecondary.opacity(0.5))
-            
+
             Text("No Favorites Yet")
                 .font(AppTypography.title3)
                 .foregroundStyle(AppColors.textPrimary)
-            
+
             Text("Heart affirmations during practice to add them here.")
                 .font(AppTypography.body)
                 .foregroundStyle(AppColors.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, AppTheme.Spacing.xl)
-            
+
             Spacer()
+        }
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: dockAreaHeight)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard dockAdapter.expandedSelector != nil
+               || dockAdapter.isErrorBarVisible else { return }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                dockAdapter.closeAllSelectors()
+            }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("No favorites yet. Heart affirmations during practice to add them here.")
     }
-    
+
     // MARK: - Favorites List
-    
+
     private var favoritesList: some View {
         ScrollView {
             LazyVStack(spacing: AppTheme.Spacing.md) {
@@ -134,69 +144,69 @@ struct FavoritesFullListView: View {
             .padding(.horizontal, AppTheme.Spacing.lg)
             .padding(.vertical, AppTheme.Spacing.md)
         }
+        .onTapGesture {
+            guard dockAdapter.expandedSelector != nil
+               || dockAdapter.isErrorBarVisible else { return }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                dockAdapter.closeAllSelectors()
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: dockAreaHeight)
         }
         .accessibilityLabel("Favorites list, \(favorites.count) items")
     }
-    
+
     // MARK: - Actions
-    
+
     private func loadFavorites() async {
         let descriptor = FetchDescriptor<Affirmation>(
             predicate: #Predicate { $0.isFavorited },
             sortBy: [SortDescriptor(\.favoritedAt, order: .reverse)]
         )
         favorites = (try? modelContext.fetch(descriptor)) ?? []
-        updateDockAdapter()
+        updateDockState()
     }
-    
-    private func updateDockAdapter() {
+
+    /// Updates dock adapter properties directly — no instance replacement.
+    private func updateDockState() {
         let count = favorites.count
-        let labelText = count > 0 ? "Practice \(count) affirmation\(count == 1 ? "" : "s")" : "No favorites yet"
-        
-        dockAdapter = ConfigurationDockAdapter(
-            initialMode: dockAdapter.currentMode,
-            initialLoopCount: dockAdapter.loopCount,
-            initialShuffle: dockAdapter.isShuffleEnabled,
-            labelText: labelText,
-            isPlayEnabled: count > 0,
-            onPlay: { [self] mode, loopCount, shuffle in
-                startFavoritesSession(mode: mode, loopCount: loopCount, shuffle: shuffle)
-            }
-        )
+        dockAdapter.labelText = count > 0 ? "Practice \(count) affirmation\(count == 1 ? "" : "s")" : "No favorites yet"
+        dockAdapter.isPlayEnabled = count > 0
+        dockAdapter.baseAffirmationCount = count
+        dockAdapter.onPlayHandler = { [self] mode, loopCount, shuffle, spacedRepetition in
+            startFavoritesSession(mode: mode, loopCount: loopCount, shuffle: shuffle, spacedRepetition: spacedRepetition)
+        }
     }
-    
-    /// Starts a favorites session using the synchronous event-driven pattern.
+
+    /// Starts a favorites session via fullScreenCover presentation.
     ///
-    /// Mirrors the saved session flow in `SavedSessionsFullListView`:
-    /// set loop config -> send event -> pop to root.
-    /// Affirmations are passed directly (already loaded), avoiding any `async`
-    /// suspension that could cause voice ID staleness.
-    private func startFavoritesSession(mode: SessionMode, loopCount: Int, shuffle: Bool) {
-        let config = LoopConfiguration(
-            loopCount: loopCount,
-            isShuffleEnabled: shuffle,
-            currentLoopIteration: 1
-        )
-        store.setLoopConfiguration(config)
-        
-        store.send(.startFavoritesSession(
-            affirmations: favorites,
-            mode: mode,
-            shuffle: shuffle
+    /// Sends a single `.startRemoteSession` event that immediately presents
+    /// the fullScreenCover and begins session setup inside it.
+    /// No navigation choreography needed — the cover is a separate view hierarchy.
+    private func startFavoritesSession(mode: SessionMode, loopCount: Int, shuffle: Bool, spacedRepetition: Bool) {
+        // NOTE: Reinforce mode validation (min 10 affirmations) is handled by
+        // ListDockAdapter.play() — the single chokepoint for all session starts.
+
+        var config = LoopConfiguration()
+        config.loopCount = loopCount
+        config.isShuffleEnabled = shuffle
+        config.isSpacedRepetitionEnabled = spacedRepetition
+        config.currentLoopIteration = 1
+
+        store.send(.startRemoteSession(
+            source: .favorites(affirmations: favorites, mode: mode, shuffle: shuffle),
+            loopConfiguration: config
         ))
-        
-        // Pop to root and navigate to Practice
-        onStartSession()
     }
-    
+
     private func unfavorite(_ affirmation: Affirmation) {
         affirmation.isFavorited = false
         affirmation.favoritedAt = nil
         favorites.removeAll { $0.id == affirmation.id }
         HapticFeedback.impact(.light)
-        updateDockAdapter()
+        updateDockState()
+        store.invalidateProfileStats()
     }
 }
 
@@ -206,8 +216,7 @@ struct FavoritesFullListView: View {
     NavigationStack {
         FavoritesFullListView(
             store: .preview,
-            dependencies: .preview,
-            onStartSession: {}
+            dependencies: .preview
         )
     }
     .previewEnvironment()

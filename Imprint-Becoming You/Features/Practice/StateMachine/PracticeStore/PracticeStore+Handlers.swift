@@ -44,6 +44,7 @@ extension PracticeStore {
             resetLoopConfiguration()
             clearSavedSessionContext()
             clearOriginalSessionAffirmationIds()
+            setSessionPresented(true) // Cover presents immediately
             generateSessionQueue(forMode: mode)
         }
     }
@@ -248,6 +249,15 @@ extension PracticeStore {
         }
     }
     
+    /// Exits the current session by silencing audio and dismissing the cover.
+    ///
+    /// Only performs the minimum work needed before the dismiss animation:
+    /// - Immediate audio silence (zero audible bleed)
+    /// - Cancel active work (prevent stale async closures)
+    /// - Dismiss the fullScreenCover
+    ///
+    /// All remaining cleanup (memory, TTS cache, state reset) is deferred to
+    /// `handleSessionCoverDismissed()` which fires from the cover's `onDismiss`.
     func handleExitSession() {
         AppLogger.debug("Exit session initiated", category: .practice)
 
@@ -258,104 +268,77 @@ extension PracticeStore {
 
         // 2. Cancel all active work (tasks, TTS, speech capture, continuations)
         cancelCurrentActivity()
-        flowGeneration += 1  // Ensure any stale async work sees generation mismatch and stops
 
-        // 3. Signal MemoryManager that session lifecycle is complete
-        MemoryManager.shared.sessionDidEnd()
-
-        // 4. Cancel TTS queue and clear preparation state.
-        // cancelAll() internally resumes the synthesis idle timer.
-        dependencies.sessionTTSQueueService.cancelAll()
-        clearSessionPreparation()
-
-        // 4b. Reset session-scoped voice flag so next session uses proper voice
-        forceSystemTTSForSession = false
-
-        // 5. Dismiss any alerts and clear timeout tracking
-        setShowingTimeoutAlert(false)
-        timedOutAffirmationId = nil
-        setPermissionAlert(showing: false)
-
-        // 6. CRITICAL: Set mode and flow to home FIRST
-        //    This makes isSessionActive = false BEFORE we clear session data.
-        //    Without this order, there's a brief moment where:
-        //    - sessionAffirmations is empty
-        //    - flow is still active mode (isSessionActive = true)
-        //    - currentAffirmation returns nil
-        //    - UI shows inconsistent state (text/buttons disappear)
+        // 3. Reset to home mode before dismiss — underlying pager shows clean content
         sessionMode = .readOnly
         setFlow(.home)
-        setSegmentProgress(0)
 
-        // 7. Now safe to clear session state (isSessionActive is already false)
-        resetLoopConfiguration()
-        clearSavedSessionContext()
-        clearOriginalSessionAffirmationIds()
-        setSessionState(affirmations: [], index: 0)
-        setSessionResults([])
+        // 4. Dismiss the fullScreenCover — full cleanup in onDismiss
+        setSessionPresented(false)
 
-        // 8. Close any open menus with animation
-        withAnimation(AppTheme.Animation.standard) {
-            isModeSelectorExpanded = false
-            isBinauralSelectorExpanded = false
-        }
-        
-        AppLogger.debug("Exit session completed - now in home mode", category: .practice)
+        AppLogger.debug("Exit session: cover dismiss initiated", category: .practice)
     }
     
     /// Full app-level reset after extended background (>10 min).
     ///
     /// Resets from ANY state back to home:
-    /// - Dismisses summary if showing
-    /// - Exits active session
-    /// - Clears all session state
-    /// - Returns to Read Only home mode
+    /// - If cover is presented: silence audio, cancel work, dismiss cover
+    ///   (cleanup deferred to `handleSessionCoverDismissed` via `onDismiss`)
+    /// - If no cover: direct cleanup of any lingering state
     ///
     /// Called by MainPracticeView when returning from background after 10+ minutes.
     func handleResetToHome() {
         AppLogger.debug("Full reset to home (extended background)", category: .practice)
-        
-        // Cancel any active work - use centralized management
-        cancelAllManagedTasks()
-        cancelCurrentActivity()
 
-        // Signal MemoryManager that session lifecycle is complete
-        MemoryManager.shared.sessionDidEnd()
+        if isSessionPresented {
+            // MINIMAL CLEANUP + DISMISS: When the cover is showing, we only need
+            // to stop audio and cancel active work here. All comprehensive state
+            // cleanup (MemoryManager, TTS queue, session data, summary, menus)
+            // is handled by handleSessionCoverDismissed() via the cover's onDismiss.
+            // Do NOT duplicate that cleanup here — it would execute twice.
+            dependencies.audioPlayerService.immediateStop()
+            cancelAllManagedTasks()
+            cancelCurrentActivity()
 
-        // Cancel TTS queue and clear preparation state.
-        // cancelAll() internally resumes the synthesis idle timer.
-        dependencies.sessionTTSQueueService.cancelAll()
-        clearSessionPreparation()
-        
-        // Reset session-scoped voice flag so next session uses proper voice
-        forceSystemTTSForSession = false
-        
-        // Dismiss summary if showing (no animation needed since we're resetting)
-        if isShowingSummary {
-            setShowingSummary(false)
+            // Reset to home mode before dismiss — underlying pager shows clean content
+            sessionMode = .readOnly
+            setFlow(.home)
+
+            setSessionPresented(false)
+        } else {
+            // FULL INLINE CLEANUP: No cover is showing, so handleSessionCoverDismissed()
+            // will NOT be called. We must perform all cleanup that it would have done.
+            // This mirrors handleSessionCoverDismissed()'s steps 1–10 for completeness.
+            cancelAllManagedTasks()
+            cancelCurrentActivity()
+
+            MemoryManager.shared.sessionDidEnd()
+
+            dependencies.sessionTTSQueueService.cancelAll()
+            clearSessionPreparation()
+
+            forceSystemTTSForSession = false
+
+            if isShowingSummary {
+                setShowingSummary(false)
+            }
+
+            setShowingTimeoutAlert(false)
+            timedOutAffirmationId = nil
+            setPermissionAlert(showing: false)
+
+            resetLoopConfiguration()
+            clearSavedSessionContext()
+            clearOriginalSessionAffirmationIds()
+
+            setSessionState(affirmations: [], index: 0)
+            setSessionResults([])
+
+            sessionMode = .readOnly
+            setFlow(.home)
+            isModeSelectorExpanded = false
+            isBinauralSelectorExpanded = false
         }
-        
-        // Dismiss any alerts and clear timeout tracking
-        setShowingTimeoutAlert(false)
-        timedOutAffirmationId = nil
-        setPermissionAlert(showing: false)
-        
-        // Reset loop configuration
-        resetLoopConfiguration()
-        clearSavedSessionContext()
-        clearOriginalSessionAffirmationIds()
-        
-        // Clear session state
-        setSessionState(affirmations: [], index: 0)
-        setSessionResults([])
-        
-        // Reset session mode to default
-        sessionMode = .readOnly
-        
-        // Reset flow to home
-        setFlow(.home)
-        isModeSelectorExpanded = false
-        isBinauralSelectorExpanded = false
     }
 }
 
@@ -849,8 +832,9 @@ extension PracticeStore {
         // The repository.toggleFavorite() was causing a double-toggle bug
         
         HapticFeedback.selection()
+        invalidateProfileStats()
     }
-    
+
     func handleShareAffirmation() {
         recordEngagement(.share)
     }

@@ -256,10 +256,32 @@ extension PracticeStore {
         sessionMode = mode
         sessionStartTime = Date()
 
+        // Record saved session playback at true session start (not on tap).
+        // playingSavedSessionId is set in handleStartSavedSession() and persists
+        // through the entire session lifecycle until handleSessionCoverDismissed().
+        if let savedSessionId = playingSavedSessionId {
+            try? savedSessionRepository?.recordPlayback(sessionId: savedSessionId)
+        }
+
         // Reset loop iteration to 1 when starting fresh
         var config = loopConfiguration
         config.resetIteration()
         setLoopConfiguration(config)
+
+        // Apply spaced repetition expansion BEFORE setting flow.
+        // originalSessionAffirmationIds already captured the base unique IDs.
+        // TTS prep already synthesized audio for the unique set.
+        // Expansion inserts duplicate Affirmation references — UUID-keyed cache serves both.
+        if loopConfiguration.isSpacedRepetitionEnabled && sessionAffirmations.count > 1 {
+            let expanded = SpacedRepetitionBuilder.expand(sessionAffirmations)
+            setSessionAffirmationsForShuffle(expanded)
+
+            // Update TTS queue with expanded order for index-based progress tracking
+            let expandedInfos = expanded.enumerated().map { index, affirmation in
+                SessionAffirmationInfo(affirmation: affirmation, index: index)
+            }
+            dependencies.sessionTTSQueueService.updateAffirmationOrder(expandedInfos)
+        }
 
         withAnimation(AppTheme.Animation.standard) {
             switch mode {
@@ -457,22 +479,22 @@ extension PracticeStore {
     /// Also handles the race condition where `.sessionPreparationCompleted` fires
     /// just before cancel: even if `startSession()` already ran, this teardown
     /// fully undoes it by resetting flow to `.home` and clearing all session state.
+    /// Cancels session preparation and dismisses the fullScreenCover.
+    ///
+    /// Performs immediate cleanup of preparation-specific state (cancel tasks,
+    /// clear preparation UI, release Kokoro pipeline) then dismisses the cover.
+    /// Remaining cleanup deferred to `handleSessionCoverDismissed`.
     func handleCancelSessionPreparation() {
         AppLogger.debug("User cancelled session preparation", category: .practice)
 
-        // 1. Cancel any active work from the pre-switch session
+        // 1. Cancel any active work
         cancelCurrentActivity()
-        flowGeneration += 1
 
-        // 2. Signal MemoryManager that session lifecycle is complete
-        MemoryManager.shared.sessionDidEnd()
-
-        // 3. Cancel TTS queue and clear preparation state.
-        // cancelAll() internally resumes the synthesis idle timer.
+        // 2. Cancel TTS queue and clear preparation state.
         clearSessionPreparation()
         dependencies.sessionTTSQueueService.cancelAll()
 
-        // 3b. Release Kokoro ML pipeline immediately (~1.3GB).
+        // 3. Release Kokoro ML pipeline immediately (~1.3GB).
         // The pipeline was loaded during preparation but is no longer needed.
         // cancelAll() only schedules release via a 30s idle timer — this
         // bypasses the delay for instant memory recovery.
@@ -483,37 +505,22 @@ extension PracticeStore {
             #endif
         }
 
-        // 4. Reset session-scoped flags
-        forceSystemTTSForSession = false
-
-        // 5. Dismiss any alerts
-        setShowingTimeoutAlert(false)
-        timedOutAffirmationId = nil
-        setPermissionAlert(showing: false)
-
-        // 6. CRITICAL: Reset mode and flow to home BEFORE clearing data.
-        //    This makes isSessionActive = false immediately, preventing
-        //    the brief window where session UI shows with empty content.
+        // 4. Reset to home mode before dismiss — underlying pager shows clean content
         sessionMode = .readOnly
         setFlow(.home)
-        setSegmentProgress(0)
 
-        // 7. Clear all session state
-        resetLoopConfiguration()
-        clearSavedSessionContext()
-        clearOriginalSessionAffirmationIds()
-        setSessionState(affirmations: [], index: 0)
-        setSessionResults([])
-
-        // 8. Close any open menus
-        withAnimation(AppTheme.Animation.standard) {
-            isModeSelectorExpanded = false
-            isBinauralSelectorExpanded = false
-        }
+        // 5. Dismiss the fullScreenCover — remaining cleanup in onDismiss
+        setSessionPresented(false)
     }
 
     func showSessionSummary() {
         cancelCurrentActivity()
+
+        // NOTE: Loop configuration is NOT reset here. It's deferred to just before
+        // the summary animation begins (inside the Task below), so the loop progress
+        // chip (🔁 "3 of 3") stays visible during the sessionCompletePause delay.
+        // Resetting here would set loopCount=1, hiding the chip before the summary
+        // transition covers it — causing a visible "vanish" glitch.
 
         // NOTE: Idle timer is NOT resumed here. The summary view is part of the
         // active session lifecycle — the user may tap "Repeat" which reuses the
@@ -543,6 +550,12 @@ extension PracticeStore {
 
             try? await Task.sleep(for: PracticeTiming.sessionCompletePause)
             guard !Task.isCancelled else { return }
+
+            // Reset loop configuration for the summary dock's default values.
+            // Done here (not earlier) so the loop chip stays visible until
+            // the summary transition covers it. Steps 4→5 in the same run-loop
+            // pass makes the chip hide and summary appear simultaneously.
+            self.resetLoopConfiguration()
 
             self.setNavigationLocked(true)
 
@@ -580,47 +593,98 @@ extension PracticeStore {
     /// This prevents the bug where the completed session was briefly visible
     /// as the summary dismissed, because the underlying PracticePageView
     /// was still showing session content.
+    /// Handles dismissing the summary by resetting to home mode and dismissing the cover.
+    ///
+    /// Resets `flow` to `.home` BEFORE the dismiss animation starts so the
+    /// underlying PracticePageView (behind the cover) shows clean home content
+    /// as the cover slides away. Without this, stale session content is visible
+    /// during the ~350ms dismiss animation.
+    ///
+    /// Full cleanup (TTS queue, session data, NavigationStack pop) is deferred to
+    /// `handleSessionCoverDismissed()` via the cover's `onDismiss` callback.
     func handleDismissSummary() {
-        // 1. Reset display-relevant state FIRST (immediate, no animation)
-        //    This makes PracticePageView show browse content BEFORE the summary slides away.
-        //    The summary overlay still covers this, so user sees no change yet.
+        // Reset to home mode before dismiss — underlying pager shows clean content
+        dependencies.audioPlayerService.immediateStop()
+        sessionMode = .readOnly
+        setFlow(.home)
+
+        // Dismiss the cover — animation reveals clean home content
+        setSessionPresented(false)
+    }
+
+    /// Handles cleanup after the fullScreenCover dismiss animation completes.
+    ///
+    /// Called from the cover's `onDismiss` callback. This is the **single cleanup point**
+    /// for all dismiss paths (exit, close summary, save, cancel preparation, reset).
+    ///
+    /// ## Why Here (Not Inline)
+    /// State changes during the dismiss animation cause visible glitches:
+    /// - NavigationStack pops are visible as the cover slides down
+    /// - Flow state changes cause UI flicker in the cover's content
+    /// By deferring ALL cleanup to `onDismiss`, the cover dismisses with its
+    /// current content frozen — then we clean up invisibly after it's gone.
+    ///
+    /// ## Ordering Invariants
+    /// 1. `immediateStop()` first — prevent audio bleed
+    /// 2. `cancelCurrentActivity()` + `cancelAllManagedTasks()` — stop async work
+    /// 3. `sessionDidEnd()` — signal memory manager
+    /// 4. `sessionTTSQueueService.cancelAll()` — clear TTS cache, resume idle timer
+    /// 5. `setFlow(.home)` BEFORE `setSessionState(affirmations: [])` — prevent empty-array crash
+    /// 6. `setShowingSummary(false)` — reset NavigationStack path (invisible, cover gone)
+    func handleSessionCoverDismissed() {
+        AppLogger.debug("handleSessionCoverDismissed: full cleanup", category: .practice)
+
+        // 1. Immediate audio silence (may already be stopped, but idempotent)
+        dependencies.audioPlayerService.immediateStop()
+
+        // 2. Cancel all active work
+        cancelCurrentActivity()
+        cancelAllManagedTasks()
+        flowGeneration += 1
+
+        // 3. Signal MemoryManager that session lifecycle is complete
+        MemoryManager.shared.sessionDidEnd()
+
+        // 4. Cancel TTS queue and clear preparation state.
+        // cancelAll() internally resumes the synthesis idle timer.
+        dependencies.sessionTTSQueueService.cancelAll()
+        clearSessionPreparation()
+
+        // 5. Reset session-scoped flags
+        forceSystemTTSForSession = false
+
+        // 6. Dismiss any alerts
+        setShowingTimeoutAlert(false)
+        timedOutAffirmationId = nil
+        setPermissionAlert(showing: false)
+
+        // 7. CRITICAL: Reset mode and flow to home BEFORE clearing data.
+        //    setFlow(.home) makes isSessionActive = false immediately.
+        //    If we cleared data first, VerticalPager could see empty array mid-render.
+        //    NOTE: These are intentionally idempotent — the early dismiss handlers
+        //    (handleDismissSummary, handleExitSession, handleCancelSessionPreparation,
+        //    handleResetToHome) already set these before the cover begins dismissing,
+        //    so the underlying pager shows clean home content during the animation.
+        //    This second call is the safety net for any future dismiss path that
+        //    might not perform the early reset.
         sessionMode = .readOnly
         setFlow(.home)
         setSegmentProgress(0)
+
+        // 8. Clear all session state
         resetLoopConfiguration()
         clearSavedSessionContext()
         clearOriginalSessionAffirmationIds()
         setSessionState(affirmations: [], index: 0)
-        // NOTE: Keep sessionResults - ResultsSummaryView still references store.sessionSummary
+        setSessionResults([])
 
-        // Signal MemoryManager that session lifecycle is complete.
-        // Must come before cancelAll() for consistent teardown ordering.
-        MemoryManager.shared.sessionDidEnd()
+        // 9. Reset summary (invisible — cover is already gone)
+        setShowingSummary(false)
+        setHasSessionBeenSaved(false)
 
-        // Clear TTS audio cache and session state to free memory.
-        // cancelAll() internally resumes the synthesis idle timer.
-        dependencies.sessionTTSQueueService.cancelAll()
-
-        // Close any open menus immediately
+        // 10. Close any open menus
         isModeSelectorExpanded = false
         isBinauralSelectorExpanded = false
-
-        // 2. THEN animate the summary dismiss
-        //    PracticePageView is already showing browse content (hidden behind summary)
-        withAnimation(.easeInOut(duration: PracticeTiming.summaryDismissDuration)) {
-            setShowingSummary(false)
-        }
-
-        // 3. Clean up remaining state AFTER animation completes
-        Task { @MainActor [weak self] in
-            guard let self = self else { return }
-            try? await Task.sleep(for: .milliseconds(Int(PracticeTiming.summaryDismissDuration * 1000) + 50))
-
-            // Now safe to clear results and session-scoped flags
-            self.setSessionResults([])
-            self.forceSystemTTSForSession = false
-            self.setHasSessionBeenSaved(false)
-        }
     }
 
     /// Handles repeat session with current loop/shuffle configuration.
@@ -723,5 +787,7 @@ extension PracticeStore {
         if let index = sessionResults.firstIndex(where: { $0.affirmationId == affirmationId }) {
             updateSessionResult(at: index, isFavorited: newState)
         }
+
+        invalidateProfileStats()
     }
 }

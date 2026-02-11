@@ -26,10 +26,7 @@ struct SavedSessionsFullListView: View {
     // MARK: - Properties
     
     @Bindable var store: PracticeStore
-    
-    /// Called when user starts a session - should pop to root and navigate to Practice
-    let onStartSession: () -> Void
-    
+
     // MARK: - Queries
     
     @Query(sort: \SavedSession.sortOrder, order: .forward)
@@ -38,7 +35,7 @@ struct SavedSessionsFullListView: View {
     // MARK: - State
     
     @State private var selectedSessionId: UUID?
-    @State private var dockAdapter: ConfigurationDockAdapter
+    @State private var dockAdapter: ListDockAdapter
     @State private var editingSessionId: UUID?
     @State private var originalTitleBeforeEdit: String = ""
     @State private var currentEditingTitle: String = ""
@@ -73,16 +70,14 @@ struct SavedSessionsFullListView: View {
     // MARK: - Initialization
     
     init(
-        store: PracticeStore,
-        onStartSession: @escaping () -> Void
+        store: PracticeStore
     ) {
         self.store = store
-        self.onStartSession = onStartSession
-        
-        self._dockAdapter = State(initialValue: ConfigurationDockAdapter(
+
+        self._dockAdapter = State(initialValue: ListDockAdapter(
+            showsShuffleOption: true,
             labelText: "",
-            isPlayEnabled: false,
-            onPlay: { _, _, _ in }
+            isPlayEnabled: false
         ))
     }
     
@@ -99,7 +94,6 @@ struct SavedSessionsFullListView: View {
                 sessionsList
             }
         }
-        .dismissesDockMenuOnTouch(adapter: dockAdapter)
         .overlay {
             VStack {
                 Spacer()
@@ -150,10 +144,15 @@ struct SavedSessionsFullListView: View {
         .animation(AppTheme.Animation.standard, value: isAnyCardEditing)
         .animation(AppTheme.Animation.standard, value: sessionToDelete != nil)
         .onChange(of: selectedSessionId) { _, _ in
-            updateDockAdapter()
+            updateDockState()
         }
         .onAppear {
-            updateDockAdapter()
+            updateDockState()
+        }
+        .onDisappear {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                dockAdapter.closeAllSelectors()
+            }
         }
     }
     
@@ -183,6 +182,14 @@ struct SavedSessionsFullListView: View {
         .padding(AppTheme.Spacing.xl)
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: dockAreaHeight)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard dockAdapter.expandedSelector != nil
+               || dockAdapter.isErrorBarVisible else { return }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                dockAdapter.closeAllSelectors()
+            }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("No saved sessions. Complete a practice session and save it to create your own custom sessions.")
@@ -230,6 +237,11 @@ struct SavedSessionsFullListView: View {
         .onTapGesture {
             // Dismiss any open swipe actions when tapping outside cards
             SwipeActionSharedState.shared.dismissAll()
+            guard dockAdapter.expandedSelector != nil
+               || dockAdapter.isErrorBarVisible else { return }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                dockAdapter.closeAllSelectors()
+            }
         }
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: dockAreaHeight)
@@ -237,26 +249,34 @@ struct SavedSessionsFullListView: View {
         .accessibilityLabel("Saved sessions list, \(savedSessions.count) items")
     }
     
-    // MARK: - Dock Adapter
-    
-    private func updateDockAdapter() {
-        dockAdapter = ConfigurationDockAdapter(
-            initialMode: dockAdapter.currentMode,
-            initialLoopCount: dockAdapter.loopCount,
-            initialShuffle: dockAdapter.isShuffleEnabled,
-            labelText: "",
-            isPlayEnabled: isPlayEnabled,
-            onPlay: { [self] mode, loopCount, shuffle in
-                playSelectedSession(mode: mode, loopCount: loopCount, shuffle: shuffle)
-            }
-        )
+    // MARK: - Dock State
+
+    /// Updates dock adapter properties directly — no instance replacement.
+    private func updateDockState() {
+        dockAdapter.isPlayEnabled = isPlayEnabled
+        dockAdapter.baseAffirmationCount = selectedSession?.affirmationIds.count ?? 0
+        dockAdapter.onPlayHandler = { [self] mode, loopCount, shuffle, spacedRepetition in
+            playSelectedSession(mode: mode, loopCount: loopCount, shuffle: shuffle, spacedRepetition: spacedRepetition)
+        }
+        // Show error when disabled play is tapped — but not in empty state
+        dockAdapter.onDisabledPlayHandler = isEmpty ? nil : { [self] in
+            dockAdapter.showError("Select a session to begin")
+        }
     }
     
     // MARK: - Selection
     
     private func handleCardTap(_ session: SavedSession) {
         guard !isAnyCardEditing else { return }
-        
+
+        // Close any expanded menus with animation before changing selection
+        if dockAdapter.expandedSelector != nil
+            || dockAdapter.isErrorBarVisible {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                dockAdapter.closeAllSelectors()
+            }
+        }
+
         if selectedSessionId == session.id {
             selectedSessionId = nil
         } else {
@@ -316,20 +336,25 @@ struct SavedSessionsFullListView: View {
         )
     }
     
-    private func playSelectedSession(mode: SessionMode, loopCount: Int, shuffle: Bool) {
+    /// Starts a saved session via fullScreenCover presentation.
+    ///
+    /// Sends a single `.startRemoteSession` event that immediately presents
+    /// the fullScreenCover and begins session setup inside it.
+    /// No navigation choreography needed — the cover is a separate view hierarchy.
+    private func playSelectedSession(mode: SessionMode, loopCount: Int, shuffle: Bool, spacedRepetition: Bool) {
         guard let session = selectedSession else { return }
-        
-        let config = LoopConfiguration(
-            loopCount: loopCount,
-            isShuffleEnabled: shuffle,
-            currentLoopIteration: 1
-        )
-        store.setLoopConfiguration(config)
+
+        var config = LoopConfiguration()
+        config.loopCount = loopCount
+        config.isShuffleEnabled = shuffle
+        config.isSpacedRepetitionEnabled = spacedRepetition
+        config.currentLoopIteration = 1
         session.setDefaultMode(mode)
-        store.send(.startSavedSession(session))
-        
-        // Pop to root and navigate to Practice
-        onStartSession()
+
+        store.send(.startRemoteSession(
+            source: .savedSession(session),
+            loopConfiguration: config
+        ))
     }
     
     private func renameSession(_ session: SavedSession, to newName: String) {
@@ -355,6 +380,7 @@ struct SavedSessionsFullListView: View {
         do {
             try repo.delete(session)
             HapticFeedback.notification(.success)
+            store.invalidateProfileStats()
         } catch {
             #if DEBUG
             AppLogger.error("Failed to delete session: \(error)", category: .practice)
@@ -498,8 +524,7 @@ struct SavedSessionInfoView: View {
 #Preview("Saved Sessions Full List") {
     NavigationStack {
         SavedSessionsFullListView(
-            store: .preview,
-            onStartSession: {}
+            store: .preview
         )
     }
     .previewEnvironment()

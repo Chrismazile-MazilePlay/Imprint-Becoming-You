@@ -77,11 +77,11 @@ public struct DockNavigationButton: View {
     
     // MARK: - Constants
     
-    /// Size of the circular button background
-    static let buttonSize: CGFloat = 48
-    
+    /// Size of the circular button background (44pt Apple HIG minimum)
+    static let buttonSize: CGFloat = 44
+
     /// Size of the chevron icon
-    private let iconSize: CGFloat = 20
+    private let iconSize: CGFloat = 18
     
     // MARK: - Accessibility
     

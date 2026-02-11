@@ -31,16 +31,27 @@ enum AppPage: Int, CaseIterable {
 /// - **Center (Page 1)**: Practice - Affirmations with adaptive dock
 /// - **Right (Page 2)**: Profile - Stats, progress, favorites, settings
 ///
+/// ## FullScreenCover Architecture
+/// Sessions are presented via `.fullScreenCover` over the pager. The cover
+/// contains `SessionContainerView` which handles the entire session lifecycle:
+/// loading, practice, alerts, and summary. This eliminates visible navigation
+/// artifacts when starting sessions from Profile subpages.
+///
+/// ## Cosmetic Cleanup
+/// When the cover presents from a non-Practice page (e.g., Profile → Favorites),
+/// `SessionContainerView` signals `sessionCoverDidPresent` after a ~400ms delay
+/// (allowing the present animation to complete). `MainPracticeView` then performs
+/// an instant non-animated pager jump to Practice and pops Profile's NavigationStack.
+/// This cleanup is invisible because the cover is fully opaque by then.
+///
 /// ## Active Mode Behavior
-/// When in an active session mode (Read Aloud, Read & Speak, Speak Only),
-/// horizontal swiping is completely disabled. User must exit the mode
-/// to navigate between pages.
+/// During an active session, horizontal swiping is disabled by the cover.
+/// In browse mode, standard pager gestures work normally.
 ///
 /// ## Dock Menu Behavior
 /// When dock selector menus (Mode or Binaural) are expanded on the Practice
 /// page, horizontal paging is disabled. This prevents accidental page
-/// navigation while interacting with dock controls. The `DockMenuDismissModifier`
-/// handles closing menus on touch, and the next swipe navigates normally.
+/// navigation while interacting with dock controls.
 ///
 /// ## Memory Management
 /// Coordinates with `MemoryManager` to release heavy resources (Kokoro ML pipelines)
@@ -54,76 +65,80 @@ enum AppPage: Int, CaseIterable {
 /// ## Voice Selection
 /// On appear, loads the user's selected voice from their profile and
 /// configures the PracticeStore to use it for TTS playback.
-///
-/// Navigation:
-/// - AI button (top-left) -> slides to Prompts page (left) [home mode only]
-/// - Profile button (top-right) -> slides to Profile page (right) [home mode only]
-/// - Categories button -> full-screen cover (no slide)
-/// - Swipe left/right -> Works in home mode (simultaneous with vertical paging)
 struct MainPracticeView: View {
-    
+
     // MARK: - Environment
-    
+
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dependencies) private var dependencies
     @Environment(\.appState) private var appState
     @Environment(\.scenePhase) private var scenePhase
-    
+
     // MARK: - State
-    
+
     /// The single source of truth for practice state
     @State private var store = PracticeStore()
+
+    /// Dock adapter for the home pager (behind fullScreenCover).
+    ///
+    /// Configured with `suppressSegments: true` to prevent phantom segment
+    /// timers from running invisibly while the session cover is presented.
+    /// Initialized lazily on first body evaluation since `store` is needed.
+    @State private var homeDockAdapter: PracticeDockAdapter?
+
     @State private var currentPage: AppPage = .practice
     @State private var isInitialized = false
-    
-    /// Whether the save session sheet is showing
-    @State private var showingSaveSessionSheet = false
-    
-    /// Current count of saved sessions (for limit display)
-    @State private var savedSessionCount: Int = 0
-    
+
     /// Timestamp when app entered background (for timeout calculation)
     @State private var backgroundedAt: Date?
-    
+
     /// Profile page's navigation depth, communicated via binding.
     /// Used to disable pager gestures when Profile has pushed views.
     @State private var profileNavigationDepth: Int = 0
-    
+
     /// Whether the horizontal pager is actively being dragged.
     /// Communicated to child pages to disable their ScrollViews.
     @State private var isHorizontallyDragging: Bool = false
-    
+
     /// Whether a dock selector menu (Mode or Binaural) is expanded.
     /// Relayed from PracticePageView via binding. When true, horizontal
     /// paging is disabled to prevent page navigation during menu interaction.
     @State private var isDockMenuExpanded: Bool = false
-    
+
     /// Signal to reset Profile page's scroll position to the top.
     /// Set to `true` during full reset (extended background timeout).
     /// ProfilePageView observes this and resets scroll, then clears the flag.
     @State private var resetProfileScroll: Bool = false
-    
+
+    /// Signal to pop Profile's NavigationStack to root.
+    /// Set to `true` during cosmetic cleanup when cover presents.
+    @State private var popProfileToRoot: Bool = false
+
+    /// Controls whether the next programmatic page change is animated.
+    /// Set to `false` for instant behind-cover jumps, auto-resets to `true`.
+    @State private var animatePageChange: Bool = true
+
     // MARK: - Computed Properties
-    
+
     /// Whether the horizontal pager gesture should be enabled.
     ///
     /// Disabled when:
-    /// - Active session is running (user focused on practice)
+    /// - Session preparation (loading screen) is active
     /// - Profile has navigation depth > 0 (let NavigationStack handle back gesture)
     /// - Dock selector menus are expanded (prevent navigation during menu interaction)
     private var isPagerGestureEnabled: Bool {
-        // Disable during active sessions
-        guard !store.isSessionActive else { return false }
-        
+        // Disable during session preparation (loading screen is showing)
+        guard !store.isPreparingSession else { return false }
+
         // Disable when Profile has navigation depth (NavigationStack needs the gesture)
         guard profileNavigationDepth == 0 else { return false }
-        
+
         // Disable when dock menus are expanded (DockMenuDismissModifier closes them on touch)
         guard !isDockMenuExpanded else { return false }
-        
+
         return true
     }
-    
+
     /// Binding to convert AppPage to Int for HorizontalPager
     private var currentPageIndex: Binding<Int> {
         Binding(
@@ -131,30 +146,50 @@ struct MainPracticeView: View {
             set: { currentPage = AppPage(rawValue: $0) ?? .practice }
         )
     }
-    
+
+    /// Binding for `isSessionPresented` on the store.
+    /// Used by `.fullScreenCover(isPresented:onDismiss:content:)`.
+    private var sessionPresentedBinding: Binding<Bool> {
+        Binding(
+            get: { store.isSessionPresented },
+            set: { store.setSessionPresented($0) }
+        )
+    }
+
     // MARK: - Body
-    
+
     var body: some View {
         ZStack {
             // Background
             AppColors.backgroundPrimary
                 .ignoresSafeArea()
-            
+
             if isInitialized {
-                // Horizontal page navigation
+                // Horizontal page navigation (ALWAYS present — never replaced)
                 pageContent
             } else {
                 // Loading state
                 loadingView
             }
         }
+        .fullScreenCover(isPresented: sessionPresentedBinding, onDismiss: {
+            store.send(.sessionCoverDismissed)
+        }) {
+            SessionContainerView(store: store)
+        }
         .task {
             await initializePractice()
         }
-        .onChange(of: store.isSessionActive) { wasActive, isActive in
-            // When exiting active mode, ensure we're on practice page
-            if wasActive && !isActive {
+        .onChange(of: store.sessionCoverDidPresent) { _, didPresent in
+            // Behind-cover cleanup: triggered by SessionContainerView after the
+            // fullScreenCover present animation completes (~400ms delay).
+            // The cover is now fully opaque, so the instant pager jump and
+            // Profile pop are invisible to the user.
+            if didPresent {
+                animatePageChange = false
                 currentPage = .practice
+                popProfileToRoot = true
+                store.sessionCoverDidPresent = false
             }
         }
         .onChange(of: appState.userProfile?.selectedVoiceId) { _, newVoiceId in
@@ -174,7 +209,7 @@ struct MainPracticeView: View {
             Text(error.userMessage)
         }
     }
-    
+
     /// Binding for error alert presentation
     private var errorBinding: Binding<Bool> {
         Binding(
@@ -182,202 +217,56 @@ struct MainPracticeView: View {
             set: { if !$0 { store.send(.dismissError) } }
         )
     }
-    
+
     // MARK: - Page Content
-    
+
+    /// The main pager — always present, never conditionally replaced.
+    ///
+    /// Sessions are presented via `.fullScreenCover` (above), so this pager
+    /// remains mounted during the entire app lifecycle. No more conditional
+    /// branching between session/home/summary — the cover handles all of that.
     @ViewBuilder
     private var pageContent: some View {
-        ZStack {
-            // Base content layer
-            if store.isSessionActive && !store.isShowingSummary {
-                // ACTIVE SESSION MODE: Show only PracticePageView
-                // No pager, no navigation - user is focused on practice
+        HorizontalPager(
+            currentPage: currentPageIndex,
+            pageCount: AppPage.allCases.count,
+            isGestureEnabled: isPagerGestureEnabled,
+            isHorizontallyDragging: $isHorizontallyDragging,
+            animatePageChange: $animatePageChange
+        ) {
+            // Page 0: Prompts (Left)
+            PromptsPageView(
+                onNavigateToCenter: { navigateToPage(.practice) },
+                isHorizontallyDragging: isHorizontallyDragging
+            )
+
+            // Page 1: Practice (Center - Main)
+            if let homeDockAdapter {
                 PracticePageView(
                     store: store,
-                    onNavigateToProfile: { }, // Disabled in active mode
-                    onNavigateToPrompts: { }, // Disabled in active mode
-                    isDockMenuExpanded: $isDockMenuExpanded
+                    onNavigateToProfile: { navigateToPage(.profile) },
+                    onNavigateToPrompts: { navigateToPage(.prompts) },
+                    isDockMenuExpanded: $isDockMenuExpanded,
+                    dockAdapter: homeDockAdapter
                 )
-                .ignoresSafeArea()
-                .transition(.opacity)
-            } else if !store.isShowingSummary {
-                // HOME MODE: HorizontalPager with three pages
-                // Uses .simultaneousGesture() so both horizontal paging and
-                // VerticalPager's vertical swiping work concurrently.
-                // Direction locking in each pager routes events to the correct axis.
-                HorizontalPager(
-                    currentPage: currentPageIndex,
-                    pageCount: AppPage.allCases.count,
-                    isGestureEnabled: isPagerGestureEnabled,
-                    isHorizontallyDragging: $isHorizontallyDragging
-                ) {
-                    // Page 0: Prompts (Left)
-                    PromptsPageView(
-                        onNavigateToCenter: { navigateToPage(.practice) },
-                        isHorizontallyDragging: isHorizontallyDragging
-                    )
-                    
-                    // Page 1: Practice (Center - Main)
-                    PracticePageView(
-                        store: store,
-                        onNavigateToProfile: { navigateToPage(.profile) },
-                        onNavigateToPrompts: { navigateToPage(.prompts) },
-                        isDockMenuExpanded: $isDockMenuExpanded
-                    )
-                    
-                    // Page 2: Profile (Right)
-                    ProfilePageView(
-                        store: store,
-                        onNavigateToCenter: { navigateToPage(.practice) },
-                        navigationDepth: $profileNavigationDepth,
-                        isHorizontallyDragging: isHorizontallyDragging,
-                        isActive: currentPage == .profile,
-                        resetScrollToTop: $resetProfileScroll
-                    )
-                }
-                .ignoresSafeArea()
-                .transition(.opacity)
             }
-            
-            // Results Summary overlay with slide-down dismissal
-            if store.isShowingSummary {
-                ResultsSummaryView(
-                    summary: store.sessionSummary,
-                    loopConfiguration: store.loopConfiguration,
-                    isPlayingSavedSession: store.isPlayingSavedSession,
-                    isFavoritesSession: store.isFavoritesSession,
-                    isSessionSaved: store.hasSessionBeenSaved,
-                    onClose: {
-                        dismissSummary()
-                    },
-                    onRepeat: { mode, loopCount, shuffle in
-                        store.send(.repeatSessionWithConfig(mode: mode, loopCount: loopCount, shuffle: shuffle))
-                    },
-                    onSaveSession: {
-                        refreshSavedSessionCount()
-                        showingSaveSessionSheet = true
-                    },
-                    onToggleFavorite: { affirmationId in
-                        store.send(.toggleFavoriteInSummary(affirmationId))
-                    }
-                )
-                .transition(.move(edge: .bottom))
-                .zIndex(10) // Ensure summary is on top
-                .sheet(isPresented: $showingSaveSessionSheet) {
-                    SaveSessionSheet(
-                        defaultName: PracticeStore.generateDefaultSessionName(),
-                        currentSavedCount: savedSessionCount,
-                        maxSavedSessions: Constants.FreeTier.maxSavedSessions,
-                        onSave: { name in
-                            store.send(.saveSession(name: name))
-                            showingSaveSessionSheet = false
-                        },
-                        onCancel: {
-                            showingSaveSessionSheet = false
-                        }
-                    )
-                    .presentationDetents([.height(320)])
-                    .presentationDragIndicator(.hidden)
-                    .interactiveDismissDisabled()
-                }
-            }
-            
-            // Timeout Alert overlay
-            if store.isShowingTimeoutAlert {
-                TimeoutAlertView(
-                    affirmationText: store.currentAffirmation?.text ?? "",
-                    onRetry: {
-                        store.send(.retryListening)
-                    },
-                    onSkip: {
-                        store.send(.skipAffirmation)
-                    },
-                    onExit: {
-                        store.send(.exitSession)
-                    }
-                )
-                .transition(.opacity)
-                .zIndex(20) // Above summary
-            }
-            
-            // Permission Denied Alert overlay
-            if store.isShowingPermissionAlert {
-                PermissionDeniedAlertView(
-                    permissionType: store.deniedPermissionType.toViewType,
-                    onOpenSettings: {
-                        store.send(.openSettings)
-                    },
-                    onContinue: {
-                        store.send(.continueWithoutPermission)
-                    }
-                )
-                .transition(.opacity)
-                .zIndex(20) // Above summary
-            }
-            
-            // Session Preparation overlay
-            if store.isPreparingSession {
-                sessionPreparationOverlay
-                    .transition(.opacity)
-                    .zIndex(25) // Above everything
-            }
+
+            // Page 2: Profile (Right)
+            ProfilePageView(
+                store: store,
+                onNavigateToCenter: { navigateToPage(.practice) },
+                navigationDepth: $profileNavigationDepth,
+                isHorizontallyDragging: isHorizontallyDragging,
+                isActive: currentPage == .profile,
+                resetScrollToTop: $resetProfileScroll,
+                popToRoot: $popProfileToRoot
+            )
         }
+        .ignoresSafeArea()
     }
-    
-    // MARK: - Computed Properties
-    
-    /// Whether the "Start Now" button should be enabled for large sessions.
-    ///
-    /// Only applicable when:
-    /// 1. Session is large (>30 affirmations)
-    /// 2. At least 15 affirmations are ready
-    private var canStartSessionEarly: Bool {
-        let isLargeSession = store.sessionPreparationTarget > Constants.SessionPreparation.largeSessionThreshold
-        guard isLargeSession else { return false }
-        return store.sessionPreparedCount >= Constants.SessionPreparation.readyToStartThreshold
-    }
-    
-    // MARK: - Session Preparation Overlay
-    
-    /// Session preparation view with phase-aware progress and fallback handling.
-    ///
-    /// Displays:
-    /// - Smooth progress bar with phase-based animation
-    /// - Game-style cycling status messages
-    /// - "Start Now" button for large sessions (when 15+ ready)
-    /// - Fallback UI on Kokoro timeout ("Continue with System Voice" / "Retry")
-    @ViewBuilder
-    private var sessionPreparationOverlay: some View {
-        SessionPreparationView(
-            phase: store.sessionPreparationPhase,
-            preparedCount: store.sessionPreparedCount,
-            totalCount: store.sessionPreparationTarget,
-            fractionalProgress: store.sessionPreparationProgress,
-            canStartEarly: canStartSessionEarly,
-            onStartNow: {
-                store.send(.sessionPreparationCompleted)
-            },
-            onContinueWithSystemVoice: {
-                store.continueWithSystemVoice()
-            },
-            onRetry: {
-                store.retrySessionPreparation()
-            },
-            onCancel: {
-                store.send(.cancelSessionPreparation)
-            }
-        )
-    }
-    
-    // MARK: - Summary Dismissal
-    
-    /// Dismisses the summary and returns to home.
-    private func dismissSummary() {
-        store.send(.dismissSummary)
-    }
-    
+
     // MARK: - Background Handling
-    
+
     /// Handles app lifecycle transitions with centralized reset and memory management.
     ///
     /// ## Reset Hierarchy
@@ -385,8 +274,7 @@ struct MainPracticeView: View {
     /// | Condition | Action |
     /// |-----------|--------|
     /// | Background >= 10 min (any state) | Full reset to home |
-    /// | Background < 10 min (active session) | Resume segment from beginning |
-    /// | Background < 10 min (summary) | Keep summary open (cache preserved for repeat) |
+    /// | Background < 10 min (active session in cover) | Handled by SessionContainerView |
     /// | Background < 10 min (other) | No action |
     ///
     /// ## Memory Management
@@ -395,60 +283,38 @@ struct MainPracticeView: View {
     /// - No session: Stale caches cleared immediately, pipeline released after 5s.
     /// - Memory warnings: Hard release everything immediately.
     ///
-    /// The host (MainPracticeView) is the single decision point for resets.
-    /// PracticeStore executes the reset via events.
+    /// Note: Short-background pause/resume for active sessions is now handled by
+    /// `SessionContainerView`'s own `scenePhase` observer. This handler only
+    /// manages the extended background timeout (full reset).
     private func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
         switch newPhase {
         case .background:
             // Record when we entered background
             backgroundedAt = Date()
 
-            // Cancel session preparation if loading screen is showing.
-            // TTS synthesis should not continue in the background — when the user
-            // returns they will be back at the home view, same as tapping Cancel.
-            // Must come BEFORE isSessionActive check: the cancel sets flow to .home
-            // (isSessionActive = false), so the pause check naturally falls through.
-            if store.isPreparingSession {
-                store.send(.cancelSessionPreparation)
-
-                #if DEBUG
-                AppLogger.debug("Cancelled session preparation on background", category: .practice)
-                #endif
-            }
-
-            // Pause active session (stop TTS, listening, timers)
-            if store.isSessionActive {
-                store.send(.pauseSession)
-
-                #if DEBUG
-                AppLogger.debug("Paused session on background", category: .practice)
-                #endif
-            }
-            
             #if DEBUG
             AppLogger.debug("App entered background", category: .practice)
             MemoryManager.shared.logMemoryUsage()
             #endif
-            
+
             // MemoryManager handles delayed memory release via its own background observer
-            
+
         case .active:
             // Only handle if we were actually backgrounded (backgroundedAt was set)
             // Note: Phase transitions go Background -> Inactive -> Active, so oldPhase
             // will be .inactive, not .background. We use backgroundedAt to track this.
             guard let backgroundTime = backgroundedAt else { return }
-            
+
             let timeInBackground = Date().timeIntervalSince(backgroundTime)
             backgroundedAt = nil
-            
+
             #if DEBUG
             AppLogger.debug("Returned from background after \(Int(timeInBackground))s", category: .practice)
             MemoryManager.shared.logMemoryUsage()
             #endif
-            
+
             // ===============================================================
             // MEMORY: MemoryManager handles resource release/restore automatically
-            // Log memory status for debugging
             // ===============================================================
             if timeInBackground >= Constants.Background.memoryReleaseThreshold {
                 #if DEBUG
@@ -458,7 +324,7 @@ struct MainPracticeView: View {
                 AppLogger.debug("MemoryManager released = \(MemoryManager.shared.hasReleasedForBackground)", category: .practice)
                 #endif
             }
-            
+
             // ===============================================================
             // DECISION: Extended background (>= 10 min) from ANY state
             // ACTION: Full reset to home (Practice page, Read Only mode)
@@ -467,61 +333,39 @@ struct MainPracticeView: View {
                 #if DEBUG
                 AppLogger.debug("Full reset after \(Int(timeInBackground))s in background", category: .practice)
                 #endif
-                
-                // Navigate to Practice page
+
+                // Navigate to Practice page (instant, no animation after background)
+                animatePageChange = false
                 currentPage = .practice
-                
+
                 // Reset Profile scroll position (invisible since we're on Practice page)
                 resetProfileScroll = true
-                
+
                 // Full state reset via centralized event
                 store.send(.resetToHome)
                 return
             }
-            
-            // ===============================================================
-            // DECISION: Short background (<10 min) during summary
-            // ACTION: Keep summary open — cache preserved for repeat/save
-            // Extended background (>10 min) triggers .resetToHome above.
-            // ===============================================================
-            if store.isShowingSummary {
-                #if DEBUG
-                AppLogger.debug("Keeping summary open after short background (\(Int(timeInBackground))s)", category: .practice)
-                #endif
-                return
-            }
-            
-            // ===============================================================
-            // DECISION: Short background (<10 min) during active session
-            // ACTION: Resume session, restart current segment from beginning
-            // ===============================================================
-            if store.isSessionActive {
-                #if DEBUG
-                AppLogger.debug("Resuming session after \(Int(timeInBackground))s in background", category: .practice)
-                #endif
-                store.send(.resumeSession)
-                return
-            }
-            
-            // No action needed for other states (home, profile, prompts)
-            
+
+            // Short background handling for active sessions is now in SessionContainerView.
+            // No action needed here for short backgrounds.
+
         case .inactive:
             // No action needed for inactive state
             break
-            
+
         @unknown default:
             break
         }
     }
-    
+
     // MARK: - Loading View
-    
+
     private var loadingView: some View {
         VStack(spacing: AppTheme.Spacing.lg) {
             ProgressView()
                 .tint(AppColors.accent)
                 .scaleEffect(1.5)
-            
+
             Text("Preparing your practice...")
                 .font(AppTypography.body)
                 .foregroundStyle(AppColors.textSecondary)
@@ -529,49 +373,55 @@ struct MainPracticeView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Loading. Preparing your practice.")
     }
-    
+
     // MARK: - Navigation
-    
+
     private func navigateToPage(_ page: AppPage) {
         // Block navigation when in active session mode
         guard !store.isSessionActive else { return }
-        
+
         // Close any open selectors before navigating
         store.send(.closeSelectors)
-        
+
         withAnimation(AppTheme.Animation.standard) {
             currentPage = page
         }
     }
-    
+
     // MARK: - Initialization
-    
+
     private func initializePractice() async {
         // Get user's selected goals from profile
         let categories = appState.userProfile?.selectedGoals ?? []
-        
+
         // Create repository for this context
         let repository = dependencies.makeAffirmationRepository(modelContext: modelContext)
-        
+
         // Load affirmations using repository with user's selected categories
         await store.loadAffirmations(
             using: repository,
             forCategories: categories
         )
-        
+
         // Initialize saved session repository
         store.savedSessionRepository = dependencies.makeSavedSessionRepository(modelContext: modelContext)
-        
+
         // Initialize voice selection from user profile
         updateStoreVoice(from: appState.userProfile?.selectedVoiceId)
-        
+
+        // Create the home dock adapter with suppressed segments.
+        // Must be created before isInitialized triggers PracticePageView rendering.
+        if homeDockAdapter == nil {
+            homeDockAdapter = PracticeDockAdapter(store: store, suppressSegments: true)
+        }
+
         // Ensure we're on practice page when starting
         currentPage = .practice
         isInitialized = true
     }
-    
+
     // MARK: - Voice Configuration
-    
+
     /// Updates the store's voice ID from the user profile's stored voice.
     ///
     /// Now passes the full Voice.id directly (e.g., "kokoro_af_heart").
@@ -581,29 +431,10 @@ struct MainPracticeView: View {
     private func updateStoreVoice(from storedVoiceId: String?) {
         // Pass full Voice.id directly - TTSService handles conversion
         store.selectedVoiceId = storedVoiceId
-        
+
         #if DEBUG
         AppLogger.debug("Set voice to \(storedVoiceId ?? "default")", category: .practice)
         #endif
-    }
-    
-    // MARK: - Helpers
-    
-    /// Refreshes the saved session count for limit display
-    private func refreshSavedSessionCount() {
-        guard let repo = store.savedSessionRepository else {
-            savedSessionCount = 0
-            return
-        }
-        
-        do {
-            savedSessionCount = try repo.count()
-        } catch {
-            savedSessionCount = 0
-            #if DEBUG
-            AppLogger.warning("Failed to get saved session count: \(error)", category: .practice)
-            #endif
-        }
     }
 }
 
@@ -619,23 +450,28 @@ struct MainPracticeView: View {
     struct ActiveModePreview: View {
         @State private var store = PracticeStore()
         @State private var isDockMenuExpanded = false
-        
+        @State private var dockAdapter: PracticeDockAdapter?
+
         var body: some View {
             ZStack {
-                PracticePageView(
-                    store: store,
-                    onNavigateToProfile: {},
-                    onNavigateToPrompts: {},
-                    isDockMenuExpanded: $isDockMenuExpanded
-                )
+                if let dockAdapter {
+                    PracticePageView(
+                        store: store,
+                        onNavigateToProfile: {},
+                        onNavigateToPrompts: {},
+                        isDockMenuExpanded: $isDockMenuExpanded,
+                        dockAdapter: dockAdapter
+                    )
+                }
             }
             .onAppear {
+                dockAdapter = PracticeDockAdapter(store: store)
                 store.send(.affirmationsLoaded(Affirmation.samples))
                 store.send(.selectMode(.readAloud))
             }
         }
     }
-    
+
     return ActiveModePreview()
         .previewEnvironment()
 }

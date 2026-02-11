@@ -47,7 +47,15 @@ struct LoopConfiguration: Equatable, Sendable {
     
     /// Whether to shuffle affirmation order at start of each loop
     var isShuffleEnabled: Bool = false
-    
+
+    /// Whether spaced repetition is enabled (doubles session with interleaved repeats).
+    ///
+    /// When enabled, `SpacedRepetitionBuilder.expand()` doubles the session from
+    /// N to 2N segments by interleaving randomized repeats. Each affirmation appears
+    /// 1-3 times total. The expansion happens once in `startSession()` and persists
+    /// across loops and repeats.
+    var isSpacedRepetitionEnabled: Bool = false
+
     /// Current loop iteration (1-based, starts at 1)
     var currentLoopIteration: Int = 1
     
@@ -113,6 +121,7 @@ struct LoopConfiguration: Equatable, Sendable {
     mutating func reset() {
         loopCount = 1
         isShuffleEnabled = false
+        isSpacedRepetitionEnabled = false
         currentLoopIteration = 1
     }
     
@@ -150,6 +159,13 @@ extension LoopConfiguration {
         config.loopCount = 5
         config.isShuffleEnabled = true
         config.currentLoopIteration = 3
+        return config
+    }
+
+    /// Preview configuration with spaced repetition enabled
+    static var previewSpacedRepetition: LoopConfiguration {
+        var config = LoopConfiguration()
+        config.isSpacedRepetitionEnabled = true
         return config
     }
 }

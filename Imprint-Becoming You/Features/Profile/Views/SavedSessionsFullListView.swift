@@ -183,6 +183,14 @@ struct SavedSessionsFullListView: View {
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: dockAreaHeight)
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard dockAdapter.expandedSelector != nil
+               || dockAdapter.isErrorBarVisible else { return }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                dockAdapter.closeAllSelectors()
+            }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("No saved sessions. Complete a practice session and save it to create your own custom sessions.")
     }

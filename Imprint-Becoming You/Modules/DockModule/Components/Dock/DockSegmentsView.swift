@@ -352,24 +352,34 @@ private struct SegmentBar: View {
     let fillPercent: CGFloat
     let accentColor: Color
     let backgroundColor: Color
-    
+
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 // Background track
                 Capsule()
                     .fill(backgroundColor)
-                
-                // Fill bar (only if > 0)
-                if fillPercent > 0 {
-                    Capsule()
-                        .fill(accentColor)
-                        .frame(width: max(0, geometry.size.width * min(1.0, fillPercent)))
-                }
+
+                // Fill bar — always present, width controls visibility.
+                // Removing the `if fillPercent > 0` conditional eliminates view
+                // insertion/removal that the structural animation could flash.
+                Capsule()
+                    .fill(accentColor)
+                    .frame(width: max(0, geometry.size.width * fillPercent))
             }
+            // CRITICAL: Clip all content to the Capsule boundary.
+            // The parent HStack uses a spring animation with bounce (0.2) for structural
+            // transitions. During the bounce phase, GeometryReader can report a width
+            // that overshoots the segment's resting size. Without clipping, the fill
+            // Capsule (at 100%) extends beyond the track into the adjacent segment.
+            // clipShape physically contains the fill regardless of geometry overshoot.
+            .clipShape(Capsule())
         }
-        // Only animate progress changes, not every re-render
-        .animation(.linear(duration: 0.1), value: fillPercent)
+        // Isolate fill animation from parent structural animation.
+        // .animation(nil) blocks inherited animations (the parent spring with bounce),
+        // then the explicit .animation applies only to fillPercent changes at frame rate.
+        .animation(nil, value: fillPercent)
+        .animation(.linear(duration: 1.0 / 60.0), value: fillPercent)
     }
 }
 

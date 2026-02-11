@@ -88,6 +88,10 @@ struct ProfilePageView: View {
     @State private var streak: Int = 0
     @State private var totalPracticed: Int = 0
     @State private var savedSessionCount: Int = 0
+
+    /// Tracks the last stats version that was loaded.
+    /// Compared against `store.profileStatsVersion` to decide if refresh needed.
+    @State private var lastLoadedStatsVersion: Int = -1
     
     // MARK: - Body
     
@@ -108,7 +112,8 @@ struct ProfilePageView: View {
         }
         .tint(AppColors.accent) // Accent color for all nested back buttons
         .task {
-            await loadStats()
+            loadStats()
+            lastLoadedStatsVersion = store.profileStatsVersion
         }
         .onChange(of: navigationPath) { _, newPath in
             // Publish depth to parent for gesture control
@@ -116,7 +121,7 @@ struct ProfilePageView: View {
             
             // Reload stats when returning to root (path becomes empty)
             if newPath.isEmpty {
-                Task { await loadStats() }
+                refreshStatsIfNeeded()
             }
         }
         .onChange(of: popToRoot) { _, shouldPop in
@@ -181,9 +186,9 @@ struct ProfilePageView: View {
             }
             .scrollDisabled(isHorizontallyDragging)
             .onChange(of: isActive) { _, nowActive in
-                // Reload stats when this page becomes active
+                // Refresh stats when this page becomes active (only if data changed)
                 if nowActive {
-                    Task { await loadStats() }
+                    refreshStatsIfNeeded()
                 }
             }
             .onChange(of: resetScrollToTop) { _, shouldReset in
@@ -525,8 +530,18 @@ struct ProfilePageView: View {
     }
     
     // MARK: - Data Loading
-    
-    private func loadStats() async {
+
+    /// Refreshes stats only if the underlying data has changed since last load.
+    ///
+    /// Compares `store.profileStatsVersion` against `lastLoadedStatsVersion`.
+    /// If they match, no SwiftData queries run — cached `@State` values display instantly.
+    private func refreshStatsIfNeeded() {
+        guard store.profileStatsVersion != lastLoadedStatsVersion else { return }
+        loadStats()
+        lastLoadedStatsVersion = store.profileStatsVersion
+    }
+
+    private func loadStats() {
         // Load favorites count
         let favoritesDescriptor = FetchDescriptor<Affirmation>(
             predicate: #Predicate { $0.isFavorited }

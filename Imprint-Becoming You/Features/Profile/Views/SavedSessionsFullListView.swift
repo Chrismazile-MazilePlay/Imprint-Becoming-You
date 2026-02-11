@@ -380,6 +380,7 @@ struct SavedSessionsFullListView: View {
         do {
             try repo.delete(session)
             HapticFeedback.notification(.success)
+            store.invalidateProfileStats()
         } catch {
             #if DEBUG
             AppLogger.error("Failed to delete session: \(error)", category: .practice)

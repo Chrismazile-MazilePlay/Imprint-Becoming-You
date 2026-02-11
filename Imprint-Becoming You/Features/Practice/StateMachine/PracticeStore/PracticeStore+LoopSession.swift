@@ -193,7 +193,8 @@ extension PracticeStore {
             PracticeStore.incrementSessionCounter()
             
             HapticFeedback.notification(.success)
-            
+            invalidateProfileStats()
+
             #if DEBUG
             AppLogger.info("Saved session '\(name)' with \(affirmationIds.count) affirmations", category: .practice)
             #endif

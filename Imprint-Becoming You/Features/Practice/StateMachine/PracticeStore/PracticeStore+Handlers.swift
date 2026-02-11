@@ -832,8 +832,9 @@ extension PracticeStore {
         // The repository.toggleFavorite() was causing a double-toggle bug
         
         HapticFeedback.selection()
+        invalidateProfileStats()
     }
-    
+
     func handleShareAffirmation() {
         recordEngagement(.share)
     }

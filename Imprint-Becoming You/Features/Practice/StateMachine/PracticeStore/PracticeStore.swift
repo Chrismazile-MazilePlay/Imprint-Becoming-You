@@ -269,7 +269,21 @@ final class PracticeStore {
     
     /// Current error (if any)
     private(set) var error: PracticeError? = nil
-    
+
+    // MARK: - Profile Stats Invalidation
+
+    /// Monotonically increasing counter that signals profile stats need refresh.
+    ///
+    /// Incremented when favorites, saved sessions, or progress data changes.
+    /// `ProfilePageView` observes this via `@Bindable` and only re-queries
+    /// SwiftData when the version changes, eliminating per-swipe fetches.
+    private(set) var profileStatsVersion: Int = 0
+
+    /// Increments the stats version to signal `ProfilePageView` should refresh.
+    func invalidateProfileStats() {
+        profileStatsVersion += 1
+    }
+
     // MARK: - Internal State (Task Management)
     
     /// Active flow task (cancellable).

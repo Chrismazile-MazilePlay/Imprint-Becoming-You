@@ -787,5 +787,7 @@ extension PracticeStore {
         if let index = sessionResults.firstIndex(where: { $0.affirmationId == affirmationId }) {
             updateSessionResult(at: index, isFavorited: newState)
         }
+
+        invalidateProfileStats()
     }
 }

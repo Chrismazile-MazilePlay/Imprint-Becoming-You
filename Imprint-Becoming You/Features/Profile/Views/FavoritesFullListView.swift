@@ -206,6 +206,7 @@ struct FavoritesFullListView: View {
         favorites.removeAll { $0.id == affirmation.id }
         HapticFeedback.impact(.light)
         updateDockState()
+        store.invalidateProfileStats()
     }
 }
 

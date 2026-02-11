@@ -122,10 +122,10 @@ private extension AdaptiveBottomDock {
 
     /// Whether the gear button should show as active.
     ///
-    /// Active when loop count > 1 or shuffle is enabled, indicating
-    /// non-default configuration.
+    /// Active when loop count > 1, shuffle is enabled, or spaced repetition
+    /// (Reinforce) is enabled, indicating non-default configuration.
     var isConfigActive: Bool {
-        adapter.loopCount > 1 || adapter.isShuffleEnabled
+        adapter.loopCount > 1 || adapter.isShuffleEnabled || adapter.isSpacedRepetitionEnabled
     }
 
     /// The unified 3-button row: (Binaural) — [Mode ▼] — (⚙).

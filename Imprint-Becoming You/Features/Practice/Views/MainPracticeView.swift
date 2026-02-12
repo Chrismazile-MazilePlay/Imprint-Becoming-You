@@ -341,6 +341,18 @@ struct MainPracticeView: View {
                 // Reset Profile scroll position (invisible since we're on Practice page)
                 resetProfileScroll = true
 
+                // Reset gesture-blocking state that lives in MainPracticeView's @State
+                // (not in PracticeStore, so resetToHome doesn't clear these)
+
+                // Pop Profile NavigationStack to root (clears profileNavigationDepth → 0)
+                popProfileToRoot = true
+
+                // Close any stale dock menus / error bars on the home adapter
+                homeDockAdapter?.closeAllSelectors()
+
+                // Safety: force-clear in case adapter is nil or onChange hasn't fired
+                isDockMenuExpanded = false
+
                 // Full state reset via centralized event
                 store.send(.resetToHome)
                 return

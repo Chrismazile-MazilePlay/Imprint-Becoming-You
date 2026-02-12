@@ -37,8 +37,8 @@ import os.signpost
 ///
 /// for await update in service.captureStream {
 ///     switch update {
-///     case .transcription(let text, let isFinal):
-///         print("Heard: \(text)")
+///     case .transcription(let text, let isFinal, let segments):
+///         print("Heard: \(text) (\(segments.count) segments)")
 ///     case .audioLevel(let level):
 ///         updateMeter(level)
 ///     case .error(let error):
@@ -77,7 +77,20 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
     
     /// Current transcription text
     private(set) var currentTranscription: String = ""
-    
+
+    /// Words to hint the speech recognizer for improved accuracy.
+    ///
+    /// Set before calling ``startCapture()`` to boost recognition of
+    /// known expected words. Applied as `contextualStrings` on the recognition
+    /// request. Limited to 100 entries per Apple documentation.
+    /// Cleared automatically when capture stops.
+    ///
+    /// `nonisolated(unsafe)` matches the pattern for other properties accessed
+    /// from the background queue in `startCapturePipeline()`. Safe because:
+    /// the property is set on MainActor before `startCapture()` is called,
+    /// and the `async` await boundary guarantees happens-before ordering.
+    nonisolated(unsafe) var contextualStrings: [String]?
+
     /// Stream continuation for emitting updates
     nonisolated(unsafe) private var streamContinuation: AsyncStream<CaptureUpdate>.Continuation?
 
@@ -313,24 +326,18 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         recognitionRequest = nil
         
         isCapturing = false
-        
+        contextualStrings = nil
+
         // End signpost interval
         endCaptureSignpost()
-        
+
         emit(.stopped)
 
-        // Best-effort pre-warm: restore audio session to .playback for TTS.
-        // This is fire-and-forget — it may complete before the next playback
-        // call or it may not. AudioPlayerService.ensurePlaybackCategory() is
-        // the definitive fallback that awaits completion before playback.
-        // If this dispatch completes first, ensurePlaybackCategory() becomes
-        // a no-op (~0ms) since the category is already .playback.
-        DispatchQueue.global(qos: .userInitiated).async {
-            let session = AVAudioSession.sharedInstance()
-            if session.category == .playAndRecord {
-                try? session.setCategory(.playback, mode: .default, options: [.duckOthers])
-            }
-        }
+        // NOTE: Audio session restoration to .playback is handled by
+        // AudioPlayerService.ensurePlaybackCategory() before TTS playback.
+        // Removing the fire-and-forget dispatch here prevents a race condition
+        // where rapid navigation triggers a new configureAudioSession() call
+        // that gets overwritten by a stale dispatch setting .playback.
 
         #if DEBUG
         AppLogger.debug("Capture stopped. Final: \"\(currentTranscription)\"", category: .speech)
@@ -362,22 +369,21 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
 
         isCapturing = false
         currentTranscription = ""
+        contextualStrings = nil
 
         // End signpost interval
         endCaptureSignpost()
 
         emit(.stopped)
 
-        // Best-effort pre-warm: restore audio session to .playback for TTS.
-        // This is fire-and-forget — it may complete before the next playback
-        // call or it may not. AudioPlayerService.ensurePlaybackCategory() is
-        // the definitive fallback that awaits completion before playback.
-        DispatchQueue.global(qos: .userInitiated).async {
-            let session = AVAudioSession.sharedInstance()
-            if session.category == .playAndRecord {
-                try? session.setCategory(.playback, mode: .default, options: [.duckOthers])
-            }
-        }
+        // NOTE: We intentionally do NOT restore the audio session to .playback here.
+        // A fire-and-forget dispatch to set .playback would race with a new
+        // configureAudioSession() call if the user navigates rapidly — the old
+        // dispatch could flip the session back to .playback AFTER the new capture
+        // has already configured .playAndRecord, causing the new engine's input node
+        // to report sampleRate = 0. AudioPlayerService.ensurePlaybackCategory() is
+        // the definitive mechanism that awaits completion before TTS playback, making
+        // a pre-warm here unnecessary.
     }
 
     // MARK: - Private Methods
@@ -487,16 +493,27 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                 }
                 
                 do {
-                    // Create fresh audio engine
+                    // Create fresh audio engine.
+                    // After rapid navigation, a previous cancelCapture() may still be
+                    // restoring the audio session to .playback on a background queue.
+                    // If that fire-and-forget dispatch hasn't completed (or races after
+                    // configureAudioSession()), the input node's native format may
+                    // report sampleRate = 0. Retry with a short delay to let the audio
+                    // session stabilize before failing.
                     let engine = AVAudioEngine()
-                    
-                    // Get the input node and its NATIVE format
                     let inputNode = engine.inputNode
-                    
-                    // CRITICAL: Use the input node's native format, not a custom format
-                    // This prevents format mismatch crashes when audio route changes
-                    let recordingFormat = inputNode.outputFormat(forBus: 0)
-                    
+
+                    // CRITICAL: Use the input node's native format, not a custom format.
+                    // This prevents format mismatch crashes when audio route changes.
+                    var recordingFormat = inputNode.outputFormat(forBus: 0)
+
+                    if recordingFormat.sampleRate == 0 {
+                        // Audio session likely in a transient state from a prior
+                        // cancelCapture() teardown. Wait briefly and retry once.
+                        Thread.sleep(forTimeInterval: 0.1)
+                        recordingFormat = inputNode.outputFormat(forBus: 0)
+                    }
+
                     guard recordingFormat.sampleRate > 0 else {
                         throw CaptureError.audioEngineFailure("Invalid input format: sample rate is 0")
                     }
@@ -508,10 +525,37 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                     // Create recognition request
                     let request = SFSpeechAudioBufferRecognitionRequest()
                     request.shouldReportPartialResults = true
-                    request.requiresOnDeviceRecognition = false // Cloud for better accuracy
-                    
+
+                    // Prefer on-device for low-latency partial results (~50–150ms
+                    // vs 400–800ms cloud). On-device accuracy is sufficient because:
+                    // 1. contextualStrings boost recognition of expected affirmation words
+                    // 2. SequentialWordMatcher handles fuzzy sequential matching
+                    if recognizer.supportsOnDeviceRecognition {
+                        request.requiresOnDeviceRecognition = true
+                        #if DEBUG
+                        AppLogger.debug("Using on-device recognition (low latency)", category: .speech)
+                        #endif
+                    } else {
+                        request.requiresOnDeviceRecognition = false
+                        #if DEBUG
+                        AppLogger.debug("On-device unavailable — falling back to cloud recognition", category: .speech)
+                        #endif
+                    }
+
+                    // Disable punctuation — SequentialWordMatcher strips it anyway,
+                    // and disabling reduces recognizer overhead for partial results.
                     if #available(iOS 17.0, *) {
-                        request.addsPunctuation = true
+                        request.addsPunctuation = false
+                    }
+
+                    // Apply contextual string hints for improved recognition accuracy.
+                    // Set by PracticeStore before startCapture() with the expected
+                    // affirmation words. Limited to 100 entries per Apple docs.
+                    if let hints = self.contextualStrings, !hints.isEmpty {
+                        request.contextualStrings = Array(hints.prefix(100))
+                        #if DEBUG
+                        AppLogger.debug("Added \(min(hints.count, 100)) contextual strings", category: .speech)
+                        #endif
                     }
                     
                     // Start recognition task
@@ -594,15 +638,24 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         
         guard let result = result else { return }
         
-        // Get transcription
+        // Get transcription and per-word segment data
         let transcription = result.bestTranscription.formattedString
+        let segments = result.bestTranscription.segments.map { segment in
+            RecognizedSegment(
+                substring: segment.substring,
+                timestamp: segment.timestamp,
+                duration: segment.duration,
+                confidence: segment.confidence,
+                alternatives: segment.alternativeSubstrings
+            )
+        }
         currentTranscription = transcription
-        
+
         // Update last speech time
         lastSpeechTime = Date()
-        
-        // Emit transcription update
-        emit(.transcription(text: transcription, isFinal: result.isFinal))
+
+        // Emit transcription update with segment data
+        emit(.transcription(text: transcription, isFinal: result.isFinal, segments: segments))
         
         #if DEBUG
         if result.isFinal {

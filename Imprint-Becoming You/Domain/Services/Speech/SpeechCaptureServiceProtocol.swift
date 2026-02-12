@@ -7,6 +7,26 @@
 
 import Foundation
 
+// MARK: - Recognized Segment
+
+/// Sendable snapshot of an `SFTranscriptionSegment`.
+///
+/// `SFTranscriptionSegment` is a non-Sendable Foundation class.
+/// This struct captures the properties needed for word matching
+/// so they can cross actor boundaries safely.
+struct RecognizedSegment: Sendable, Equatable {
+    /// The recognized word text.
+    let substring: String
+    /// When in the audio stream this word was spoken (seconds from start).
+    let timestamp: TimeInterval
+    /// Duration of the spoken word.
+    let duration: TimeInterval
+    /// Recognition confidence (0.0 – 1.0).
+    let confidence: Float
+    /// Alternative word possibilities computed by the recognizer.
+    let alternatives: [String]
+}
+
 // MARK: - Speech Capture Update
 
 /// Updates emitted by a speech capture service.
@@ -14,8 +34,8 @@ import Foundation
 /// Extracted from `SpeechCaptureService.CaptureUpdate` to enable
 /// protocol-based DI without importing the concrete implementation.
 enum SpeechCaptureUpdate: Sendable {
-    /// New transcription text (partial or final)
-    case transcription(text: String, isFinal: Bool)
+    /// New transcription text (partial or final) with per-word segment data.
+    case transcription(text: String, isFinal: Bool, segments: [RecognizedSegment])
 
     /// Audio level update (0.0 - 1.0 normalized)
     case audioLevel(Float)
@@ -62,13 +82,13 @@ extension SpeechCaptureUpdate {
 
     /// Extracts transcription text if this is a transcription update
     var transcriptionText: String? {
-        if case .transcription(let text, _) = self { return text }
+        if case .transcription(let text, _, _) = self { return text }
         return nil
     }
 
     /// Whether this is a final transcription
     var isFinalTranscription: Bool {
-        if case .transcription(_, let isFinal) = self { return isFinal }
+        if case .transcription(_, let isFinal, _) = self { return isFinal }
         return false
     }
 }
@@ -124,6 +144,14 @@ protocol SpeechCaptureServiceProtocol: AnyObject {
     var hasSpeechRecognitionPermission: Bool { get }
 
     // MARK: - Capture Control
+
+    /// Words to hint the speech recognizer for improved accuracy.
+    ///
+    /// Set before calling ``startCapture()`` to boost recognition of
+    /// known expected words. Applied as `contextualStrings` on the recognition request.
+    /// Limited to 100 entries per Apple documentation.
+    /// Cleared automatically when capture stops.
+    var contextualStrings: [String]? { get set }
 
     /// Starts audio capture and speech recognition.
     ///

@@ -377,30 +377,6 @@ extension PracticeEvent {
         }
     }
     
-    /// Whether this event is a user interaction (for analytics)
-    var isUserInteraction: Bool {
-        switch self {
-        case .selectMode, .selectBinaural:
-            return true
-        case .toggleModeSelector, .toggleBinauralSelector, .closeSelectors:
-            return true
-        case .userNavigated, .navigateViaButton, .goToIndex:
-            return true
-        case .exitSession:
-            return true
-        case .toggleFavorite, .shareAffirmation:
-            return true
-        case .cycleLoopCount, .toggleShuffle:
-            return true
-        case .repeatSession, .repeatSessionWithConfig, .startSavedSession, .startFavoritesSession, .saveSession:
-            return true
-        case .startRemoteSession:
-            return true
-        default:
-            return false
-        }
-    }
-    
     /// Whether this event is a flow lifecycle event
     var isFlowEvent: Bool {
         switch self {

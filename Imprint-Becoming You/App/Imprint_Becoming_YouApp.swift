@@ -79,18 +79,22 @@ struct ImprintApp: App {
         configureAppearance()
         
         // Log initialization status
-        #if DEBUG
         switch result {
         case .success:
-            print("ImprintApp: SwiftData initialized successfully (persistent)")
+            AppLogger.debug("SwiftData initialized successfully (persistent)", category: .app)
         case .fallback(_, let error):
-            print("ImprintApp: SwiftData using in-memory fallback")
-            print("  Original error: \(error)")
+            AppLogger.debug(
+                "SwiftData using in-memory fallback",
+                category: .app,
+                context: ["error": String(describing: error)]
+            )
         case .failure(let error):
-            print("ImprintApp: SwiftData initialization failed")
-            print("  Error: \(error)")
+            AppLogger.debug(
+                "SwiftData initialization failed",
+                category: .app,
+                context: ["error": String(describing: error)]
+            )
         }
-        #endif
     }
     
     // MARK: - Body
@@ -152,9 +156,7 @@ struct ImprintApp: App {
     
     /// Handles user request to reset database
     private func handleDatabaseReset() {
-        #if DEBUG
-        print("ImprintApp: User requested database reset")
-        #endif
+        AppLogger.debug("User requested database reset", category: .app)
         
         // Attempt to reset and restart
         let resetResult = ModelContainerFactory.resetDatabase()
@@ -166,17 +168,13 @@ struct ImprintApp: App {
             showRestartRequiredAlert()
         case .failure:
             // Still failing - user needs to reinstall
-            #if DEBUG
-            print("ImprintApp: Database reset failed")
-            #endif
+            AppLogger.debug("Database reset failed", category: .app)
         }
     }
     
     /// Handles user choosing to continue without persistent data
     private func handleContinueWithoutData() {
-        #if DEBUG
-        print("ImprintApp: User continuing without persistent data")
-        #endif
+        AppLogger.debug("User continuing without persistent data", category: .app)
         
         // The app is already using in-memory container
         // User can proceed but data won't persist
@@ -189,9 +187,7 @@ struct ImprintApp: App {
     private func showRestartRequiredAlert() {
         // Note: In a production app, you would implement this with a proper
         // alert or banner. For now, we log and rely on the next launch.
-        #if DEBUG
-        print("ImprintApp: Database reset complete. Please restart the app.")
-        #endif
+        AppLogger.debug("Database reset complete. Please restart the app.", category: .app)
     }
     
     // MARK: - Background Services
@@ -204,8 +200,8 @@ struct ImprintApp: App {
         // ===============================================================
         // MEMORY MANAGEMENT: Start monitoring before loading heavy resources
         // ===============================================================
+        AppLogger.debug("Starting memory management...", category: .app)
         #if DEBUG
-        print("ImprintApp: Starting memory management...")
         MemoryManager.shared.logMemoryUsage()
         #endif
         
@@ -215,19 +211,21 @@ struct ImprintApp: App {
         // TTS: Warm up Kokoro engine
         // This loads ~500MB-1GB of ML models into memory
         // ===============================================================
-        #if DEBUG
-        print("ImprintApp: Warming up TTS engine...")
-        #endif
+        AppLogger.debug("Warming up TTS engine...", category: .app)
         let startTime = Date()
         await dependencies.ttsService.warmUp()
-        #if DEBUG
         let elapsed = Date().timeIntervalSince(startTime)
-        print("ImprintApp: TTS warm-up complete (\(String(format: "%.2f", elapsed))s)")
+        AppLogger.debug(
+            "TTS warm-up complete",
+            category: .app,
+            context: ["elapsed": String(format: "%.2f", elapsed)]
+        )
+        #if DEBUG
         MemoryManager.shared.logMemoryUsage()
         #endif
         
+        AppLogger.debug("All background services started", category: .app)
         #if DEBUG
-        print("ImprintApp: All background services started")
         MemoryManager.shared.logMemoryUsage()
         #endif
     }

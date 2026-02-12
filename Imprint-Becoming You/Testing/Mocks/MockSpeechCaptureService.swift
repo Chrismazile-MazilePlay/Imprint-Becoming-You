@@ -21,7 +21,7 @@ import Foundation
 /// mock.stubHasSpeechRecognitionPermission = true
 ///
 /// try await mock.startCapture()
-/// mock.emitUpdate(.transcription(text: "Hello", isFinal: true))
+/// mock.emitUpdate(.transcription(text: "Hello", isFinal: true, segments: []))
 /// ```
 @MainActor
 final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked Sendable {
@@ -62,6 +62,9 @@ final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked S
 
     /// Stub value for `currentTranscription`
     var stubCurrentTranscription: String = ""
+
+    /// Words to hint the speech recognizer (mirrors protocol requirement).
+    var contextualStrings: [String]?
 
     // MARK: - Stream
 
@@ -135,6 +138,7 @@ final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked S
         stubStopCaptureResult = ""
         stubIsCapturing = false
         stubCurrentTranscription = ""
+        contextualStrings = nil
         streamContinuation?.finish()
         streamContinuation = nil
     }

@@ -284,14 +284,13 @@ struct TextAccuracyCalculator {
         return (wordAccuracy * 0.7) + (charSimilarity * 0.3)
     }
 
-    /// Normalizes text for comparison
+    /// Normalizes text for comparison.
+    ///
+    /// Delegates to ``SequentialWordMatcher/normalizeText(_:)`` to guarantee
+    /// identical normalization for both sequential highlighting and
+    /// completion evaluation.
     private static func normalizeText(_ text: String) -> [String] {
-        text
-            .lowercased()
-            .components(separatedBy: .punctuationCharacters)
-            .joined()
-            .components(separatedBy: .whitespaces)
-            .filter { !$0.isEmpty }
+        SequentialWordMatcher.normalizeText(text)
     }
 
     /// Counts matched words using a multiset approach.

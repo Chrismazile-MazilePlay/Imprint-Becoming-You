@@ -43,12 +43,17 @@ enum PracticeTiming {
     /// User said nothing or stopped mid-affirmation - longer silence shows retry
     static let incompleteSilenceTimeout: TimeInterval = 8.0
     
-    /// Legacy alias for backward compatibility
-    static let silenceThreshold: TimeInterval = completedAffirmationSilenceThreshold
-    
     /// Duration of the sparkle burst celebration before auto-advancing
     static let celebrationDuration: Duration = .seconds(2.5)
-    
+
+    /// Brief pause with all words highlighted before celebration sparkle burst.
+    /// Gives the user a moment to absorb the fully-highlighted state.
+    static let preCelebrationPause: Duration = .milliseconds(500)
+
+    /// Brief delay after celebration completes before auto-advancing to next affirmation.
+    /// Prevents the transition from feeling abrupt after the sparkle burst.
+    static let postCelebrationDelay: Duration = .milliseconds(300)
+
     /// Brief pause after final score before transitioning to summary
     static let sessionCompletePause: Duration = .milliseconds(800)
     
@@ -133,61 +138,6 @@ enum PracticeTiming {
     
     /// Debounce for favorite button taps
     static let favoriteDebounce: Duration = .milliseconds(300)
-}
-
-// MARK: - Flow Timing Configuration
-
-/// Complete timing configuration for a flow type.
-///
-/// Groups related timings for a specific flow to make it
-/// easy to reason about the entire flow's pacing.
-struct FlowTimingConfiguration: Sendable {
-    
-    /// Delay before flow starts
-    let startDelay: Duration
-    
-    /// Duration of each phase (where applicable)
-    let phaseDurations: [String: Duration]
-    
-    /// Pause after completion before auto-advance
-    let completionPause: Duration
-    
-    /// Whether to auto-advance after completion
-    let autoAdvances: Bool
-}
-
-extension PracticeTiming {
-    
-    /// Timing configuration for Read Aloud mode
-    static let readAloudTiming = FlowTimingConfiguration(
-        startDelay: .zero,
-        phaseDurations: [
-            "complete": readAloudCompletePause
-        ],
-        completionPause: readAloudCompletePause,
-        autoAdvances: true
-    )
-    
-    /// Timing configuration for Read & Speak mode
-    static let readAndSpeakTiming = FlowTimingConfiguration(
-        startDelay: .zero,
-        phaseDurations: [
-            "waitingForUser": waitForUserDuration,
-            "celebrating": celebrationDuration
-        ],
-        completionPause: .zero,
-        autoAdvances: true
-    )
-
-    /// Timing configuration for Speak Only mode
-    static let speakOnlyTiming = FlowTimingConfiguration(
-        startDelay: .zero,
-        phaseDurations: [
-            "celebrating": celebrationDuration
-        ],
-        completionPause: .zero,
-        autoAdvances: true
-    )
 }
 
 // MARK: - Convenience Extensions

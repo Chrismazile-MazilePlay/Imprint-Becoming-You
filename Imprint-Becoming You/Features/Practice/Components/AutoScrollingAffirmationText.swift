@@ -221,13 +221,18 @@ struct AutoScrollingAffirmationText: View {
     
     // MARK: - Word Highlighting
 
-    /// Ranges of each whitespace-delimited word in `text`.
+    /// Cached ranges of each whitespace-delimited word in `text`.
     ///
-    /// Computed once per `text` value and used by `highlightedText` to apply
-    /// per-word foreground color via `AttributedString`. Preserves the original
-    /// character ranges (including punctuation attached to words) so the
-    /// highlighted text is visually identical to the plain text.
-    private var wordRanges: [Range<String.Index>] {
+    /// Computed once on appear and updated only when `text` changes.
+    /// Avoids redundant recomputation on every body evaluation during listening
+    /// (when `matchedWordCount` changes frequently).
+    @State private var wordRanges: [Range<String.Index>] = []
+
+    /// Computes word ranges for the given text.
+    ///
+    /// Finds the `Range<String.Index>` for each whitespace-delimited word,
+    /// preserving punctuation attached to words for visual parity.
+    private static func computeWordRanges(for text: String) -> [Range<String.Index>] {
         var ranges: [Range<String.Index>] = []
         var searchStart = text.startIndex
 
@@ -388,10 +393,14 @@ struct AutoScrollingAffirmationText: View {
                 displayOffset = 0
                 textHeight = 0
             }
+            wordRanges = Self.computeWordRanges(for: text)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(text)
-        
+        .onAppear {
+            wordRanges = Self.computeWordRanges(for: text)
+        }
+
     }
     
     // MARK: - Scroll Control

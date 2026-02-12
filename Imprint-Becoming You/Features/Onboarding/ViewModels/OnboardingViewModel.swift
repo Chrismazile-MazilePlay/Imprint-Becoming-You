@@ -262,9 +262,7 @@ final class OnboardingViewModel {
         // Select new voice
         selectedVoiceId = voice.id
         
-        #if DEBUG
-        print("🎤 OnboardingViewModel: Selected voice \(voice.id)")
-        #endif
+        AppLogger.debug("Selected voice", category: .tts, context: ["voiceId": voice.id])
     }
     
     /// Plays preview audio for a voice.
@@ -274,9 +272,7 @@ final class OnboardingViewModel {
     private func playPreview(for voice: Voice) {
         // Get the raw TTS voice ID (e.g., "af_heart" from "kokoro_af_heart")
         guard let ttsVoiceId = voice.ttsVoiceId else {
-            #if DEBUG
-            print("⚠️ OnboardingViewModel: Could not get ttsVoiceId for \(voice.id)")
-            #endif
+            AppLogger.debug("Could not get ttsVoiceId", category: .tts, context: ["voiceId": voice.id])
             return
         }
         
@@ -293,26 +289,20 @@ final class OnboardingViewModel {
             
             // Verify we're still previewing this voice (user might have tapped another)
             guard self.previewingVoiceId == capturedVoiceId else {
-                #if DEBUG
-                print("🎤 OnboardingViewModel: Voice changed, skipping preview for \(capturedVoiceId)")
-                #endif
+                AppLogger.debug("Voice changed, skipping preview", category: .tts, context: ["voiceId": capturedVoiceId])
                 return
             }
             
             do {
                 guard let service = self.voicePreviewCacheService else {
-                    #if DEBUG
-                    print("⚠️ OnboardingViewModel: No voice preview service available")
-                    #endif
+                    AppLogger.debug("No voice preview service available", category: .tts)
                     self.playbackState = .idle
                     self.previewingVoiceId = nil
                     return
                 }
                 
                 // Synthesize on-demand (with auto-retry)
-                #if DEBUG
-                print("🎤 OnboardingViewModel: Synthesizing \(capturedTtsVoiceId)")
-                #endif
+                AppLogger.debug("Synthesizing preview", category: .tts, context: ["voiceId": capturedTtsVoiceId])
                 let audioData = try await service.synthesizePreview(voiceId: capturedTtsVoiceId)
                 
                 // Verify still previewing same voice
@@ -324,13 +314,13 @@ final class OnboardingViewModel {
                 
             } catch is CancellationError {
                 // User tapped another voice - this is expected
-                #if DEBUG
-                print("🎤 OnboardingViewModel: Synthesis cancelled for \(capturedTtsVoiceId)")
-                #endif
+                AppLogger.debug("Synthesis cancelled", category: .tts, context: ["voiceId": capturedTtsVoiceId])
             } catch {
-                #if DEBUG
-                print("⚠️ OnboardingViewModel: Voice preview failed for \(capturedTtsVoiceId): \(error)")
-                #endif
+                AppLogger.debug(
+                    "Voice preview failed",
+                    category: .tts,
+                    context: ["voiceId": capturedTtsVoiceId, "error": String(describing: error)]
+                )
             }
             
             // Only clear state if still on this voice and synthesis failed/cancelled
@@ -372,9 +362,7 @@ final class OnboardingViewModel {
             throw AppError.ttsError("Failed to start audio playback")
         }
         
-        #if DEBUG
-        print("🎤 OnboardingViewModel: Playing audio (\(data.count) bytes)")
-        #endif
+        AppLogger.debug("Playing audio", category: .tts, context: ["bytes": data.count])
     }
     
     /// Stops audio playback without clearing preview state.

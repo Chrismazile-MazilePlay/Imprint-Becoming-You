@@ -19,11 +19,7 @@ extension PracticeStore {
     /// - Parameter event: The event to process
     func send(_ event: PracticeEvent) {
         AppLogger.debug("Event: \(event)", category: .practice)
-        
-        if event.isUserInteraction {
-            lastInteractionTime = Date()
-        }
-        
+
         switch event {
             
         // MARK: Mode Selection

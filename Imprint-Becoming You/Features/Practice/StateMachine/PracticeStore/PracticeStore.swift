@@ -309,10 +309,7 @@ final class PracticeStore {
     /// Used by async tasks to detect staleness. If a task's captured generation
     /// doesn't match the current value, the task should exit early.
     var flowGeneration: Int = 0
-    
-    /// Last user interaction timestamp
-    var lastInteractionTime: Date = Date()
-    
+
     /// Categories used for loading
     var loadedCategories: [String] = []
     
@@ -551,6 +548,14 @@ final class PracticeStore {
     /// Called when listening ends (completed, timed out, or cancelled) to ensure
     /// the `AutoScrollingAffirmationText` reverts to plain text rendering.
     func resetListeningPhaseState() {
+        AppLogger.debug(
+            "Listening phase reset",
+            category: .speech,
+            context: [
+                "wasActive": isInListeningPhase,
+                "matchedWords": listeningMatchedWordCount
+            ]
+        )
         isInListeningPhase = false
         listeningMatchedWordCount = 0
     }
@@ -559,6 +564,7 @@ final class PracticeStore {
     ///
     /// Called when speech capture initializes and the listening loop begins.
     func setListeningPhaseActive() {
+        AppLogger.debug("Listening phase active", category: .speech)
         isInListeningPhase = true
     }
 

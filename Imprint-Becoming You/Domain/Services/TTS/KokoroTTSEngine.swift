@@ -120,7 +120,7 @@ actor KokoroTTSEngine {
         }
         
         #if DEBUG
-        print("KokoroTTSEngine: Starting warm-up...")
+        AppLogger.debug("Starting warm-up", category: .tts)
         #endif
         
         // Validate and cache all resource paths (one-time)
@@ -130,7 +130,7 @@ actor KokoroTTSEngine {
         _ = try await ensurePipeline(for: preferredLanguage)
         
         #if DEBUG
-        print("KokoroTTSEngine: Warm-up complete (\(preferredLanguage.displayName) pipeline loaded)")
+        AppLogger.debug("Warm-up complete", category: .tts, context: ["pipeline": preferredLanguage.displayName])
         #endif
     }
     
@@ -172,10 +172,10 @@ actor KokoroTTSEngine {
         )
         
         #if DEBUG
-        print("Synthesizing text: '\(text)'")
-        print("Text length: \(text.count) characters")
-        print("Using pipeline: \(variant.displayName)")
-        print("Voice settings: speed=\(speed), pitch=\(pitchShiftSemitones), range=\(pitchRangeScale)")
+        AppLogger.debug("Synthesizing text", category: .tts, context: ["text": text])
+        AppLogger.debug("Text length", category: .tts, context: ["characters": text.count])
+        AppLogger.debug("Using pipeline", category: .tts, context: ["variant": variant.displayName])
+        AppLogger.debug("Voice settings", category: .tts, context: ["speed": speed, "pitch": pitchShiftSemitones, "range": pitchRangeScale])
         #endif
         
         // Fast path: short text fits within BERT model's 256-token context window.
@@ -184,8 +184,8 @@ actor KokoroTTSEngine {
             let samples = try await pipeline.generate(text: text, options: options)
             
             #if DEBUG
-            print("Generated \(samples.count) samples")
-            print("Audio duration: \(Float(samples.count) / Float(TTSConfiguration.kokoroSampleRate)) seconds")
+            AppLogger.debug("Generated samples", category: .tts, context: ["count": samples.count])
+            AppLogger.debug("Audio duration", category: .tts, context: ["seconds": Float(samples.count) / Float(TTSConfiguration.kokoroSampleRate)])
             #endif
 
             onChunkProgress?(1, 1)
@@ -198,11 +198,11 @@ actor KokoroTTSEngine {
         let chunks = splitTextForSynthesis(text)
         
         #if DEBUG
-        print("KokoroTTSEngine: Text exceeds single-pass limit (\(text.count) chars > \(Self.maxChunkCharacters))")
-        print("KokoroTTSEngine: Split into \(chunks.count) chunks:")
+        AppLogger.debug("Text exceeds single-pass limit", category: .tts, context: ["characters": text.count, "limit": Self.maxChunkCharacters])
+        AppLogger.debug("Split into chunks", category: .tts, context: ["count": chunks.count])
         for (i, chunk) in chunks.enumerated() {
             let preview = chunk.count > 60 ? String(chunk.prefix(60)) + "..." : chunk
-            print("  Chunk \(i): \(chunk.count) chars - \"\(preview)\"")
+            AppLogger.debug("Chunk details", category: .tts, context: ["index": i, "characters": chunk.count, "preview": preview])
         }
         #endif
         
@@ -217,7 +217,7 @@ actor KokoroTTSEngine {
             
             #if DEBUG
             let duration = Float(samples.count) / Float(TTSConfiguration.kokoroSampleRate)
-            print("KokoroTTSEngine: Chunk \(index) -> \(samples.count) samples (\(String(format: "%.2f", duration))s)")
+            AppLogger.debug("Chunk synthesized", category: .tts, context: ["index": index, "samples": samples.count, "duration": String(format: "%.2f", duration)])
             #endif
 
             onChunkProgress?(index + 1, chunks.count)
@@ -225,7 +225,7 @@ actor KokoroTTSEngine {
         
         #if DEBUG
         let totalDuration = Float(allSamples.count) / Float(TTSConfiguration.kokoroSampleRate)
-        print("KokoroTTSEngine: Combined \(allSamples.count) samples (\(String(format: "%.2f", totalDuration))s)")
+        AppLogger.debug("Combined all chunks", category: .tts, context: ["samples": allSamples.count, "duration": String(format: "%.2f", totalDuration)])
         #endif
         
         return createWAVData(from: allSamples, sampleRate: TTSConfiguration.kokoroSampleRate)
@@ -255,7 +255,7 @@ actor KokoroTTSEngine {
     func releasePipelines() {
         guard usPipeline != nil || gbPipeline != nil else {
             #if DEBUG
-            print("KokoroTTSEngine: No pipelines to release")
+            AppLogger.debug("No pipelines to release", category: .tts)
             #endif
             return
         }
@@ -263,14 +263,14 @@ actor KokoroTTSEngine {
         #if DEBUG
         let releasedUS = usPipeline != nil
         let releasedGB = gbPipeline != nil
-        print("KokoroTTSEngine: Releasing ML pipelines (US: \(releasedUS), GB: \(releasedGB))")
+        AppLogger.debug("Releasing ML pipelines", category: .tts, context: ["US": releasedUS, "GB": releasedGB])
         #endif
         
         usPipeline = nil
         gbPipeline = nil
-        
+
         #if DEBUG
-        print("KokoroTTSEngine: ML pipelines released")
+        AppLogger.debug("ML pipelines released", category: .tts)
         #endif
     }
     
@@ -308,7 +308,7 @@ actor KokoroTTSEngine {
         }
 
         #if DEBUG
-        print("KokoroTTSEngine: Loading \(variant.displayName) pipeline on-demand...")
+        AppLogger.debug("Loading pipeline on-demand", category: .tts, context: ["variant": variant.displayName])
         #endif
 
         do {
@@ -330,13 +330,13 @@ actor KokoroTTSEngine {
             }
             
             #if DEBUG
-            print("KokoroTTSEngine: \(variant.displayName) pipeline loaded")
+            AppLogger.debug("Pipeline loaded", category: .tts, context: ["variant": variant.displayName])
             #endif
             
             return pipeline
         } catch {
             #if DEBUG
-            print("KokoroTTSEngine: Failed to load \(variant.displayName) pipeline: \(error)")
+            AppLogger.debug("Failed to load pipeline", category: .tts, context: ["variant": variant.displayName, "error": error])
             #endif
             throw error
         }
@@ -354,7 +354,7 @@ actor KokoroTTSEngine {
         cachedKokoroPath = kokoroPath
         
         #if DEBUG
-        print("Found Kokoro at: \(kokoroPath)")
+        AppLogger.debug("Found Kokoro", category: .tts, context: ["path": kokoroPath])
         #endif
         
         // Build and validate paths
@@ -362,11 +362,11 @@ actor KokoroTTSEngine {
         let g2pPath = (kokoroPath as NSString).appendingPathComponent("G2P")
 
         #if DEBUG
-        print("Models folder: \(FileManager.default.fileExists(atPath: modelsPath))")
-        print("G2P folder: \(FileManager.default.fileExists(atPath: g2pPath))")
+        AppLogger.debug("Models folder exists", category: .tts, context: ["exists": FileManager.default.fileExists(atPath: modelsPath)])
+        AppLogger.debug("G2P folder exists", category: .tts, context: ["exists": FileManager.default.fileExists(atPath: g2pPath)])
 
         if let contents = try? FileManager.default.contentsOfDirectory(atPath: modelsPath) {
-            print("Models contents: \(contents)")
+            AppLogger.debug("Models contents", category: .tts, context: ["files": contents])
         }
         #endif
 
@@ -388,7 +388,7 @@ actor KokoroTTSEngine {
         resourcesValidated = true
         
         #if DEBUG
-        print("KokoroTTSEngine: Resources validated and cached")
+        AppLogger.debug("Resources validated and cached", category: .tts)
         #endif
     }
     

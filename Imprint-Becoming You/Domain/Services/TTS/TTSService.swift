@@ -182,9 +182,9 @@ final class TTSService: TTSServiceProtocol {
     /// after 30s if the user doesn't use TTS, returning memory to ~90-100MB.
     private func performWarmUp() async {
         #if DEBUG
-        print("TTSService: Warming up Kokoro engine...")
+        AppLogger.debug("Warming up Kokoro engine...", category: .tts)
         #endif
-        
+
         // Reset background release flag
         _isReleasedForBackground = false
         
@@ -200,7 +200,7 @@ final class TTSService: TTSServiceProtocol {
             _isKokoroReady = true
             
             #if DEBUG
-            print("TTSService: Kokoro engine ready")
+            AppLogger.debug("Kokoro engine ready", category: .tts)
             #endif
             
             // Start idle timer â€” if no synthesis occurs within 30s, the pipeline
@@ -218,16 +218,16 @@ final class TTSService: TTSServiceProtocol {
             _isKokoroReady = false
             
             #if DEBUG
-            print("TTSService: Kokoro warm-up failed, will use System TTS fallback - \(error)")
+            AppLogger.debug("Kokoro warm-up failed, will use System TTS fallback", category: .tts, context: ["error": error])
             #endif
         }
     }
     
     func retryKokoroInitialization() async {
         #if DEBUG
-        print("TTSService: Retrying Kokoro initialization...")
+        AppLogger.debug("Retrying Kokoro initialization...", category: .tts)
         #endif
-        
+
         // Reset state
         _isKokoroReady = false
         _isReleasedForBackground = false
@@ -294,7 +294,7 @@ final class TTSService: TTSServiceProtocol {
         onChunkProgress: ((Int, Int) -> Void)? = nil
     ) async throws -> Data {
         #if DEBUG
-        print("TTSService.synthesize: voiceId=\(voiceId ?? "nil"), speed=\(speed), pitch=\(pitchShiftSemitones)")
+        AppLogger.debug("Synthesizing", category: .tts, context: ["voiceId": voiceId ?? "nil", "speed": speed, "pitch": pitchShiftSemitones])
         #endif
 
         // Route based on voiceId
@@ -316,7 +316,7 @@ final class TTSService: TTSServiceProtocol {
     
     func synthesizeWithSystemTTS(text: String) async throws -> Data {
         #if DEBUG
-        print("TTSService.synthesizeWithSystemTTS: Forcing System TTS")
+        AppLogger.debug("Forcing System TTS", category: .tts)
         #endif
         
         return try await systemTTS.synthesizeToData(text)
@@ -332,7 +332,7 @@ final class TTSService: TTSServiceProtocol {
         pitchRangeScale: Float
     ) async throws {
         #if DEBUG
-        print("TTSService.speakText: voiceId=\(voiceId ?? "nil"), speed=\(speed)")
+        AppLogger.debug("Speaking text", category: .tts, context: ["voiceId": voiceId ?? "nil", "speed": speed])
         #endif
         
         stopSpeaking()
@@ -343,7 +343,7 @@ final class TTSService: TTSServiceProtocol {
         // Route based on voiceId
         if voiceId == TTSConfiguration.systemVoiceId {
             #if DEBUG
-            print("TTSService: Routing to System TTS")
+            AppLogger.debug("Routing to System TTS", category: .tts)
             #endif
             try await systemTTS.speak(text)
             return
@@ -381,15 +381,15 @@ final class TTSService: TTSServiceProtocol {
     func releaseForBackground() async {
         guard !_isReleasedForBackground else {
             #if DEBUG
-            print("TTSService: Already released for background")
+            AppLogger.debug("Already released for background", category: .tts)
             #endif
             return
         }
         
         #if DEBUG
-        print("TTSService: Releasing Kokoro for background...")
+        AppLogger.debug("Releasing Kokoro for background...", category: .tts)
         #endif
-        
+
         // Stop any current playback
         stopSpeaking()
         
@@ -415,7 +415,7 @@ final class TTSService: TTSServiceProtocol {
         lastConfiguredCategory = nil
         
         #if DEBUG
-        print("TTSService: Kokoro released for background")
+        AppLogger.debug("Kokoro released for background", category: .tts)
         #endif
     }
     
@@ -430,7 +430,7 @@ final class TTSService: TTSServiceProtocol {
     /// no longer needs active synthesis.
     func releasePipelineMemory() async {
         #if DEBUG
-        print("TTSService: Releasing pipeline memory (session cleanup)...")
+        AppLogger.debug("Releasing pipeline memory (session cleanup)...", category: .tts)
         #endif
         
         // Cancel any pending pre-synthesis (no longer needed)
@@ -448,10 +448,10 @@ final class TTSService: TTSServiceProtocol {
         // and the pipeline will lazy-load on next synthesis call.
         
         #if DEBUG
-        print("TTSService: Pipeline memory released (Kokoro still marked ready)")
+        AppLogger.debug("Pipeline memory released (Kokoro still marked ready)", category: .tts)
         #endif
     }
-    
+
     // MARK: - Idle Timer Control
     
     func suppressSynthesisIdleTimer() {
@@ -459,7 +459,7 @@ final class TTSService: TTSServiceProtocol {
         cancelSynthesisIdleTimer()
         
         #if DEBUG
-        print("TTSService: Idle timer suppressed (active session)")
+        AppLogger.debug("Idle timer suppressed (active session)", category: .tts)
         #endif
     }
     
@@ -468,7 +468,7 @@ final class TTSService: TTSServiceProtocol {
         resetSynthesisIdleTimer()
         
         #if DEBUG
-        print("TTSService: Idle timer resumed")
+        AppLogger.debug("Idle timer resumed", category: .tts)
         #endif
     }
     
@@ -519,7 +519,7 @@ final class TTSService: TTSServiceProtocol {
     /// - Keeps `isKokoroReady = true` so next synthesis transparently reloads
     private func handleSynthesisIdleTimeout() async {
         #if DEBUG
-        print("TTSService: Synthesis idle timeout (\(synthesisIdleTimeout)s) â€” releasing pipeline memory")
+        AppLogger.debug("Synthesis idle timeout — releasing pipeline memory", category: .tts, context: ["timeoutSeconds": synthesisIdleTimeout])
         #endif
         
         // Cancel any lingering pre-synthesis (may hold WAV data in memory)
@@ -529,7 +529,7 @@ final class TTSService: TTSServiceProtocol {
         await kokoroEngine.releasePipelines()
         
         #if DEBUG
-        print("TTSService: Pipeline memory released via idle timeout (Kokoro still marked ready)")
+        AppLogger.debug("Pipeline memory released via idle timeout (Kokoro still marked ready)", category: .tts)
         #endif
     }
     
@@ -543,7 +543,7 @@ final class TTSService: TTSServiceProtocol {
         pitchRangeScale: Float
     ) async {
         #if DEBUG
-        print("TTSService: Pre-synthesizing with voice \(voiceId ?? "default")")
+        AppLogger.debug("Pre-synthesizing", category: .tts, context: ["voice": voiceId ?? "default"])
         #endif
         
         // Cancel any existing pre-synthesis
@@ -560,11 +560,11 @@ final class TTSService: TTSServiceProtocol {
                     pitchRangeScale: pitchRangeScale
                 )
                 #if DEBUG
-                print("TTSService: Pre-synthesis complete")
+                AppLogger.debug("Pre-synthesis complete", category: .tts)
                 #endif
             } catch {
                 #if DEBUG
-                print("TTSService: Pre-synthesis failed: \(error)")
+                AppLogger.debug("Pre-synthesis failed", category: .tts, context: ["error": error])
                 #endif
             }
         }
@@ -590,7 +590,7 @@ final class TTSService: TTSServiceProtocol {
     private func preConfigureAudioSession() async {
         guard !isAudioSessionConfigured else {
             #if DEBUG
-            print("TTSService: Audio session already pre-configured")
+            AppLogger.debug("Audio session already pre-configured", category: .tts)
             #endif
             return
         }
@@ -604,7 +604,7 @@ final class TTSService: TTSServiceProtocol {
     /// Internal audio session configuration (separated for signpost measurement).
     private func performAudioSessionConfiguration() async {
         #if DEBUG
-        print("TTSService: Pre-configuring audio session on background queue...")
+        AppLogger.debug("Pre-configuring audio session on background queue...", category: .tts)
         #endif
         
         // Configure on background queue to avoid main thread blocking
@@ -624,7 +624,7 @@ final class TTSService: TTSServiceProtocol {
                         self.lastConfiguredCategory = .playback
                         
                         #if DEBUG
-                        print("TTSService: Audio session pre-configured successfully")
+                        AppLogger.debug("Audio session pre-configured successfully", category: .tts)
                         #endif
                         
                         continuation.resume()
@@ -633,7 +633,7 @@ final class TTSService: TTSServiceProtocol {
                     // Update state on main actor even on failure
                     Task { @MainActor in
                         #if DEBUG
-                        print("TTSService: Audio session pre-config failed: \(error)")
+                        AppLogger.debug("Audio session pre-config failed", category: .tts, context: ["error": error])
                         #endif
                         
                         // Don't mark as configured - will try again during playback
@@ -662,7 +662,7 @@ final class TTSService: TTSServiceProtocol {
         // session category to catch external changes.
         if lastConfiguredCategory != .playback || session.category != .playback {
             #if DEBUG
-            print("TTSService: Reconfiguring audio session (category changed)")
+            AppLogger.debug("Reconfiguring audio session (category changed)", category: .tts)
             #endif
             
             try session.setCategory(
@@ -690,7 +690,7 @@ final class TTSService: TTSServiceProtocol {
     ) async throws -> Data {
         guard _isKokoroReady else {
             #if DEBUG
-            print("TTSService: Kokoro not ready, falling back to System TTS")
+            AppLogger.debug("Kokoro not ready, falling back to System TTS", category: .tts)
             #endif
             onChunkProgress?(1, 1)
             return try await systemTTS.synthesizeToData(text)
@@ -700,7 +700,7 @@ final class TTSService: TTSServiceProtocol {
         let voiceStyle = resolveVoiceStyle(voiceId: voiceId)
 
         #if DEBUG
-        print("TTSService: Resolved voice style: \(voiceStyle.rawValue), speed=\(speed), pitch=\(pitchShiftSemitones)")
+        AppLogger.debug("Resolved voice style", category: .tts, context: ["voiceStyle": voiceStyle.rawValue, "speed": speed, "pitch": pitchShiftSemitones])
         #endif
 
         // Cancel idle timer — Kokoro synthesis is starting
@@ -725,7 +725,7 @@ final class TTSService: TTSServiceProtocol {
             resetSynthesisIdleTimer()
 
             #if DEBUG
-            print("TTSService: Kokoro synthesis failed, falling back to System TTS - \(error)")
+            AppLogger.debug("Kokoro synthesis failed, falling back to System TTS", category: .tts, context: ["error": error])
             #endif
             onChunkProgress?(1, 1)
             return try await systemTTS.synthesizeToData(text)
@@ -740,12 +740,12 @@ final class TTSService: TTSServiceProtocol {
         pitchRangeScale: Float
     ) async throws {
         #if DEBUG
-        print("TTSService.speakWithKokoro: voiceId=\(voiceId ?? "nil"), speed=\(speed)")
+        AppLogger.debug("Speaking with Kokoro", category: .tts, context: ["voiceId": voiceId ?? "nil", "speed": speed])
         #endif
         
         guard _isKokoroReady else {
             #if DEBUG
-            print("TTSService: Kokoro not ready, falling back to System TTS")
+            AppLogger.debug("Kokoro not ready, falling back to System TTS", category: .tts)
             #endif
             try await systemTTS.speak(text)
             return
@@ -755,10 +755,10 @@ final class TTSService: TTSServiceProtocol {
         let voiceStyle = resolveVoiceStyle(voiceId: voiceId)
         
         #if DEBUG
-        print("TTSService: Resolved voice style: \(voiceStyle.rawValue)")
+        AppLogger.debug("Resolved voice style", category: .tts, context: ["voiceStyle": voiceStyle.rawValue])
         #endif
-        
-        // Cancel idle timer â€” Kokoro synthesis is starting
+
+        // Cancel idle timer — Kokoro synthesis is starting
         cancelSynthesisIdleTimer()
         
         do {
@@ -774,7 +774,7 @@ final class TTSService: TTSServiceProtocol {
             resetSynthesisIdleTimer()
             
             #if DEBUG
-            print("TTSService: Kokoro synthesis complete, playing \(audioData.count) bytes")
+            AppLogger.debug("Kokoro synthesis complete, playing audio", category: .tts, context: ["bytes": audioData.count])
             #endif
             
             try await playAudioData(audioData)
@@ -784,7 +784,7 @@ final class TTSService: TTSServiceProtocol {
             resetSynthesisIdleTimer()
             
             #if DEBUG
-            print("TTSService: Kokoro playback failed, falling back to System TTS - \(error)")
+            AppLogger.debug("Kokoro playback failed, falling back to System TTS", category: .tts, context: ["error": error])
             #endif
             try await systemTTS.speak(text)
         }
@@ -803,7 +803,7 @@ final class TTSService: TTSServiceProtocol {
     private func resolveVoiceStyle(voiceId: String?) -> VoiceStyle {
         guard let voiceId = voiceId, !voiceId.isEmpty else {
             #if DEBUG
-            print("TTSService.resolveVoiceStyle: nil/empty -> default af_heart")
+            AppLogger.debug("resolveVoiceStyle: nil/empty -> default af_heart", category: .tts)
             #endif
             return .afHeart // Default voice
         }
@@ -811,7 +811,7 @@ final class TTSService: TTSServiceProtocol {
         // Voice ID should match VoiceStyle.rawValue directly (e.g., "af_heart")
         if let voiceStyle = VoiceStyle(rawValue: voiceId) {
             #if DEBUG
-            print("TTSService.resolveVoiceStyle: \(voiceId) -> \(voiceStyle.rawValue)")
+            AppLogger.debug("resolveVoiceStyle: matched", category: .tts, context: ["input": voiceId, "resolved": voiceStyle.rawValue])
             #endif
             return voiceStyle
         }
@@ -821,14 +821,14 @@ final class TTSService: TTSServiceProtocol {
             let styleString = String(voiceId.dropFirst(TTSConfiguration.kokoroPrefix.count))
             if let voiceStyle = VoiceStyle(rawValue: styleString) {
                 #if DEBUG
-                print("TTSService.resolveVoiceStyle: \(voiceId) (legacy) -> \(voiceStyle.rawValue)")
+                AppLogger.debug("resolveVoiceStyle: legacy prefix matched", category: .tts, context: ["input": voiceId, "resolved": voiceStyle.rawValue])
                 #endif
                 return voiceStyle
             }
         }
         
         #if DEBUG
-        print("TTSService.resolveVoiceStyle: \(voiceId) not found, using default af_heart")
+        AppLogger.debug("resolveVoiceStyle: not found, using default af_heart", category: .tts, context: ["input": voiceId])
         #endif
         return .afHeart
     }

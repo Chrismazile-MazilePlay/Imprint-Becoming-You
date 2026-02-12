@@ -222,7 +222,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         }
         
         #if DEBUG
-        print("SessionTTSQueue: Preparing session with \(affirmations.count) affirmations, voice: \(voiceId ?? "default"), forceSystemTTS: \(forceSystemTTS)")
+        AppLogger.debug("Preparing session", category: .tts, context: ["affirmations": affirmations.count, "voice": voiceId ?? "default", "forceSystemTTS": forceSystemTTS])
         #endif
         
         // Cancel any existing session
@@ -243,7 +243,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         voiceConfig = .load(voiceId: voiceId, forceSystemTTS: forceSystemTTS)
 
         #if DEBUG
-        print("SessionTTSQueue: Voice config — id: \(voiceId ?? "default"), speed: \(voiceConfig.voiceSettings.speed), pitch: \(voiceConfig.voiceSettings.pitchShiftSemitones), systemTTS: \(forceSystemTTS)")
+        AppLogger.debug("Voice config loaded", category: .tts, context: ["id": voiceId ?? "default", "speed": voiceConfig.voiceSettings.speed, "pitch": voiceConfig.voiceSettings.pitchShiftSemitones, "systemTTS": forceSystemTTS])
         #endif
         
         guard !affirmations.isEmpty else {
@@ -260,7 +260,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
             Task { @MainActor in onPhaseChange(.waitingForKokoro) }
             
             #if DEBUG
-            print("SessionTTSQueue: Phase 1 - Waiting for Kokoro TTS engine...")
+            AppLogger.debug("Phase 1 - Waiting for Kokoro TTS engine...", category: .tts)
             #endif
             
             let kokoroReady = await synthesisEngine.waitForKokoroReady(timeout: kokoroWarmupTimeout)
@@ -272,7 +272,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
                 Task { @MainActor in onPhaseChange(.kokoroTimeout) }
                 
                 #if DEBUG
-                print("SessionTTSQueue: Kokoro warm-up timeout - showing fallback options")
+                AppLogger.debug("Kokoro warm-up timeout - showing fallback options", category: .tts)
                 #endif
                 
                 // Don't throw - let the UI handle showing fallback options
@@ -281,11 +281,11 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
             }
             
             #if DEBUG
-            print("SessionTTSQueue: Kokoro ready, starting synthesis")
+            AppLogger.debug("Kokoro ready, starting synthesis", category: .tts)
             #endif
         } else {
             #if DEBUG
-            print("SessionTTSQueue: Using System TTS (forced)")
+            AppLogger.debug("Using System TTS (forced)", category: .tts)
             #endif
         }
         
@@ -295,7 +295,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         Task { @MainActor in onPhaseChange(.synthesizing) }
         
         #if DEBUG
-        print("SessionTTSQueue: Phase 2 - Starting bounded parallel synthesis (total: \(affirmations.count))")
+        AppLogger.debug("Phase 2 - Starting bounded parallel synthesis", category: .tts, context: ["total": affirmations.count])
         #endif
         
         // Perform bounded parallel synthesis of ALL affirmations
@@ -311,7 +311,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         Task { @MainActor in onPhaseChange(.complete) }
         
         #if DEBUG
-        print("SessionTTSQueue: Session preparation complete (\(preparedCount)/\(totalCount))")
+        AppLogger.debug("Session preparation complete", category: .tts, context: ["prepared": preparedCount, "total": totalCount])
         #endif
     }
     
@@ -332,7 +332,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         reprioritizeQueue(from: index)
         
         #if DEBUG
-        print("SessionTTSQueue: Now playing index \(index)")
+        AppLogger.debug("Now playing", category: .tts, context: ["index": index])
         #endif
     }
     
@@ -366,7 +366,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         cache.set(info.id, data: audioData)
 
         #if DEBUG
-        print("SessionTTSQueue: On-demand synthesis complete for index \(index)")
+        AppLogger.debug("On-demand synthesis complete", category: .tts, context: ["index": index])
         #endif
 
         return audioData
@@ -374,7 +374,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
     
     func updateAffirmationOrder(_ newOrder: [SessionAffirmationInfo]) {
         #if DEBUG
-        print("SessionTTSQueue: Updating affirmation order (\(cache.count) cached items preserved, \(newOrder.count) affirmations)")
+        AppLogger.debug("Updating affirmation order", category: .tts, context: ["cachedItems": cache.count, "affirmations": newOrder.count])
         #endif
 
         // Update affirmation order — cache remains valid because
@@ -398,7 +398,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         state = .synthesizingBackground(prepared: preparedCount, total: total)
 
         #if DEBUG
-        print("SessionTTSQueue: Pre-synthesizing from index \(startIndex) (\(total) total, concurrency: \(Constants.SessionPreparation.backgroundConcurrency))")
+        AppLogger.debug("Pre-synthesizing", category: .tts, context: ["fromIndex": startIndex, "total": total, "concurrency": Constants.SessionPreparation.backgroundConcurrency])
         #endif
 
         backgroundTask = Task { [weak self] in
@@ -412,7 +412,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
 
             guard !indicesToSynthesize.isEmpty else {
                 #if DEBUG
-                print("SessionTTSQueue: Pre-synthesis skipped — all indices cached")
+                AppLogger.debug("Pre-synthesis skipped — all indices cached", category: .tts)
                 #endif
                 return
             }
@@ -464,7 +464,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
                         )
                     } else {
                         #if DEBUG
-                        print("SessionTTSQueue: Pre-synthesis failed for index \(index)")
+                        AppLogger.debug("Pre-synthesis failed", category: .tts, context: ["index": index])
                         #endif
                     }
 
@@ -492,7 +492,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
                 self.state = .complete
 
                 #if DEBUG
-                print("SessionTTSQueue: Pre-synthesis complete (\(self.cache.count) cached)")
+                AppLogger.debug("Pre-synthesis complete", category: .tts, context: ["cached": self.cache.count])
                 #endif
             }
         }
@@ -509,7 +509,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
         }
 
         #if DEBUG
-        print("SessionTTSQueue: Awaiting synthesis of index \(startIndex) before flow start")
+        AppLogger.debug("Awaiting synthesis before flow start", category: .tts, context: ["index": startIndex])
         #endif
 
         // Synchronously synthesize the first affirmation so it's cached
@@ -519,11 +519,11 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
             cache.set(info.id, data: audioData)
 
             #if DEBUG
-            print("SessionTTSQueue: Index \(startIndex) ready, starting background for rest")
+            AppLogger.debug("Index ready, starting background for rest", category: .tts, context: ["index": startIndex])
             #endif
         } catch {
             #if DEBUG
-            print("SessionTTSQueue: First affirmation synthesis failed: \(error.localizedDescription)")
+            AppLogger.debug("First affirmation synthesis failed", category: .tts, context: ["error": error.localizedDescription])
             #endif
             // Non-fatal: speakText() will fall through to synthesizeOnDemand()
         }
@@ -536,7 +536,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
 
     func cancelAll() {
         #if DEBUG
-        print("SessionTTSQueue: Cancelling all")
+        AppLogger.debug("Cancelling all", category: .tts)
         cache.logMemoryUsage()
         #endif
 
@@ -568,7 +568,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
     /// This can free ~500KB x N bytes where N is the number of cached affirmations.
     func clearQueue() {
         #if DEBUG
-        print("SessionTTSQueue: Clearing queue (\(cache.count) items, ~\(cache.memorySizeBytes / 1024)KB)")
+        AppLogger.debug("Clearing queue", category: .tts, context: ["items": cache.count, "sizeKB": cache.memorySizeBytes / 1024])
         #endif
 
         // Cancel background synthesis
@@ -619,12 +619,12 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
                     )
 
                     #if DEBUG
-                    print("SessionTTSQueue: Background synthesized index \(index) (\(self.preparedCount)/\(self.sessionAffirmations.count))")
+                    AppLogger.debug("Background synthesized", category: .tts, context: ["index": index, "prepared": self.preparedCount, "total": self.sessionAffirmations.count])
                     #endif
 
                 } catch {
                     #if DEBUG
-                    print("SessionTTSQueue: Background synthesis failed for index \(index): \(error)")
+                    AppLogger.debug("Background synthesis failed", category: .tts, context: ["index": index, "error": "\(error)"])
                     #endif
                 }
 
@@ -640,7 +640,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
                 self.onBackgroundSynthesisComplete?()
 
                 #if DEBUG
-                print("SessionTTSQueue: Background synthesis complete (\(self.preparedCount)/\(self.sessionAffirmations.count))")
+                AppLogger.debug("Background synthesis complete", category: .tts, context: ["prepared": self.preparedCount, "total": self.sessionAffirmations.count])
                 #endif
             }
         }
@@ -713,12 +713,12 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
                 state = .preparingParallel(prepared: completedCount, total: total)
 
                 #if DEBUG
-                print("SessionTTSQueue: Completed \(completedCount)/\(total) (index \(index))")
+                AppLogger.debug("Completed synthesis", category: .tts, context: ["completed": completedCount, "total": total, "index": index])
                 #endif
 
                 if completedCount == readyToStartThreshold && total > largeSessionThreshold {
                     #if DEBUG
-                    print("SessionTTSQueue: Early start threshold reached (\(completedCount)/\(total))")
+                    AppLogger.debug("Early start threshold reached", category: .tts, context: ["completed": completedCount, "total": total])
                     #endif
                 }
 
@@ -750,7 +750,7 @@ final class SessionTTSQueueService: SessionTTSQueueServiceProtocol {
             }
 
             #if DEBUG
-            print("SessionTTSQueue: All \(total) affirmations synthesized")
+            AppLogger.debug("All affirmations synthesized", category: .tts, context: ["total": total])
             #endif
         }
     }

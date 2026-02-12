@@ -533,6 +533,15 @@ extension PracticeStore {
         // only re-renders when matchedWordCount changes — not on every audio level tick (~43Hz).
         let wordCountChanged = context.matchedWordCount != listeningMatchedWordCount
         if wordCountChanged {
+            AppLogger.debug(
+                "Word match progress",
+                category: .speech,
+                context: [
+                    "matched": context.matchedWordCount,
+                    "total": context.totalExpectedWords,
+                    "isListeningPhase": isInListeningPhase
+                ]
+            )
             setListeningMatchedWordCount(context.matchedWordCount)
         }
 
@@ -550,18 +559,6 @@ extension PracticeStore {
                 break
             }
         }
-
-        // Log word match progress when a new word matches
-        if wordCountChanged && context.matchedWordCount > 0 {
-            AppLogger.debug(
-                "Word match progress",
-                category: .speech,
-                context: [
-                    "matched": context.matchedWordCount,
-                    "total": context.totalExpectedWords
-                ]
-            )
-        }
     }
     
     func handleListeningCompleted(text: String, duration: TimeInterval) {
@@ -572,8 +569,12 @@ extension PracticeStore {
             return
         }
 
-        // Reset decoupled listening state
-        resetListeningPhaseState()
+        // NOTE: Do NOT call resetListeningPhaseState() here.
+        // Keep isInListeningPhase=true and listeningMatchedWordCount at its
+        // high-water mark through the celebrating phase so the view continues
+        // showing all words highlighted. The state resets in:
+        // - handleCelebrationCompleted() — just before auto-advance
+        // - cancelCurrentActivity() — on navigation, exit, or interruption
 
         // Cancel capture and transition to celebrating
         speechCaptureService.cancelCapture()
@@ -603,8 +604,16 @@ extension PracticeStore {
 
         recordEngagement(.speak)
 
-        // Transition to celebrating
-        send(.celebrationStarted)
+        // Brief pause with all words highlighted before celebration starts.
+        // Gives the user a moment to see the completed highlight state
+        // before the sparkle burst animation plays.
+        let generation = flowGeneration
+        Task { [weak self] in
+            guard let self = self else { return }
+            try? await Task.sleep(for: PracticeTiming.preCelebrationPause)
+            guard self.shouldContinueFlow(generation: generation) else { return }
+            self.send(.celebrationStarted)
+        }
     }
 }
 
@@ -742,15 +751,37 @@ extension PracticeStore {
     }
 
     /// Handles completion of the celebration animation — auto-advances or completes the loop.
+    ///
+    /// Resets listening phase state (highlights) just before the pager transition,
+    /// so the unhighlight is masked by the page slide animation. A brief post-celebration
+    /// delay prevents the transition from feeling abrupt after the sparkle burst.
     func handleCelebrationCompleted() {
         // Check if we've completed the current loop
         if isSessionActive && sessionIndex >= sessionAffirmations.count - 1 {
+            // Reset listening phase state before loop completion.
+            // handleLoopIterationCompleted() also resets via cancelCurrentActivity(),
+            // but explicit reset here makes the intent clear.
+            resetListeningPhaseState()
             send(.loopIterationCompleted)
             return
         }
 
-        if canGoNext {
-            pendingAutoAdvance = .next
+        // Brief delay after celebration before auto-advancing.
+        // Prevents the transition from feeling abrupt after the sparkle burst.
+        let generation = flowGeneration
+        Task { [weak self] in
+            guard let self = self else { return }
+            try? await Task.sleep(for: PracticeTiming.postCelebrationDelay)
+            guard self.shouldContinueFlow(generation: generation) else { return }
+
+            // Reset listening phase state just before pager transition.
+            // Words unhighlight as the pager starts sliding to the next
+            // affirmation — masked by the pager's page transition animation.
+            self.resetListeningPhaseState()
+
+            if self.canGoNext {
+                self.pendingAutoAdvance = .next
+            }
         }
     }
 }

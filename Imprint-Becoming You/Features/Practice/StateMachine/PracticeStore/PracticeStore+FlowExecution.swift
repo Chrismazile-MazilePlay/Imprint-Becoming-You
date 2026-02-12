@@ -368,7 +368,16 @@ extension PracticeStore {
         
         // Get speech capture service from store's property
         let captureService = speechCaptureService
-        
+
+        // Hint the recognizer with expected affirmation words for better accuracy.
+        // Uses Set to deduplicate (affirmations often repeat words).
+        // Mirrors the AudioCoordinator contextualStrings pattern.
+        captureService.contextualStrings = Array(Set(
+            affirmationText.lowercased()
+                .components(separatedBy: .whitespaces)
+                .filter { !$0.isEmpty }
+        )).prefix(100).map { $0 }
+
         // Use centralized task management for listening task
         listeningTask = Task { [weak self] in
             guard let self = self else { return }
@@ -427,7 +436,14 @@ extension PracticeStore {
             self.send(.listeningStarted)
             self.setListeningPhaseActive()
             hasStarted = true
-            
+
+            // Yield to let SwiftUI observe isInListeningPhase = true
+            // before the capture loop starts emitting word matches.
+            // Without this, rapid speech can produce matchedWordCount > 0
+            // before the view re-evaluates with isListening = true,
+            // causing the highlighting gate to pass 0 to the text view.
+            try? await Task.sleep(for: .milliseconds(16))
+
             // PHASE: Active listening loop
             // Measure active speech capture with signpost
             let captureSignpostID = AppLogger.makeSignpostID(for: .speech)
@@ -442,38 +458,72 @@ extension PracticeStore {
                 guard generation == self.flowGeneration else { break captureLoop }
                 
                 switch update {
-                case .transcription(let text, let isFinal):
+                case .transcription(let text, let isFinal, _):
                     lastTranscription = text
 
-                    // Run word matching immediately on new transcription (not on audio level)
-                    // This eliminates the 0–23ms delay of waiting for the next audio buffer
-                    let matchResult = SequentialWordMatcher.matchSequentially(
+                    // --- Dual-pass word matching ---
+                    // Normalize recognized text once and reuse for both passes.
+                    let recognizedWords = SequentialWordMatcher.normalizeText(lastTranscription)
+
+                    // PRIMARY PASS: Match from the beginning (handles normal sequential speech)
+                    let primaryResult = SequentialWordMatcher.matchSequentially(
                         expectedWords: normalizedExpectedWords,
-                        recognized: lastTranscription
+                        recognizedWords: recognizedWords
                     )
 
-                    // Only send UI update if matchedWordCount actually changed
-                    if matchResult.matchedCount != lastMatchedWordCount {
-                        lastMatchedWordCount = matchResult.matchedCount
+                    var bestMatchCount = primaryResult.matchedCount
+
+                    // CONTINUATION PASS: Match from the current high-water mark.
+                    // When the on-device recognizer revises a partial (e.g., the user
+                    // stumbles and restarts mid-sentence), the revised text may begin
+                    // from a later point in the affirmation. The primary pass produces
+                    // matchedCount = 0 because the first recognized word no longer
+                    // matches expectedWords[0]. The continuation pass picks up from
+                    // where the user already was, detecting forward progress even
+                    // after recognizer revisions.
+                    if lastMatchedWordCount > 0 && primaryResult.matchedCount <= lastMatchedWordCount {
+                        let continuationResult = SequentialWordMatcher.matchSequentially(
+                            expectedWords: normalizedExpectedWords,
+                            recognizedWords: recognizedWords,
+                            fromIndex: lastMatchedWordCount
+                        )
+                        bestMatchCount = max(bestMatchCount, continuationResult.matchedCount)
+                    }
+
+                    // High-water mark: only allow matchedWordCount to increase, never decrease.
+                    // On-device SFSpeechRecognizer can revise partial transcriptions when
+                    // the user pauses and resumes, producing fewer matched words. Since the
+                    // user reads sequentially, a correctly matched word can't become unmatched.
+                    if bestMatchCount > lastMatchedWordCount {
+                        lastMatchedWordCount = bestMatchCount
 
                         let context = ListeningContext(
                             elapsed: Date().timeIntervalSince(startTime),
                             audioLevel: lastAudioLevel,
                             recognizedText: lastTranscription,
-                            matchedWordCount: matchResult.matchedCount,
-                            totalExpectedWords: matchResult.totalExpectedWords
+                            matchedWordCount: bestMatchCount,
+                            totalExpectedWords: totalExpectedWords
                         )
                         self.send(.listeningUpdate(context))
                     }
 
-                    // Auto-complete when all words are matched — no silence wait needed
-                    if matchResult.isComplete {
+                    // Auto-complete using the high-water mark, not the current partial.
+                    // The on-device recognizer can revise partials (lowering matchedCount),
+                    // but the high-water mark only ever increases. Once all words have been
+                    // matched at any point during the session, auto-complete fires immediately.
+                    if lastMatchedWordCount >= totalExpectedWords {
+                        // Allow SwiftUI to render the final highlighted state before
+                        // breaking out of the capture loop. Without this, a compound
+                        // match jump (e.g., 12 → 14) may not render the last word
+                        // highlighted before celebration's pre-pause begins.
+                        try? await Task.sleep(for: .milliseconds(50))
+
                         AppLogger.debug(
                             "All words matched — auto-completing",
                             category: .speech,
                             context: [
-                                "matchedWords": matchResult.matchedCount,
-                                "totalWords": matchResult.totalExpectedWords
+                                "matchedWords": lastMatchedWordCount,
+                                "totalWords": totalExpectedWords
                             ]
                         )
                         break captureLoop
@@ -599,6 +649,7 @@ extension PracticeStore {
             category: .speech,
             context: [
                 "sequentialComplete": matchResult.isComplete,
+                "highWaterMark": lastMatchedWordCount,
                 "matchedWords": matchResult.matchedCount,
                 "totalWords": matchResult.totalExpectedWords,
                 "textAccuracy": String(format: "%.2f", completion.accuracy),
@@ -606,8 +657,11 @@ extension PracticeStore {
             ]
         )
 
-        // Accept if either sequential match OR text accuracy says complete
-        if matchResult.isComplete || completion.isComplete {
+        // Accept if sequential match, high-water mark, OR text accuracy says complete.
+        // The high-water mark covers the case where the recognizer revised a partial
+        // after all words were matched during the session — the final transcription
+        // may not show all matches, but the user did say them.
+        if matchResult.isComplete || lastMatchedWordCount >= totalExpectedWords || completion.isComplete {
             send(.listeningCompleted(recognizedText: lastTranscription, duration: duration))
         } else {
             send(.listeningTimedOut)

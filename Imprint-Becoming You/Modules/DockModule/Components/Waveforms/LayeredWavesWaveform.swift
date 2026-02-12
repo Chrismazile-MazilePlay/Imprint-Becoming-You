@@ -244,8 +244,6 @@ struct LayeredWavesWaveformView: View {
             return .listening
         case .settling:
             return .settling
-        case .showingScore:
-            return .hidden
         }
     }
 }

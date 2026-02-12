@@ -253,19 +253,12 @@ extension PracticeStore {
         case .continueWithoutPermission:
             handleContinueWithoutPermission()
             
-        // MARK: Score Events
-        case .analysisStarted:
-            transitionToAnalyzing()
-            
-        case .scoreCalculated(let result):
-            handleScoreCalculated(result)
-            
-        case .scoreFailed(let error):
-            setError(error)
-            resetToIdle()
-            
-        case .scoreDisplayCompleted:
-            handleScoreDisplayCompleted()
+        // MARK: Celebration Events
+        case .celebrationStarted:
+            handleCelebrationStarted()
+
+        case .celebrationCompleted:
+            handleCelebrationCompleted()
             
         // MARK: Segment Timer Events
         case .segmentTimerCompleted:

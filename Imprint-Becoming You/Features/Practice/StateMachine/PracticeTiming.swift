@@ -46,11 +46,8 @@ enum PracticeTiming {
     /// Legacy alias for backward compatibility
     static let silenceThreshold: TimeInterval = completedAffirmationSilenceThreshold
     
-    /// Duration to show the "analyzing" state
-    static let analysisDuration: Duration = .milliseconds(500)
-    
-    /// Duration to display score before showing summary/auto-advancing
-    static let scoreDisplayDuration: Duration = .seconds(1.5)
+    /// Duration of the sparkle burst celebration before auto-advancing
+    static let celebrationDuration: Duration = .seconds(2.5)
     
     /// Brief pause after final score before transitioning to summary
     static let sessionCompletePause: Duration = .milliseconds(800)
@@ -176,19 +173,17 @@ extension PracticeTiming {
         startDelay: .zero,
         phaseDurations: [
             "waitingForUser": waitForUserDuration,
-            "analyzing": analysisDuration,
-            "showingScore": scoreDisplayDuration
+            "celebrating": celebrationDuration
         ],
         completionPause: .zero,
         autoAdvances: true
     )
-    
+
     /// Timing configuration for Speak Only mode
     static let speakOnlyTiming = FlowTimingConfiguration(
         startDelay: .zero,
         phaseDurations: [
-            "analyzing": analysisDuration,
-            "showingScore": scoreDisplayDuration
+            "celebrating": celebrationDuration
         ],
         completionPause: .zero,
         autoAdvances: true

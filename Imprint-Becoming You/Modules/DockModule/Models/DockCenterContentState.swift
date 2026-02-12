@@ -18,9 +18,9 @@ import Foundation
 /// ## State Transitions
 ///
 /// ```
-/// idle → playing(audioLevel) → preparing → listening(audioLevel) → settling → showingScore
-///   ↑                                                                              │
-///   └──────────────────────────────────────────────────────────────────────────────┘
+/// idle → playing(audioLevel) → preparing → listening(audioLevel) → idle
+///   ↑                                                                │
+///   └────────────────────────────────────────────────────────────────┘
 /// ```
 ///
 /// ## Visual States
@@ -33,7 +33,6 @@ import Foundation
 /// | `preparing`              | Gentle breathing          | success/green |
 /// | `listening(audioLevel)`  | Animated bars             | success/green |
 /// | `settling`               | Shrinking bars → dots     | tertiary      |
-/// | `showingScore(percent)`  | "85%" animated            | accent        |
 ///
 /// ## Waveform Design Principles
 ///
@@ -65,8 +64,7 @@ import Foundation
 ///         case .ttsPlaying: return .playing(audioLevel: currentAudioLevel)
 ///         case .preparingToListen: return .preparing
 ///         case .listening(let ctx): return .listening(audioLevel: ctx.audioLevel)
-///         case .analyzing: return .settling
-///         case .showingScore(let result): return .showingScore(percentScore: result.percentScore)
+///         case .celebrating: return .idle
 ///         }
 ///     // ... etc
 ///     }
@@ -126,17 +124,8 @@ public enum DockCenterContentState: Equatable, Sendable {
     /// Color: Tertiary (gray)
     ///
     /// Used when:
-    /// - Speech analysis is processing
     /// - Brief transition after listening completes
     case settling
-    
-    /// Showing resonance score — animated percentage display.
-    ///
-    /// Visual: "85%" with count-up animation
-    /// Color: Accent (amber/gold)
-    ///
-    /// - Parameter percentScore: Score as integer percentage (0–100)
-    case showingScore(percentScore: Int)
 }
 
 // MARK: - Convenience Properties
@@ -150,7 +139,7 @@ public extension DockCenterContentState {
         switch self {
         case .playing, .listening:
             return true
-        case .hidden, .idle, .preparing, .settling, .showingScore:
+        case .hidden, .idle, .preparing, .settling:
             return false
         }
     }
@@ -170,14 +159,6 @@ public extension DockCenterContentState {
         default:
             return nil
         }
-    }
-    
-    /// The score percentage if showing score, otherwise `nil`.
-    var scorePercent: Int? {
-        if case .showingScore(let percent) = self {
-            return percent
-        }
-        return nil
     }
     
     /// Whether this state represents user input (listening).

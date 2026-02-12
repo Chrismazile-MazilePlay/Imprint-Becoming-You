@@ -27,14 +27,12 @@ import Foundation
 /// │   ├── ttsPlaying(progress)
 /// │   ├── preparingToListen
 /// │   ├── listening(context)
-/// │   ├── analyzing
-/// │   └── showingScore(result)
+/// │   └── celebrating
 /// └── speakOnly
 ///     ├── idle
 ///     ├── preparingToListen
 ///     ├── listening(context)
-///     ├── analyzing
-///     └── showingScore(result)
+///     └── celebrating
 /// ```
 ///
 /// ## Design Decisions
@@ -82,17 +80,17 @@ enum ReadAloudFlowPhase: Equatable, Sendable {
 ///
 /// ## Flow
 /// ```
-/// idle → ttsPlaying → preparingToListen → listening → analyzing → showingScore
+/// idle → ttsPlaying → preparingToListen → listening → celebrating
 /// ```
 enum ReadAndSpeakFlowPhase: Equatable, Sendable {
-    
+
     /// Waiting to start the cycle
     case idle
-    
+
     /// TTS is reading the affirmation
     /// - Parameter progress: Playback progress (0.0 - 1.0)
     case ttsPlaying(progress: Double)
-    
+
     /// TTS finished, speech recognition engine initializing
     ///
     /// During this phase:
@@ -102,17 +100,13 @@ enum ReadAndSpeakFlowPhase: Equatable, Sendable {
     ///
     /// This prevents the UI from freezing during heavy initialization.
     case preparingToListen
-    
+
     /// Actively listening to user's speech
     /// - Parameter context: Live listening metrics
     case listening(ListeningContext)
-    
-    /// Processing speech and computing score
-    case analyzing
-    
-    /// Displaying the resonance score
-    /// - Parameter result: Complete score breakdown
-    case showingScore(ScoreResult)
+
+    /// All words matched — sparkle burst celebration playing
+    case celebrating
 }
 
 // MARK: - Speak Only Flow Phase
@@ -123,13 +117,13 @@ enum ReadAndSpeakFlowPhase: Equatable, Sendable {
 ///
 /// ## Flow
 /// ```
-/// idle → preparingToListen → listening → analyzing → showingScore
+/// idle → preparingToListen → listening → celebrating
 /// ```
 enum SpeakOnlyFlowPhase: Equatable, Sendable {
-    
+
     /// Waiting for user to start speaking
     case idle
-    
+
     /// Speech recognition engine initializing
     ///
     /// During this phase:
@@ -139,17 +133,13 @@ enum SpeakOnlyFlowPhase: Equatable, Sendable {
     ///
     /// This prevents the UI from freezing during heavy initialization.
     case preparingToListen
-    
+
     /// Actively listening to user's speech
     /// - Parameter context: Live listening metrics
     case listening(ListeningContext)
-    
-    /// Processing speech and computing score
-    case analyzing
-    
-    /// Displaying the resonance score
-    /// - Parameter result: Complete score breakdown
-    case showingScore(ScoreResult)
+
+    /// All words matched — sparkle burst celebration playing
+    case celebrating
 }
 
 // MARK: - Listening Context
@@ -157,106 +147,31 @@ enum SpeakOnlyFlowPhase: Equatable, Sendable {
 /// Real-time context during speech listening.
 ///
 /// Updated continuously while the user is speaking to provide
-/// live feedback in the UI (waveform, energy meter, etc.)
+/// live feedback in the UI (waveform, energy meter, word highlighting, etc.)
 struct ListeningContext: Equatable, Sendable {
-    
+
     /// Duration the user has been speaking
     let elapsed: TimeInterval
-    
+
     /// Current audio level (0.0 - 1.0), smoothed for display
     let audioLevel: Double
-    
+
     /// Recognized text so far (may be partial)
     let recognizedText: String
-    
+
+    /// Number of words matched sequentially from the start (0 = none matched)
+    let matchedWordCount: Int
+
+    /// Total number of expected words in the affirmation
+    let totalExpectedWords: Int
+
     /// Initial state for when listening begins
     static let initial = ListeningContext(
         elapsed: 0,
         audioLevel: 0,
-        recognizedText: ""
-    )
-}
-
-// MARK: - Score Result
-
-/// Complete resonance score with breakdown.
-///
-/// Contains everything needed to display the score UI and
-/// persist the record to SwiftData.
-struct ScoreResult: Equatable, Sendable {
-    
-    /// Final composite score (0.0 - 1.0)
-    let score: Double
-    
-    /// Individual scoring components
-    let components: ScoreComponents
-    
-    /// Duration of the spoken affirmation
-    let duration: TimeInterval
-    
-    /// The session mode used (for persistence)
-    let mode: SessionMode
-    
-    /// Recognized text from speech recognition
-    let recognizedText: String
-    
-    /// Qualitative rating derived from score
-    var rating: ResonanceRating {
-        ResonanceRating(score: Float(score))
-    }
-    
-    /// Score as integer percentage (0-100)
-    var percentScore: Int {
-        Int(score * 100)
-    }
-    
-    /// Converts to a ResonanceRecord for persistence
-    func toRecord() -> ResonanceRecord {
-        ResonanceRecord(
-            finalScore: Float(score),
-            textAccuracy: Float(components.textAccuracy),
-            vocalEnergy: Float(components.vocalEnergy),
-            pitchStability: Float(components.pitchStability),
-            sessionMode: mode,
-            duration: duration
-        )
-    }
-}
-
-// MARK: - Score Components
-
-/// Individual components that make up the resonance score.
-///
-/// These are kept as separate values for:
-/// 1. Displaying breakdown in UI
-/// 2. Showing improvement areas
-/// 3. Analytics and progress tracking
-struct ScoreComponents: Equatable, Sendable {
-    
-    /// Text accuracy (0.0 - 1.0)
-    /// How closely spoken words matched the expected affirmation
-    let textAccuracy: Double
-    
-    /// Vocal energy (0.0 - 1.0)
-    /// RMS energy relative to user's calibrated baseline
-    let vocalEnergy: Double
-    
-    /// Pitch stability (0.0 - 1.0)
-    /// Consistency of vocal pitch throughout
-    let pitchStability: Double
-    
-    /// Sample components for previews
-    static let sample = ScoreComponents(
-        textAccuracy: 0.92,
-        vocalEnergy: 0.78,
-        pitchStability: 0.85
-    )
-    
-    /// Perfect score components
-    static let perfect = ScoreComponents(
-        textAccuracy: 1.0,
-        vocalEnergy: 1.0,
-        pitchStability: 1.0
+        recognizedText: "",
+        matchedWordCount: 0,
+        totalExpectedWords: 0
     )
 }
 
@@ -339,24 +254,12 @@ extension PracticeFlow {
         }
     }
     
-    /// Whether we're analyzing speech
-    var isAnalyzing: Bool {
+    /// Whether the sparkle burst celebration is playing
+    var isCelebrating: Bool {
         switch self {
-        case .readAndSpeak(.analyzing):
+        case .readAndSpeak(.celebrating):
             return true
-        case .speakOnly(.analyzing):
-            return true
-        default:
-            return false
-        }
-    }
-    
-    /// Whether we're showing a score
-    var isShowingScore: Bool {
-        switch self {
-        case .readAndSpeak(.showingScore):
-            return true
-        case .speakOnly(.showingScore):
+        case .speakOnly(.celebrating):
             return true
         default:
             return false
@@ -379,9 +282,9 @@ extension PracticeFlow {
         }
     }
     
-    /// Whether navigation should be blocked (during score display)
+    /// Whether navigation should be blocked (during celebration)
     var shouldBlockNavigation: Bool {
-        isShowingScore
+        isCelebrating
     }
     
     // MARK: - Audio Level Access
@@ -405,20 +308,6 @@ extension PracticeFlow {
             return context
         case .speakOnly(.listening(let context)):
             return context
-        default:
-            return nil
-        }
-    }
-    
-    // MARK: - Score Access
-    
-    /// Current score result if showing score, otherwise nil
-    var scoreResult: ScoreResult? {
-        switch self {
-        case .readAndSpeak(.showingScore(let result)):
-            return result
-        case .speakOnly(.showingScore(let result)):
-            return result
         default:
             return nil
         }
@@ -472,9 +361,8 @@ extension ReadAndSpeakFlowPhase: CustomStringConvertible {
         case .idle: return "idle"
         case .ttsPlaying(let progress): return "ttsPlaying(\(Int(progress * 100))%)"
         case .preparingToListen: return "preparingToListen"
-        case .listening(let ctx): return "listening(\(String(format: "%.1f", ctx.elapsed))s)"
-        case .analyzing: return "analyzing"
-        case .showingScore(let result): return "showingScore(\(result.percentScore)%)"
+        case .listening(let ctx): return "listening(\(String(format: "%.1f", ctx.elapsed))s, \(ctx.matchedWordCount)/\(ctx.totalExpectedWords) words)"
+        case .celebrating: return "celebrating"
         }
     }
 }
@@ -484,9 +372,8 @@ extension SpeakOnlyFlowPhase: CustomStringConvertible {
         switch self {
         case .idle: return "idle"
         case .preparingToListen: return "preparingToListen"
-        case .listening(let ctx): return "listening(\(String(format: "%.1f", ctx.elapsed))s)"
-        case .analyzing: return "analyzing"
-        case .showingScore(let result): return "showingScore(\(result.percentScore)%)"
+        case .listening(let ctx): return "listening(\(String(format: "%.1f", ctx.elapsed))s, \(ctx.matchedWordCount)/\(ctx.totalExpectedWords) words)"
+        case .celebrating: return "celebrating"
         }
     }
 }

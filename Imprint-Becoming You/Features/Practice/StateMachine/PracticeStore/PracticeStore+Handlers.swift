@@ -540,6 +540,18 @@ extension PracticeStore {
                 break
             }
         }
+
+        // Log word match progress periodically (every new match)
+        if context.matchedWordCount > 0 && context.totalExpectedWords > 0 {
+            AppLogger.debug(
+                "Word match progress",
+                category: .speech,
+                context: [
+                    "matched": context.matchedWordCount,
+                    "total": context.totalExpectedWords
+                ]
+            )
+        }
     }
     
     func handleListeningCompleted(text: String, duration: TimeInterval) {
@@ -549,71 +561,37 @@ extension PracticeStore {
             handleListeningTimedOut()
             return
         }
-        
-        // Cancel capture and transition to analyzing
+
+        // Cancel capture and transition to celebrating
         speechCaptureService.cancelCapture()
-        transitionToAnalyzing()
-        
-        // Calculate score
-        // Fire-and-forget: score calculation is quick, result sent via event
-        Task { [weak self] in
-            guard let self = self else { return }
-            
-            var score: Double = 0.0
-            var components = ScoreComponents(textAccuracy: 0, vocalEnergy: 0, pitchStability: 0)
-            
-            guard let rawExpectedText = self.currentAffirmation?.text else {
-                self.send(.scoreFailed(.scoreCalculationError("No affirmation text")))
-                return
-            }
-            
-            // Strip citation (e.g., "(Philippians 4:13)") from expected text
-            // so verse references don't need to be spoken
-            let expectedText = rawExpectedText.strippingTrailingCitation
-            
-            let result = TextAccuracyCalculator.evaluateCompletion(
-                expected: expectedText,
-                recognized: trimmedText
-            )
-            
-            AppLogger.debug(
-                "Score calculated",
-                category: .practice,
-                context: ["accuracy": Int(result.accuracy * 100)]
-            )
-            
-            score = Double(result.accuracy)
-            components = ScoreComponents(
-                textAccuracy: Double(result.accuracy),
-                vocalEnergy: Double(result.accuracy),
-                pitchStability: Double(result.accuracy)
-            )
-            
-            let scoreResult = ScoreResult(
-                score: score,
-                components: components,
-                duration: duration,
-                mode: self.currentMode,
-                recognizedText: trimmedText
-            )
-            
-            self.send(.scoreCalculated(scoreResult))
-        }
-    }
-    
-    func transitionToAnalyzing() {
-        withAnimation(AppTheme.Animation.quick) {
-            switch flow {
-            case .readAndSpeak:
-                setFlow(.readAndSpeak(.analyzing))
-                setSegmentProgress(0.85)
-            case .speakOnly:
-                setFlow(.speakOnly(.analyzing))
-                setSegmentProgress(0.8)
-            default:
-                break
+
+        AppLogger.debug(
+            "Listening completed — starting celebration",
+            category: .practice,
+            context: [
+                "recognizedWords": trimmedText.split(separator: " ").count,
+                "duration": String(format: "%.1f", duration)
+            ]
+        )
+
+        // Record session result as completed
+        if let affirmation = currentAffirmation {
+            affirmation.speakCount += 1
+
+            if let index = sessionResults.firstIndex(where: { $0.affirmationId == affirmation.id }) {
+                // Mark as completed for this loop
+                if loopConfiguration.currentLoopIteration > 1 {
+                    addLoopCompletionToResult(at: index, completed: true)
+                } else {
+                    updateSessionResult(at: index, wasCompleted: true)
+                }
             }
         }
+
+        recordEngagement(.speak)
+
+        // Transition to celebrating
+        send(.celebrationStarted)
     }
 }
 
@@ -710,91 +688,54 @@ extension PracticeStore {
     }
 }
 
-// MARK: - Score Handlers
+// MARK: - Celebration Handlers
 
 extension PracticeStore {
-    
-    func handleScoreCalculated(_ result: ScoreResult) {
-        setLastResonanceRecord(result.toRecord())
-        
-        if let affirmation = currentAffirmation {
-            affirmation.speakCount += 1
-            affirmation.resonanceScores.append(result.toRecord())
-            
-            // Update session result with score (supports loop scores)
-            if let index = sessionResults.firstIndex(where: { $0.affirmationId == affirmation.id }) {
-                AppLogger.debug(
-                    "Score calculated for affirmation",
-                    category: .practice,
-                    context: [
-                        "affirmationId": affirmation.id.uuidString.prefix(8),
-                        "loop": loopConfiguration.currentLoopIteration,
-                        "index": index
-                    ]
-                )
-                
-                // For loop support: add score to loopScores array if we're on a subsequent loop
-                if loopConfiguration.currentLoopIteration > 1 {
-                    addLoopScoreToResult(at: index, score: result.percentScore)
-                } else {
-                    updateSessionResult(at: index, score: result.percentScore)
-                }
-            } else {
-                AppLogger.error(
-                    "Could not find result for affirmation",
-                    category: .practice,
-                    context: ["affirmationId": affirmation.id.uuidString.prefix(8)]
-                )
-            }
-        }
-        
-        recordEngagement(.speak)
-        recordResonance(result.toRecord())
-        
+
+    /// Transitions to celebrating phase and schedules auto-advance after celebration duration.
+    func handleCelebrationStarted() {
         withAnimation(AppTheme.Animation.standard) {
             switch flow {
             case .readAndSpeak:
-                setFlow(.readAndSpeak(.showingScore(result)))
+                setFlow(.readAndSpeak(.celebrating))
             case .speakOnly:
-                setFlow(.speakOnly(.showingScore(result)))
+                setFlow(.speakOnly(.celebrating))
             default:
                 break
             }
             setSegmentProgress(1.0)
         }
-        
+
         lockNavigation()
-        
-        // Capture generation BEFORE Task to detect if user navigates during score display
+
+        // Capture generation BEFORE Task to detect if user navigates during celebration
         let generation = flowGeneration
-        
-        // Fire-and-forget: short delay before score display completes
-        // Uses flowGeneration pattern to prevent double-skip when user manually navigates
-        // while score is showing (similar to how timeout modal uses timedOutAffirmationId)
+
+        // Schedule celebration completion after the sparkle burst animation finishes
         Task { [weak self] in
             guard let self = self else { return }
-            try? await Task.sleep(for: PracticeTiming.scoreDisplayDuration)
-            
-            // If user navigated away during score display, flowGeneration will have changed
-            // This prevents the auto-advance from firing after manual navigation
+            try? await Task.sleep(for: PracticeTiming.celebrationDuration)
+
+            // If user navigated away during celebration, flowGeneration will have changed
             guard self.shouldContinueFlow(generation: generation) else {
                 #if DEBUG
-                AppLogger.debug("Score display: User navigated away, skipping auto-advance", category: .practice)
+                AppLogger.debug("Celebration: User navigated away, skipping auto-advance", category: .practice)
                 #endif
                 return
             }
-            
-            self.send(.scoreDisplayCompleted)
+
+            self.send(.celebrationCompleted)
         }
     }
-    
-    func handleScoreDisplayCompleted() {
+
+    /// Handles completion of the celebration animation — auto-advances or completes the loop.
+    func handleCelebrationCompleted() {
         // Check if we've completed the current loop
         if isSessionActive && sessionIndex >= sessionAffirmations.count - 1 {
             send(.loopIterationCompleted)
             return
         }
-        
+
         if canGoNext {
             pendingAutoAdvance = .next
         }

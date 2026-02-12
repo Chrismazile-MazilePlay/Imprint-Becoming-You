@@ -443,11 +443,36 @@ extension PracticeStore {
                 case .audioLevel(let level):
                     lastAudioLevel = Double(level)
                     let elapsed = Date().timeIntervalSince(startTime)
-                    
+
                     if elapsed >= PracticeTiming.maximumListeningDuration { break captureLoop }
-                    
-                    let context = ListeningContext(elapsed: elapsed, audioLevel: lastAudioLevel, recognizedText: lastTranscription)
+
+                    // Compute sequential word match for real-time highlighting
+                    let matchResult = SequentialWordMatcher.matchSequentially(
+                        expected: affirmationText,
+                        recognized: lastTranscription
+                    )
+
+                    let context = ListeningContext(
+                        elapsed: elapsed,
+                        audioLevel: lastAudioLevel,
+                        recognizedText: lastTranscription,
+                        matchedWordCount: matchResult.matchedCount,
+                        totalExpectedWords: matchResult.totalExpectedWords
+                    )
                     self.send(.listeningUpdate(context))
+
+                    // Auto-complete when all words are matched — no silence wait needed
+                    if matchResult.isComplete {
+                        AppLogger.debug(
+                            "All words matched — auto-completing",
+                            category: .speech,
+                            context: [
+                                "matchedWords": matchResult.matchedCount,
+                                "totalWords": matchResult.totalExpectedWords
+                            ]
+                        )
+                        break captureLoop
+                    }
                     
                 case .silenceDetected(let silenceDuration):
                     if lastTranscription.isEmpty {
@@ -533,22 +558,33 @@ extension PracticeStore {
             send(.listeningTimedOut)
             return
         }
-        
-        let completion = TextAccuracyCalculator.evaluateCompletion(expected: affirmationText, recognized: lastTranscription)
-        
+
+        // Use sequential word matcher for final completion check
+        let matchResult = SequentialWordMatcher.matchSequentially(
+            expected: affirmationText,
+            recognized: lastTranscription
+        )
+
+        // Fall back to TextAccuracyCalculator for partial completion detection
+        let completion = TextAccuracyCalculator.evaluateCompletion(
+            expected: affirmationText,
+            recognized: lastTranscription
+        )
+
         AppLogger.debug(
             "Final completion check",
             category: .speech,
             context: [
-                "isComplete": completion.isComplete,
-                "accuracy": String(format: "%.2f", completion.accuracy),
-                "wordsCovered": String(format: "%.2f", completion.wordsCovered),
-                "matchedWords": completion.matchedWordCount,
-                "expectedWords": completion.expectedWordCount
+                "sequentialComplete": matchResult.isComplete,
+                "matchedWords": matchResult.matchedCount,
+                "totalWords": matchResult.totalExpectedWords,
+                "textAccuracy": String(format: "%.2f", completion.accuracy),
+                "textComplete": completion.isComplete
             ]
         )
-        
-        if completion.isComplete {
+
+        // Accept if either sequential match OR text accuracy says complete
+        if matchResult.isComplete || completion.isComplete {
             send(.listeningCompleted(recognizedText: lastTranscription, duration: duration))
         } else {
             send(.listeningTimedOut)

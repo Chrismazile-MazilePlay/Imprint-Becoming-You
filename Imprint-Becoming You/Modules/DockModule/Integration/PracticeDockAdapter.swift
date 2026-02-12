@@ -404,12 +404,10 @@ private extension PracticeDockAdapter {
                 return .preparing
             case .listening(let context):
                 return .listening(audioLevel: CGFloat(context.audioLevel))
-            case .analyzing:
-                return .settling
-            case .showingScore(let result):
-                return .showingScore(percentScore: result.percentScore)
+            case .celebrating:
+                return .idle
             }
-            
+
         case .speakOnly(let phase):
             switch phase {
             case .idle:
@@ -419,10 +417,8 @@ private extension PracticeDockAdapter {
                 return .preparing
             case .listening(let context):
                 return .listening(audioLevel: CGFloat(context.audioLevel))
-            case .analyzing:
-                return .settling
-            case .showingScore(let result):
-                return .showingScore(percentScore: result.percentScore)
+            case .celebrating:
+                return .idle
             }
         }
     }
@@ -452,10 +448,10 @@ private extension PracticeDockAdapter {
                 return false  // Not started yet
             case .ttsPlaying, .preparingToListen, .listening:
                 return true   // Segment shows as filled
-            case .analyzing, .showingScore:
-                return true   // Keep filled during analysis and score
+            case .celebrating:
+                return true   // Keep filled during celebration
             }
-            
+
         // SpeakOnly (toggle mode): segment filled during active phases
         case .speakOnly(let phase):
             switch phase {
@@ -463,8 +459,8 @@ private extension PracticeDockAdapter {
                 return false  // Not started yet
             case .preparingToListen, .listening:
                 return true   // Segment shows as filled
-            case .analyzing, .showingScore:
-                return true   // Keep filled during analysis and score
+            case .celebrating:
+                return true   // Keep filled during celebration
             }
         }
     }

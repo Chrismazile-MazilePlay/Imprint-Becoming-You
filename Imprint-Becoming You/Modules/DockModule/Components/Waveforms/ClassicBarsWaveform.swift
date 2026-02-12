@@ -262,8 +262,6 @@ struct ClassicBarsWaveformView: View {
             return .listening
         case .settling:
             return .listeningSettling
-        case .showingScore:
-            return .hidden
         }
     }
 }

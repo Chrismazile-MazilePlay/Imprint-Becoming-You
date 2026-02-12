@@ -11,139 +11,119 @@ import Foundation
 
 /// Tracks a single affirmation's result within a session.
 ///
-/// Holds the affirmation reference and its resonance score for display
-/// in the Results Summary view. Score is optional - `nil` means skipped
-/// (for scoring modes) or not applicable (for Read Aloud mode).
+/// Holds the affirmation reference and its completion status for display
+/// in the Results Summary view. Each loop iteration records whether the
+/// user completed the affirmation (all words matched) or skipped it.
 ///
 /// ## Loop Support
-/// When looping is enabled, scores from each loop iteration are stored
-/// in `loopScores` array. The `score` property returns the first/most
-/// recent score for backward compatibility.
+/// When looping is enabled, completion status from each loop iteration
+/// is stored in `loopCompletions` array.
 struct SessionAffirmationResult: Identifiable, Sendable {
-    
+
     /// Unique identifier for this result
     let id: UUID
-    
+
     /// The affirmation that was practiced
     let affirmationId: UUID
-    
+
     /// The affirmation text (captured at time of practice)
     let text: String
-    
+
     /// The category of the affirmation
     let category: String
-    
-    /// Scores from each loop iteration (index = loopIteration - 1).
-    /// Empty array means not yet scored or skipped.
-    var loopScores: [Int]
-    
+
+    /// Completion status for each loop iteration (index = loopIteration - 1).
+    /// `true` = completed (all words matched), `false` = incomplete.
+    /// Empty array means not yet attempted or skipped.
+    var loopCompletions: [Bool]
+
     /// Whether the affirmation is favorited
     var isFavorited: Bool
-    
-    /// Whether this result is from a mode that produces scores (Read & Speak, Speak Only)
-    /// When false (Read Aloud), no score area is shown.
-    /// When true and score is nil, "Skipped" is shown.
+
+    /// Whether this result is from a mode that produces completion tracking (Read & Speak, Speak Only)
+    /// When false (Read Aloud), no completion area is shown.
+    /// When true and no completions recorded, "Skipped" is shown.
     let isFromScoringMode: Bool
-    
+
     // MARK: - Computed Properties
-    
-    /// The resonance score (0-100), or nil if skipped/not applicable.
-    /// Returns the first loop score for backward compatibility.
-    var score: Int? {
-        get { loopScores.first }
-        set {
-            if let newValue = newValue {
-                if loopScores.isEmpty {
-                    loopScores = [newValue]
-                } else {
-                    loopScores[0] = newValue
-                }
-            } else {
-                loopScores = []
-            }
-        }
+
+    /// Whether the affirmation was completed in the first (or only) loop.
+    var wasCompleted: Bool {
+        loopCompletions.first ?? false
     }
-    
-    /// Average score across all loop iterations.
-    /// Returns nil if no scores recorded.
-    var averageScore: Int? {
-        guard !loopScores.isEmpty else { return nil }
-        let total = loopScores.reduce(0, +)
-        return total / loopScores.count
-    }
-    
-    /// Best score achieved across all loop iterations.
-    var bestScore: Int? {
-        loopScores.max()
-    }
-    
-    /// Whether this affirmation was skipped (no score in a scoring mode)
-    var wasSkipped: Bool { isFromScoringMode && loopScores.isEmpty }
-    
+
+    /// Whether this affirmation was skipped (no attempts in a scoring mode)
+    var wasSkipped: Bool { isFromScoringMode && loopCompletions.isEmpty }
+
     /// Goal category as enum (if valid)
     var goalCategory: GoalCategory? {
         GoalCategory(rawValue: category)
     }
-    
-    /// Whether this result has scores from multiple loops
-    var hasMultipleLoopScores: Bool {
-        loopScores.count > 1
+
+    /// Whether this result has completions from multiple loops
+    var hasMultipleLoops: Bool {
+        loopCompletions.count > 1
     }
-    
+
+    /// Number of loops that were completed successfully
+    var completedLoopCount: Int {
+        loopCompletions.filter { $0 }.count
+    }
+
     // MARK: - Initialization
-    
-    /// Creates a result from an affirmation with a score
-    init(affirmation: Affirmation, score: Int, isFromScoringMode: Bool = true) {
+
+    /// Creates a result from an affirmation marked as completed
+    init(affirmation: Affirmation, wasCompleted: Bool, isFromScoringMode: Bool = true) {
         self.id = UUID()
         self.affirmationId = affirmation.id
         self.text = affirmation.text
         self.category = affirmation.category
-        self.loopScores = [score]
+        self.loopCompletions = [wasCompleted]
         self.isFavorited = affirmation.isFavorited
         self.isFromScoringMode = isFromScoringMode
     }
-    
-    /// Creates a result from an affirmation without a score (pending, skipped, or non-scoring mode)
+
+    /// Creates a result from an affirmation without completion data (pending, skipped, or non-scoring mode)
     init(affirmation: Affirmation, isFromScoringMode: Bool) {
         self.id = UUID()
         self.affirmationId = affirmation.id
         self.text = affirmation.text
         self.category = affirmation.category
-        self.loopScores = []
+        self.loopCompletions = []
         self.isFavorited = affirmation.isFavorited
         self.isFromScoringMode = isFromScoringMode
     }
-    
-    /// Creates a result with explicit loop scores array
+
+    /// Creates a result with explicit loop completions array
     init(
         affirmation: Affirmation,
-        loopScores: [Int],
+        loopCompletions: [Bool],
         isFromScoringMode: Bool = true
     ) {
         self.id = UUID()
         self.affirmationId = affirmation.id
         self.text = affirmation.text
         self.category = affirmation.category
-        self.loopScores = loopScores
+        self.loopCompletions = loopCompletions
         self.isFavorited = affirmation.isFavorited
         self.isFromScoringMode = isFromScoringMode
     }
-    
+
     // MARK: - Methods
-    
-    /// Adds a score for the current loop iteration.
-    /// - Parameter score: The score to add
-    mutating func addLoopScore(_ score: Int) {
-        loopScores.append(score)
+
+    /// Records completion status for the current loop iteration.
+    /// - Parameter completed: Whether the user completed the affirmation
+    mutating func addLoopCompletion(_ completed: Bool) {
+        loopCompletions.append(completed)
     }
-    
-    /// Gets the score for a specific loop iteration.
+
+    /// Gets the completion status for a specific loop iteration.
     /// - Parameter iteration: 1-based loop iteration number
-    /// - Returns: The score for that iteration, or nil if not available
-    func score(forLoop iteration: Int) -> Int? {
+    /// - Returns: Whether the affirmation was completed in that iteration, or nil if not attempted
+    func wasCompleted(forLoop iteration: Int) -> Bool? {
         let index = iteration - 1
-        guard loopScores.indices.contains(index) else { return nil }
-        return loopScores[index]
+        guard loopCompletions.indices.contains(index) else { return nil }
+        return loopCompletions[index]
     }
 }
 
@@ -152,97 +132,67 @@ struct SessionAffirmationResult: Identifiable, Sendable {
 /// Complete summary of a practice session.
 ///
 /// Contains all affirmation results and metadata needed to display
-/// the Results Summary view. Now supports loop tracking and saved
+/// the Results Summary view. Supports loop tracking and saved
 /// session playback identification.
 struct SessionSummary: Sendable {
-    
+
     /// The mode that was practiced
     let mode: SessionMode
-    
+
     /// Individual affirmation results in order practiced
     var results: [SessionAffirmationResult]
-    
+
     /// Session start time
     let startedAt: Date
-    
+
     /// Session completion time
     let completedAt: Date
-    
+
     /// Number of loop iterations completed (1 = single play)
     let loopCount: Int
-    
+
     /// ID of the saved session being played, if any
     let savedSessionId: UUID?
-    
+
     /// Title of the saved session being played, if any
     let savedSessionTitle: String?
-    
+
     // MARK: - Computed Properties
-    
+
     /// Number of affirmations in the session
     var count: Int { results.count }
-    
+
     /// Whether this was a saved session playback
     var isSavedSessionPlayback: Bool {
         savedSessionId != nil
     }
-    
-    /// Average score across all scored affirmations (excludes skipped)
-    var averageScore: Int {
-        let scoredResults = results.compactMap { $0.score }
-        guard !scoredResults.isEmpty else { return 0 }
-        let total = scoredResults.reduce(0, +)
-        return total / scoredResults.count
+
+    /// Number of affirmations that were completed (all words matched)
+    var completedCount: Int {
+        results.filter { !$0.loopCompletions.isEmpty && $0.wasCompleted }.count
     }
-    
+
     /// Number of affirmations that were skipped
     var skippedCount: Int {
         results.filter { $0.wasSkipped }.count
     }
-    
-    /// Average scores per loop iteration.
-    /// Returns array where index = loopIteration - 1.
-    var averageScoresByLoop: [Int] {
-        guard loopCount > 1 else {
-            return [averageScore]
-        }
-        
-        var loopAverages: [Int] = []
-        
-        for loopIndex in 0..<loopCount {
-            let scoresForLoop = results.compactMap { result -> Int? in
-                guard result.loopScores.indices.contains(loopIndex) else { return nil }
-                return result.loopScores[loopIndex]
-            }
-            
-            guard !scoresForLoop.isEmpty else {
-                loopAverages.append(0)
-                continue
-            }
-            
-            let total = scoresForLoop.reduce(0, +)
-            loopAverages.append(total / scoresForLoop.count)
-        }
-        
-        return loopAverages
-    }
-    
-    /// Results sorted for display: scored first (in order), then skipped (in order)
+
+    /// Results sorted for display: completed first (in order), then skipped (in order)
     var sortedResults: [SessionAffirmationResult] {
-        // For non-scoring modes (Read Aloud), return as-is since there's no scored/skipped distinction
+        // For non-scoring modes (Read Aloud), return as-is since there's no completed/skipped distinction
         guard mode == .readThenSpeak || mode == .speakOnly else {
             return results
         }
-        
-        // Separate scored and skipped while preserving original order within each group
-        let scored = results.filter { $0.score != nil }
+
+        // Separate completed and skipped while preserving original order within each group
+        let completed = results.filter { !$0.loopCompletions.isEmpty }
         let skipped = results.filter { $0.wasSkipped }
-        
-        return scored + skipped
+
+        return completed + skipped
     }
-    
+
     // MARK: - Initialization
-    
+
     /// Creates an empty summary for a mode
     init(mode: SessionMode) {
         self.mode = mode
@@ -253,7 +203,7 @@ struct SessionSummary: Sendable {
         self.savedSessionId = nil
         self.savedSessionTitle = nil
     }
-    
+
     /// Creates a complete summary
     init(mode: SessionMode, results: [SessionAffirmationResult], startedAt: Date) {
         self.mode = mode
@@ -264,7 +214,7 @@ struct SessionSummary: Sendable {
         self.savedSessionId = nil
         self.savedSessionTitle = nil
     }
-    
+
     /// Creates a complete summary with loop and saved session info
     init(
         mode: SessionMode,
@@ -287,35 +237,35 @@ struct SessionSummary: Sendable {
 // MARK: - Sample Data
 
 extension SessionAffirmationResult {
-    
-    /// Sample result for previews (scored)
+
+    /// Sample result for previews (completed)
     static var sample: SessionAffirmationResult {
         SessionAffirmationResult(
             affirmation: .sample,
-            score: 87,
+            wasCompleted: true,
             isFromScoringMode: true
         )
     }
-    
+
     /// Sample skipped result for previews
     static var sampleSkipped: SessionAffirmationResult {
         SessionAffirmationResult(affirmation: .sample, isFromScoringMode: true)
     }
-    
-    /// Sample Read Aloud result for previews (no score area)
+
+    /// Sample Read Aloud result for previews (no completion area)
     static var sampleReadAloud: SessionAffirmationResult {
         SessionAffirmationResult(affirmation: .sample, isFromScoringMode: false)
     }
-    
-    /// Sample result with multiple loop scores
+
+    /// Sample result with multiple loop completions
     static var sampleWithLoops: SessionAffirmationResult {
         SessionAffirmationResult(
             affirmation: .sample,
-            loopScores: [84, 91, 88],
+            loopCompletions: [true, true, true],
             isFromScoringMode: true
         )
     }
-    
+
     /// Collection of sample results for previews (includes some skipped)
     static var samples: [SessionAffirmationResult] {
         Affirmation.samples.enumerated().map { index, affirmation in
@@ -325,21 +275,21 @@ extension SessionAffirmationResult {
             } else {
                 return SessionAffirmationResult(
                     affirmation: affirmation,
-                    score: Int.random(in: 70...98),
+                    wasCompleted: true,
                     isFromScoringMode: true
                 )
             }
         }
     }
-    
-    /// Collection of sample Read Aloud results (no scores)
+
+    /// Collection of sample Read Aloud results (no completions)
     static var samplesReadAloud: [SessionAffirmationResult] {
         Affirmation.samples.map { affirmation in
             SessionAffirmationResult(affirmation: affirmation, isFromScoringMode: false)
         }
     }
-    
-    /// Collection of sample results with multiple loop scores
+
+    /// Collection of sample results with multiple loop completions
     static var samplesWithLoops: [SessionAffirmationResult] {
         Affirmation.samples.enumerated().map { index, affirmation in
             if index == 2 {
@@ -348,11 +298,7 @@ extension SessionAffirmationResult {
             } else {
                 return SessionAffirmationResult(
                     affirmation: affirmation,
-                    loopScores: [
-                        Int.random(in: 70...90),
-                        Int.random(in: 75...95),
-                        Int.random(in: 80...98)
-                    ],
+                    loopCompletions: [true, true, true],
                     isFromScoringMode: true
                 )
             }
@@ -361,7 +307,7 @@ extension SessionAffirmationResult {
 }
 
 extension SessionSummary {
-    
+
     /// Sample summary for previews
     static var sample: SessionSummary {
         SessionSummary(
@@ -370,7 +316,7 @@ extension SessionSummary {
             startedAt: Date().addingTimeInterval(-300)
         )
     }
-    
+
     /// Sample summary with multiple loops for previews
     static var sampleWithLoops: SessionSummary {
         SessionSummary(
@@ -380,7 +326,7 @@ extension SessionSummary {
             loopCount: 3
         )
     }
-    
+
     /// Sample summary from saved session playback
     static var sampleSavedSession: SessionSummary {
         SessionSummary(

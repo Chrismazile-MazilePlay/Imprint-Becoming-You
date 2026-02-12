@@ -272,25 +272,6 @@ enum Constants {
         static let sleep: Float = 6.0
     }
     
-    // MARK: - Resonance Scoring
-    
-    enum ResonanceScoring {
-        /// Weight for text accuracy in final score
-        static let textAccuracyWeight: Float = 0.10
-        
-        /// Weight for vocal energy (RMS) in final score
-        static let vocalEnergyWeight: Float = 0.60
-        
-        /// Weight for pitch stability in final score
-        static let pitchStabilityWeight: Float = 0.30
-        
-        /// Minimum score threshold for "good" resonance
-        static let goodThreshold: Float = 0.6
-        
-        /// Minimum score threshold for "excellent" resonance
-        static let excellentThreshold: Float = 0.8
-    }
-    
     // MARK: - Cache Configuration
     
     enum Cache {
@@ -405,7 +386,6 @@ enum Constants {
     enum NotificationNames {
         static let sessionDidComplete = Notification.Name("sessionDidComplete")
         static let affirmationDidChange = Notification.Name("affirmationDidChange")
-        static let resonanceScoreUpdated = Notification.Name("resonanceScoreUpdated")
         static let subscriptionStatusChanged = Notification.Name("subscriptionStatusChanged")
         static let kokoroTTSReady = Notification.Name("kokoroTTSReady")
     }

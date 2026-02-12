@@ -43,6 +43,15 @@ struct AffirmationContentView: View {
     /// Maximum height for the affirmation text before scrolling activates.
     let maxTextHeight: CGFloat
 
+    /// Whether the view is in listening mode (shows word-by-word highlighting).
+    var isListeningMode: Bool = false
+
+    /// Number of words matched sequentially during listening (0 = none).
+    var matchedWordCount: Int = 0
+
+    /// Total expected words in the affirmation for word highlighting.
+    var totalExpectedWords: Int = 0
+
     /// Top padding to account for HUD and vertical centering.
     let topPadding: CGFloat
 
@@ -67,14 +76,22 @@ struct AffirmationContentView: View {
                     .padding(.bottom, AppTheme.Spacing.lg)
             }
 
-            // Affirmation text — auto-scrolls long texts with fixed timing.
-            // scrollGeneration guarantees position reset on every segment start.
-            AutoScrollingAffirmationText(
-                text: affirmation.text,
-                isActive: isCurrentPage && isScrollActive,
-                scrollGeneration: scrollGeneration,
-                maxHeight: maxTextHeight
-            )
+            // Affirmation text — switches between auto-scrolling and
+            // word-highlighted rendering based on listening mode.
+            if isListeningMode {
+                WordHighlightAffirmationText(
+                    text: affirmation.text,
+                    matchedWordCount: matchedWordCount,
+                    maxHeight: maxTextHeight
+                )
+            } else {
+                AutoScrollingAffirmationText(
+                    text: affirmation.text,
+                    isActive: isCurrentPage && isScrollActive,
+                    scrollGeneration: scrollGeneration,
+                    maxHeight: maxTextHeight
+                )
+            }
 
             Spacer()
 

@@ -296,8 +296,6 @@ public struct DockWaveformView: View {
             return .listening
         case .settling:
             return .listeningSettling
-        case .showingScore:
-            return .hidden
         }
     }
 }

@@ -425,7 +425,7 @@ public extension MockDockAdapter {
         adapter.configuration = .session
         adapter.currentMode = .readAndSpeak
         adapter.binauralPreset = .focus
-        adapter.centerContentState = .showingScore(percentScore: 85)
+        adapter.centerContentState = .idle
         adapter.sessionSegments = DockSessionSegments(
             configs: Array(repeating: .default, count: 5),
             currentIndex: 4,
@@ -545,11 +545,11 @@ public extension MockDockAdapter {
     /// - Parameter score: The score to display (0-100)
     func simulateScore(_ score: Int) {
         centerContentState = .settling
-        
-        // Delay before showing score (simulating analysis)
+
+        // Delay before returning to idle (simulating transition)
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(300))
-            centerContentState = .showingScore(percentScore: score)
+            centerContentState = .idle
         }
     }
 }

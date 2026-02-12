@@ -541,7 +541,7 @@ extension PracticeStore {
         #if DEBUG
         AppLogger.debug("showSessionSummary: \(sessionResults.count) results", category: .practice)
         for (i, result) in sessionResults.enumerated() {
-            AppLogger.debug("  [\(i)] affirmation=\(result.affirmationId), loopScores=\(result.loopScores)", category: .practice)
+            AppLogger.debug("  [\(i)] affirmation=\(result.affirmationId), loopCompletions=\(result.loopCompletions)", category: .practice)
         }
         #endif
 

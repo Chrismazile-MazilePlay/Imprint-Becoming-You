@@ -159,26 +159,18 @@ public extension AccessibilityAnnouncement {
     
     /// Announces session completion with summary.
     ///
-    /// - Parameters:
-    ///   - affirmationCount: Number of affirmations practiced
-    ///   - averageScore: Optional average resonance score
+    /// - Parameter affirmationCount: Number of affirmations practiced
     static func announceSessionComplete(
-        affirmationCount: Int,
-        averageScore: Int?
+        affirmationCount: Int
     ) {
         var message = "Session complete. You practiced \(affirmationCount) affirmation"
         if affirmationCount != 1 {
             message += "s"
         }
-        
-        if let avg = averageScore {
-            message += " with an average score of \(avg) percent"
-        }
-        
         message += "."
-        
+
         announce(message, delay: 0.3)
-        
+
         // Post screen change after announcement
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(0.5))

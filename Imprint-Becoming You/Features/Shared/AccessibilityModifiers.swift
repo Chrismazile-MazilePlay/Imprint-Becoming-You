@@ -172,7 +172,7 @@ extension View {
     ///
     /// ## Example
     /// ```swift
-    /// DockScoreDisplay(score: displayScore)
+    /// ScoreView(score: displayScore)
     ///     .announceScore(displayScore)
     /// ```
     func announceScore(_ score: Int?) -> some View {
@@ -302,12 +302,10 @@ private struct PracticeFlowAnnouncementModifier: ViewModifier {
                 return "Get ready to speak"
             case .listening:
                 return "Speak now"
-            case .analyzing:
-                return "Analyzing your speech"
-            case .showingScore:
-                return nil // Score announced separately via announceScore modifier
+            case .celebrating:
+                return "Great job! All words matched"
             }
-            
+
         case .speakOnly(let phase):
             switch phase {
             case .idle:
@@ -316,10 +314,8 @@ private struct PracticeFlowAnnouncementModifier: ViewModifier {
                 return "Get ready to speak"
             case .listening:
                 return "Speak now"
-            case .analyzing:
-                return "Analyzing your speech"
-            case .showingScore:
-                return nil // Score announced separately via announceScore modifier
+            case .celebrating:
+                return "Great job! All words matched"
             }
         }
     }

@@ -185,6 +185,11 @@ struct PracticePageView: View {
             )
 
 
+            // Sparkle burst celebration overlay — above content, below HUD
+            SparkleBurstView(isActive: store.flow.isCelebrating)
+                .allowsHitTesting(false)
+                .ignoresSafeArea()
+
             VStack {
                 // Top HUD (doesn't move with gesture)
                 builder.buildHUD(
@@ -399,16 +404,14 @@ struct PracticePageView: View {
             case .ttsPlaying: return .playing
             case .preparingToListen: return .waitingToSpeak
             case .listening: return .listening
-            case .analyzing: return .analyzing
-            case .showingScore: return .showingScore
+            case .celebrating: return .celebrating
             }
         case .speakOnly(let phase):
             switch phase {
             case .idle: return .displaying
             case .preparingToListen: return .waitingToSpeak
             case .listening: return .listening
-            case .analyzing: return .analyzing
-            case .showingScore: return .showingScore
+            case .celebrating: return .celebrating
             }
         }
     }

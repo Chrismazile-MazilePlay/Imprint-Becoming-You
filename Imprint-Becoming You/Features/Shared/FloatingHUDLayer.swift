@@ -56,12 +56,8 @@ struct FloatingHUDLayer: View {
         store.flow.isListening
     }
     
-    private var isShowingScore: Bool {
-        store.flow.isShowingScore
-    }
-    
-    private var currentScore: Double? {
-        store.flow.scoreResult?.score
+    private var isCelebrating: Bool {
+        store.flow.isCelebrating
     }
     
     /// Whether to show the loop progress chip
@@ -159,9 +155,7 @@ struct FloatingHUDLayer: View {
     
     @ViewBuilder
     private var centerChip: some View {
-        if isShowingScore, let score = currentScore {
-            ResonanceChip(score: score)
-        } else if isListening {
+        if isListening {
             ListeningChip(isVisible: true)
         }
     }
@@ -270,11 +264,11 @@ struct FloatingHUDLayer: View {
     }
 }
 
-#Preview("HUD - Showing Score") {
+#Preview("HUD - Celebrating") {
     ZStack {
         Color.black.ignoresSafeArea()
         FloatingHUDLayer(
-            store: .previewShowingScore,
+            store: .previewCelebrating,
             onProfileTap: {},
             onPromptsTap: {}
         )

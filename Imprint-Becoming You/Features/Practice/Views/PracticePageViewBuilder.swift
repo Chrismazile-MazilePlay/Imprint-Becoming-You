@@ -98,12 +98,19 @@ struct PracticePageViewBuilder {
         maxTextHeight: CGFloat
     ) -> some View {
         if let affirmation = affirmation(at: index) {
+            let isCurrentPage = index == store.currentIndex
+            let listeningContext = store.flow.listeningContext
+            let isListening = isCurrentPage && store.flow.isListening
+
             AffirmationContentView(
                 affirmation: affirmation,
-                isCurrentPage: index == store.currentIndex,
+                isCurrentPage: isCurrentPage,
                 isScrollActive: isScrollActive,
                 scrollGeneration: store.flowGeneration,
                 maxTextHeight: maxTextHeight,
+                isListeningMode: isListening,
+                matchedWordCount: isListening ? (listeningContext?.matchedWordCount ?? 0) : 0,
+                totalExpectedWords: isListening ? (listeningContext?.totalExpectedWords ?? 0) : 0,
                 topPadding: topPadding,
                 bottomPadding: bottomPadding,
                 onShare: { store.send(.shareAffirmation) },

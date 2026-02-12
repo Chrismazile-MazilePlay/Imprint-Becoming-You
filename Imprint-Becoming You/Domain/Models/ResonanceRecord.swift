@@ -151,14 +151,14 @@ struct ResonanceRecord: Sendable, Codable, Equatable, Identifiable {
         Int(finalScore * 100)
     }
     
-    /// Whether this score meets the "good" threshold
+    /// Whether this score meets the "good" threshold (60%+)
     var isGoodScore: Bool {
-        finalScore >= Constants.ResonanceScoring.goodThreshold
+        finalScore >= 0.6
     }
-    
-    /// Whether this score meets the "excellent" threshold
+
+    /// Whether this score meets the "excellent" threshold (80%+)
     var isExcellentScore: Bool {
-        finalScore >= Constants.ResonanceScoring.excellentThreshold
+        finalScore >= 0.8
     }
 }
 

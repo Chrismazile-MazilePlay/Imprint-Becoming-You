@@ -51,22 +51,18 @@ extension PracticeStore {
         store.setFlow(.readAndSpeak(.listening(ListeningContext(
             elapsed: 1.5,
             audioLevel: 0.6,
-            recognizedText: "I am confident..."
+            recognizedText: "I am confident...",
+            matchedWordCount: 3,
+            totalExpectedWords: 5
         ))))
         return store
     }
     
-    /// Preview store showing a score result.
-    static var previewShowingScore: PracticeStore {
+    /// Preview store showing a celebration.
+    static var previewCelebrating: PracticeStore {
         let store = PracticeStore(dependencies: .preview)
         store.setBrowseState(affirmations: Affirmation.samples)
-        store.setFlow(.readAndSpeak(.showingScore(ScoreResult(
-            score: 0.85,
-            components: .sample,
-            duration: 2.5,
-            mode: .readThenSpeak,
-            recognizedText: "I am confident and capable"
-        ))))
+        store.setFlow(.readAndSpeak(.celebrating))
         return store
     }
     

@@ -222,19 +222,13 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     /// User chose to continue without the permission
     case continueWithoutPermission
     
-    // MARK: - Score Events
-    
-    /// Score analysis started
-    case analysisStarted
-    
-    /// Score was calculated
-    case scoreCalculated(ScoreResult)
-    
-    /// Score calculation failed
-    case scoreFailed(PracticeError)
-    
-    /// Score display timer expired, ready to advance
-    case scoreDisplayCompleted
+    // MARK: - Celebration Events
+
+    /// All words matched — sparkle burst celebration started
+    case celebrationStarted
+
+    /// Celebration animation completed, ready to advance
+    case celebrationCompleted
     
     // MARK: - Segment Timer Events
     
@@ -418,7 +412,7 @@ extension PracticeEvent {
             return true
         case .listeningTimedOut, .retryListening, .skipAffirmation:
             return true
-        case .analysisStarted, .scoreCalculated, .scoreFailed, .scoreDisplayCompleted:
+        case .celebrationStarted, .celebrationCompleted:
             return true
         case .autoAdvanceCompleted, .loopIterationCompleted, .segmentTimerCompleted:
             return true
@@ -568,14 +562,10 @@ extension PracticeEvent: CustomStringConvertible {
             return "openSettings"
         case .continueWithoutPermission:
             return "continueWithoutPermission"
-        case .analysisStarted:
-            return "analysisStarted"
-        case .scoreCalculated(let result):
-            return "scoreCalculated(\(result.percentScore)%)"
-        case .scoreFailed(let err):
-            return "scoreFailed(\(err))"
-        case .scoreDisplayCompleted:
-            return "scoreDisplayCompleted"
+        case .celebrationStarted:
+            return "celebrationStarted"
+        case .celebrationCompleted:
+            return "celebrationCompleted"
         case .segmentTimerCompleted:
             return "segmentTimerCompleted"
         case .toggleFavorite:

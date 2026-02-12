@@ -256,9 +256,6 @@ final class PracticeStore {
     /// Current binaural preset
     private(set) var binauralPreset: BinauralPreset = .off
     
-    /// Last recorded resonance score
-    private(set) var lastResonanceRecord: ResonanceRecord? = nil
-    
     // MARK: - UI State
     
     /// Whether mode selector is expanded
@@ -460,11 +457,6 @@ final class PracticeStore {
         isNavigationLocked || flow.shouldBlockNavigation
     }
     
-    /// Real-time score for dock display
-    var realtimeScore: Double {
-        flow.scoreResult?.score ?? 0
-    }
-    
     /// Session progress text
     var sessionProgressText: String {
         "\(sessionProgress) / \(Constants.Session.sessionSize)"
@@ -577,35 +569,41 @@ final class PracticeStore {
     }
     
     /// Updates a session result at index
-    func updateSessionResult(at index: Int, score: Int? = nil, isFavorited: Bool? = nil) {
+    func updateSessionResult(at index: Int, wasCompleted: Bool? = nil, isFavorited: Bool? = nil) {
         guard sessionResults.indices.contains(index) else { return }
-        
+
         var result = sessionResults[index]
-        if let score = score { result.score = score }
+        if let wasCompleted = wasCompleted {
+            if result.loopCompletions.isEmpty {
+                result.loopCompletions = [wasCompleted]
+            } else {
+                result.loopCompletions[0] = wasCompleted
+            }
+        }
         if let isFavorited = isFavorited { result.isFavorited = isFavorited }
         sessionResults[index] = result
-        
-        if let score = score {
+
+        if let wasCompleted = wasCompleted {
             AppLogger.debug(
                 "Updated session result",
                 category: .practice,
-                context: ["index": index, "score": score, "loopScores": result.loopScores.count]
+                context: ["index": index, "completed": wasCompleted, "loopCompletions": result.loopCompletions.count]
             )
         }
     }
-    
-    /// Adds a loop score to a session result at index
-    func addLoopScoreToResult(at index: Int, score: Int) {
+
+    /// Adds a loop completion to a session result at index
+    func addLoopCompletionToResult(at index: Int, completed: Bool) {
         guard sessionResults.indices.contains(index) else { return }
-        
+
         var result = sessionResults[index]
-        result.addLoopScore(score)
+        result.addLoopCompletion(completed)
         sessionResults[index] = result
-        
+
         AppLogger.debug(
-            "Added loop score to result",
+            "Added loop completion to result",
             category: .practice,
-            context: ["index": index, "score": score, "totalLoopScores": result.loopScores.count]
+            context: ["index": index, "completed": completed, "totalLoops": result.loopCompletions.count]
         )
     }
     
@@ -622,11 +620,6 @@ final class PracticeStore {
     /// Updates binaural preset
     func setBinauralPreset(_ preset: BinauralPreset) {
         binauralPreset = preset
-    }
-    
-    /// Updates last resonance record
-    func setLastResonanceRecord(_ record: ResonanceRecord?) {
-        lastResonanceRecord = record
     }
     
     /// Updates error state

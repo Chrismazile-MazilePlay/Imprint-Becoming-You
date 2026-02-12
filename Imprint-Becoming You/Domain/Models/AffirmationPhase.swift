@@ -25,11 +25,8 @@ enum AffirmationPhase: Equatable, Sendable {
     /// Listening to user speech
     case listening
     
-    /// Analyzing the speech for resonance score
-    case analyzing
-    
-    /// Showing the resonance score result
-    case showingScore
+    /// Sparkle burst celebration playing after all words matched
+    case celebrating
 }
 
 // MARK: - Legacy Alias

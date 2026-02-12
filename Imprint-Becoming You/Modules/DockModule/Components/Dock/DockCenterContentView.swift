@@ -43,7 +43,7 @@ import SwiftUI
 /// | `.preparing`      | Waveform (breathing, green)|
 /// | `.listening`      | Waveform (animated, green) |
 /// | `.settling`       | Waveform (settling down)   |
-/// | `.showingScore`   | Score display (animated %) |
+/// | `.settling`       | Waveform (settling down)   |
 ///
 /// ## Usage
 ///
@@ -83,16 +83,10 @@ public struct DockCenterContentView: View {
                     waveformView(breathingPhase: breathingPhase)
                         .transition(.opacity)
                 }
-                
-                // Score display (visible only for showingScore)
-                if case .showingScore(let score) = state {
-                    DockScoreDisplay(score: score)
-                        .transition(.scale(scale: 0.8).combined(with: .opacity))
-                }
             }
         }
         .frame(height: 40)
-        .animation(tokens.standardAnimation, value: isShowingScore)
+        .animation(tokens.standardAnimation, value: state)
         .opacity(state == .hidden ? 0 : 1)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
@@ -116,8 +110,6 @@ public struct DockCenterContentView: View {
             return "Listening to your voice"
         case .settling:
             return "Processing your speech"
-        case .showingScore:
-            return "Resonance score"
         }
     }
     
@@ -128,8 +120,6 @@ public struct DockCenterContentView: View {
             return "Audio level \(Int(audioLevel * 100)) percent"
         case .listening(let audioLevel):
             return "Audio level \(Int(audioLevel * 100)) percent"
-        case .showingScore(let score):
-            return "\(score) percent"
         default:
             return ""
         }
@@ -167,19 +157,11 @@ public struct DockCenterContentView: View {
     /// Whether the current state shows the waveform.
     private var showsWaveform: Bool {
         switch state {
-        case .hidden, .showingScore:
+        case .hidden:
             return false
         default:
             return true
         }
-    }
-    
-    /// Whether the current state is showing a score.
-    private var isShowingScore: Bool {
-        if case .showingScore = state {
-            return true
-        }
-        return false
     }
 }
 
@@ -203,13 +185,6 @@ public struct DockCenterContentView: View {
     ZStack {
         Color.black.ignoresSafeArea()
         DockCenterContentView(state: .listening(audioLevel: 0.6))
-    }
-}
-
-#Preview("Center Content - Score") {
-    ZStack {
-        Color.black.ignoresSafeArea()
-        DockCenterContentView(state: .showingScore(percentScore: 87))
     }
 }
 
@@ -238,8 +213,7 @@ public struct DockCenterContentView: View {
             .playing(audioLevel: 0.7),
             .preparing,
             .listening(audioLevel: 0.6),
-            .settling,
-            .showingScore(percentScore: 85)
+            .settling
         ]
         
         var body: some View {

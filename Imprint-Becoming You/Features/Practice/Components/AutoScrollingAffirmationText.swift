@@ -118,6 +118,13 @@ struct AutoScrollingAffirmationText: View {
     /// Horizontal padding applied to text content.
     /// Defaults to `AppTheme.Spacing.xl` to match existing practice layout.
     var horizontalPadding: CGFloat = AppTheme.Spacing.xl
+
+    /// Number of words matched sequentially from the start during listening.
+    ///
+    /// When > 0, the text renders as an `AttributedString` with matched words
+    /// colored `AppColors.accent` and unmatched words inheriting `textColor`.
+    /// When 0 (default), the text renders as a plain `String` — zero overhead.
+    var matchedWordCount: Int = 0
     
     // MARK: - State
     
@@ -212,8 +219,57 @@ struct AutoScrollingAffirmationText: View {
     /// Offsets below this scale linearly down to `scrollBackMinDuration`.
     private let scrollBackReferenceOffset: CGFloat = 300.0
     
+    // MARK: - Word Highlighting
+
+    /// Ranges of each whitespace-delimited word in `text`.
+    ///
+    /// Computed once per `text` value and used by `highlightedText` to apply
+    /// per-word foreground color via `AttributedString`. Preserves the original
+    /// character ranges (including punctuation attached to words) so the
+    /// highlighted text is visually identical to the plain text.
+    private var wordRanges: [Range<String.Index>] {
+        var ranges: [Range<String.Index>] = []
+        var searchStart = text.startIndex
+
+        while searchStart < text.endIndex {
+            // Skip whitespace
+            guard let wordStart = text[searchStart...].firstIndex(where: { !$0.isWhitespace }) else {
+                break
+            }
+            // Find word end (next whitespace or end of string)
+            let wordEnd = text[wordStart...].firstIndex(where: { $0.isWhitespace }) ?? text.endIndex
+            ranges.append(wordStart..<wordEnd)
+            searchStart = wordEnd
+        }
+
+        return ranges
+    }
+
+    /// Builds an `AttributedString` with matched words colored `AppColors.accent`.
+    ///
+    /// Unmatched characters have no explicit foreground set, so they inherit
+    /// the `textColor` from `.foregroundStyle()` on the parent `Text` view.
+    /// This preserves visual parity — identical font, kerning, and layout.
+    private var highlightedText: AttributedString {
+        var attributed = AttributedString(text)
+        let ranges = wordRanges
+        let count = min(matchedWordCount, ranges.count)
+
+        for i in 0..<count {
+            let stringRange = ranges[i]
+            // Convert String.Index range to AttributedString.Index range
+            guard let attrStart = AttributedString.Index(stringRange.lowerBound, within: attributed),
+                  let attrEnd = AttributedString.Index(stringRange.upperBound, within: attributed) else {
+                continue
+            }
+            attributed[attrStart..<attrEnd].foregroundColor = UIColor(AppColors.accent)
+        }
+
+        return attributed
+    }
+
     // MARK: - Computed Properties
-    
+
     /// Whether the text overflows the visible window and requires scrolling.
     ///
     /// Compares the plain text height (without top spacer) against the window.
@@ -581,13 +637,24 @@ struct AutoScrollingAffirmationText: View {
     }
     
     /// Plain text view used for both short content and inside scrollable content.
+    ///
+    /// When `matchedWordCount > 0`, renders an `AttributedString` with per-word
+    /// accent coloring. Otherwise renders a plain `String` (zero overhead path).
+    /// Both paths use the same `Text` view with identical font, foreground style,
+    /// alignment, and padding — preserving visual parity.
     private var plainTextView: some View {
-        Text(text)
-            .font(font)
-            .foregroundStyle(textColor)
-            .multilineTextAlignment(alignment)
-            .padding(.horizontal, horizontalPadding)
-            .fixedSize(horizontal: false, vertical: true)
+        Group {
+            if matchedWordCount > 0 {
+                Text(highlightedText)
+            } else {
+                Text(text)
+            }
+        }
+        .font(font)
+        .foregroundStyle(textColor)
+        .multilineTextAlignment(alignment)
+        .padding(.horizontal, horizontalPadding)
+        .fixedSize(horizontal: false, vertical: true)
     }
     
     /// Hidden text that measures the natural height without affecting layout.

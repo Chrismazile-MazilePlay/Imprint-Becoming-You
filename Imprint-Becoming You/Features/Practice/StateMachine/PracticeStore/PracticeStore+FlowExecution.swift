@@ -359,7 +359,12 @@ extension PracticeStore {
         let startTime = Date()
         var lastTranscription = ""
         var lastAudioLevel: Double = 0
+        var lastMatchedWordCount = 0
         var hasStarted = false
+
+        // Pre-normalize expected text once to avoid redundant work on every update
+        let normalizedExpectedWords = SequentialWordMatcher.normalizeText(affirmationText)
+        let totalExpectedWords = normalizedExpectedWords.count
         
         // Get speech capture service from store's property
         let captureService = speechCaptureService
@@ -420,6 +425,7 @@ extension PracticeStore {
             }
             
             self.send(.listeningStarted)
+            self.setListeningPhaseActive()
             hasStarted = true
             
             // PHASE: Active listening loop
@@ -438,28 +444,27 @@ extension PracticeStore {
                 switch update {
                 case .transcription(let text, let isFinal):
                     lastTranscription = text
-                    if isFinal && !text.isEmpty { break captureLoop }
-                    
-                case .audioLevel(let level):
-                    lastAudioLevel = Double(level)
-                    let elapsed = Date().timeIntervalSince(startTime)
 
-                    if elapsed >= PracticeTiming.maximumListeningDuration { break captureLoop }
-
-                    // Compute sequential word match for real-time highlighting
+                    // Run word matching immediately on new transcription (not on audio level)
+                    // This eliminates the 0–23ms delay of waiting for the next audio buffer
                     let matchResult = SequentialWordMatcher.matchSequentially(
-                        expected: affirmationText,
+                        expectedWords: normalizedExpectedWords,
                         recognized: lastTranscription
                     )
 
-                    let context = ListeningContext(
-                        elapsed: elapsed,
-                        audioLevel: lastAudioLevel,
-                        recognizedText: lastTranscription,
-                        matchedWordCount: matchResult.matchedCount,
-                        totalExpectedWords: matchResult.totalExpectedWords
-                    )
-                    self.send(.listeningUpdate(context))
+                    // Only send UI update if matchedWordCount actually changed
+                    if matchResult.matchedCount != lastMatchedWordCount {
+                        lastMatchedWordCount = matchResult.matchedCount
+
+                        let context = ListeningContext(
+                            elapsed: Date().timeIntervalSince(startTime),
+                            audioLevel: lastAudioLevel,
+                            recognizedText: lastTranscription,
+                            matchedWordCount: matchResult.matchedCount,
+                            totalExpectedWords: matchResult.totalExpectedWords
+                        )
+                        self.send(.listeningUpdate(context))
+                    }
 
                     // Auto-complete when all words are matched — no silence wait needed
                     if matchResult.isComplete {
@@ -473,6 +478,24 @@ extension PracticeStore {
                         )
                         break captureLoop
                     }
+
+                    if isFinal && !text.isEmpty { break captureLoop }
+
+                case .audioLevel(let level):
+                    lastAudioLevel = Double(level)
+                    let elapsed = Date().timeIntervalSince(startTime)
+
+                    if elapsed >= PracticeTiming.maximumListeningDuration { break captureLoop }
+
+                    // Audio level updates drive waveform animation only — no word matching here
+                    let context = ListeningContext(
+                        elapsed: elapsed,
+                        audioLevel: lastAudioLevel,
+                        recognizedText: lastTranscription,
+                        matchedWordCount: lastMatchedWordCount,
+                        totalExpectedWords: totalExpectedWords
+                    )
+                    self.send(.listeningUpdate(context))
                     
                 case .silenceDetected(let silenceDuration):
                     if lastTranscription.isEmpty {
@@ -626,7 +649,10 @@ extension PracticeStore {
         // Use centralized task management
         cancelFlowTask()
         cancelListeningTask()
-        
+
+        // Reset decoupled listening state
+        resetListeningPhaseState()
+
         pendingAutoAdvance = nil
         
         // Clear forward navigation flag if set (navigation was interrupted)
@@ -652,7 +678,10 @@ extension PracticeStore {
     
     func resetToIdle() {
         setSegmentProgress(0)
-        
+
+        // Reset decoupled listening state
+        resetListeningPhaseState()
+
         withAnimation(AppTheme.Animation.quick) {
             switch flow {
             case .home:

@@ -528,6 +528,16 @@ extension PracticeStore {
 extension PracticeStore {
     
     func handleListeningUpdate(_ context: ListeningContext) {
+        // Update separated observable property for word highlighting.
+        // Views read this directly instead of store.flow, so AutoScrollingAffirmationText
+        // only re-renders when matchedWordCount changes — not on every audio level tick (~43Hz).
+        let wordCountChanged = context.matchedWordCount != listeningMatchedWordCount
+        if wordCountChanged {
+            setListeningMatchedWordCount(context.matchedWordCount)
+        }
+
+        // Flow state update still needed for dock waveform animation and segment progress.
+        // The dock reads flow.listeningContext for audioLevel, which changes at high frequency.
         withAnimation(AppTheme.Animation.quick) {
             switch flow {
             case .readAndSpeak:
@@ -541,8 +551,8 @@ extension PracticeStore {
             }
         }
 
-        // Log word match progress periodically (every new match)
-        if context.matchedWordCount > 0 && context.totalExpectedWords > 0 {
+        // Log word match progress when a new word matches
+        if wordCountChanged && context.matchedWordCount > 0 {
             AppLogger.debug(
                 "Word match progress",
                 category: .speech,
@@ -561,6 +571,9 @@ extension PracticeStore {
             handleListeningTimedOut()
             return
         }
+
+        // Reset decoupled listening state
+        resetListeningPhaseState()
 
         // Cancel capture and transition to celebrating
         speechCaptureService.cancelCapture()

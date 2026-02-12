@@ -80,6 +80,15 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
     
     /// Stream continuation for emitting updates
     nonisolated(unsafe) private var streamContinuation: AsyncStream<CaptureUpdate>.Continuation?
+
+    /// Monotonic generation counter for stream lifecycle management.
+    ///
+    /// Incremented each time `captureStream` creates a new `AsyncStream`.
+    /// The `onTermination` handler captures the generation at creation time
+    /// and only nils `streamContinuation` if the generation still matches.
+    /// This prevents a stale stream's termination from clearing a newer stream's
+    /// continuation — the root cause of word highlighting breaking on replay.
+    nonisolated(unsafe) private var streamGeneration: Int = 0
     
     /// Route change observer
     nonisolated(unsafe) private var routeChangeObserver: NSObjectProtocol?
@@ -149,22 +158,34 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
             // Store continuation immediately (this closure runs synchronously)
             // We need to dispatch to MainActor but can't block here
             let service = self
-            
+
             Task { @MainActor in
+                // Increment generation BEFORE setting the new continuation.
+                // This ensures any pending onTermination from the old stream
+                // will see a stale generation and skip the nil assignment.
+                service.streamGeneration += 1
+                let currentGeneration = service.streamGeneration
                 service.streamContinuation = continuation
-                
+
                 #if DEBUG
-                AppLogger.debug("Stream continuation set", category: .speech)
+                AppLogger.debug("Stream continuation set (generation \(currentGeneration))", category: .speech)
                 #endif
-            }
-            
-            // Handle stream termination
-            continuation.onTermination = { @Sendable _ in
-                Task { @MainActor in
-                    service.streamContinuation = nil
-                    #if DEBUG
-                    AppLogger.debug("Stream terminated", category: .speech)
-                    #endif
+
+                // Handle stream termination — only nil the continuation
+                // if this stream's generation is still current.
+                continuation.onTermination = { @Sendable _ in
+                    Task { @MainActor in
+                        guard service.streamGeneration == currentGeneration else {
+                            #if DEBUG
+                            AppLogger.debug("Stream terminated (stale generation \(currentGeneration), current \(service.streamGeneration)) — skipping nil", category: .speech)
+                            #endif
+                            return
+                        }
+                        service.streamContinuation = nil
+                        #if DEBUG
+                        AppLogger.debug("Stream terminated (generation \(currentGeneration))", category: .speech)
+                        #endif
+                    }
                 }
             }
         }
@@ -811,6 +832,7 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         removeObservers()
         streamContinuation?.finish()
         streamContinuation = nil
+        streamGeneration = 0
     }
 }
 

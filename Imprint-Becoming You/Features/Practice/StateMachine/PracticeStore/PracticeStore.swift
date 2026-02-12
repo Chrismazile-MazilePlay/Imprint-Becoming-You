@@ -113,7 +113,22 @@ final class PracticeStore {
     
     /// Whether navigation is temporarily locked (during score display)
     private(set) var isNavigationLocked: Bool = false
-    
+
+    // MARK: - Listening Phase State (Decoupled from Flow)
+
+    /// Whether the store is currently in a listening phase.
+    ///
+    /// Separated from `flow` to prevent word highlight views from re-evaluating
+    /// on every audio level update (~43Hz). Set once on listening entry, cleared on exit.
+    private(set) var isInListeningPhase: Bool = false
+
+    /// Number of words matched sequentially during the current listening session.
+    ///
+    /// Only changes when speech recognition matches a new word (much less frequent
+    /// than audio level updates). Views that read this instead of `flow.listeningContext`
+    /// avoid unnecessary re-evaluation on every audio frame.
+    private(set) var listeningMatchedWordCount: Int = 0
+
     // MARK: - Browse Queue State (Default Mode)
     
     /// Affirmations for browse mode (batch of 30).
@@ -530,7 +545,31 @@ final class PracticeStore {
     func setForwardNavigationPending(_ pending: Bool) {
         isForwardNavigationPending = pending
     }
-    
+
+    /// Resets the decoupled listening phase state to initial values.
+    ///
+    /// Called when listening ends (completed, timed out, or cancelled) to ensure
+    /// the `AutoScrollingAffirmationText` reverts to plain text rendering.
+    func resetListeningPhaseState() {
+        isInListeningPhase = false
+        listeningMatchedWordCount = 0
+    }
+
+    /// Marks the listening phase as active.
+    ///
+    /// Called when speech capture initializes and the listening loop begins.
+    func setListeningPhaseActive() {
+        isInListeningPhase = true
+    }
+
+    /// Updates the matched word count during listening.
+    ///
+    /// Only called when `matchedWordCount` actually changes, keeping
+    /// the `AutoScrollingAffirmationText` view update frequency low.
+    func setListeningMatchedWordCount(_ count: Int) {
+        listeningMatchedWordCount = count
+    }
+
     /// Updates browse queue state
     func setBrowseState(affirmations: [Affirmation]? = nil, index: Int? = nil, consumed: Int? = nil) {
         if let affirmations = affirmations { browseAffirmations = affirmations }

@@ -49,9 +49,6 @@ struct AffirmationContentView: View {
     /// Number of words matched sequentially during listening (0 = none).
     var matchedWordCount: Int = 0
 
-    /// Total expected words in the affirmation for word highlighting.
-    var totalExpectedWords: Int = 0
-
     /// Top padding to account for HUD and vertical centering.
     let topPadding: CGFloat
 
@@ -76,22 +73,16 @@ struct AffirmationContentView: View {
                     .padding(.bottom, AppTheme.Spacing.lg)
             }
 
-            // Affirmation text — switches between auto-scrolling and
-            // word-highlighted rendering based on listening mode.
-            if isListeningMode {
-                WordHighlightAffirmationText(
-                    text: affirmation.text,
-                    matchedWordCount: matchedWordCount,
-                    maxHeight: maxTextHeight
-                )
-            } else {
-                AutoScrollingAffirmationText(
-                    text: affirmation.text,
-                    isActive: isCurrentPage && isScrollActive,
-                    scrollGeneration: scrollGeneration,
-                    maxHeight: maxTextHeight
-                )
-            }
+            // Affirmation text — single view at all times.
+            // During listening, matchedWordCount drives per-word accent coloring
+            // via AttributedString inside the same Text view.
+            AutoScrollingAffirmationText(
+                text: affirmation.text,
+                isActive: isCurrentPage && isScrollActive,
+                scrollGeneration: scrollGeneration,
+                maxHeight: maxTextHeight,
+                matchedWordCount: isListeningMode ? matchedWordCount : 0
+            )
 
             Spacer()
 

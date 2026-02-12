@@ -99,8 +99,11 @@ struct PracticePageViewBuilder {
     ) -> some View {
         if let affirmation = affirmation(at: index) {
             let isCurrentPage = index == store.currentIndex
-            let listeningContext = store.flow.listeningContext
-            let isListening = isCurrentPage && store.flow.isListening
+
+            // Read decoupled listening properties instead of store.flow.listeningContext.
+            // This prevents AutoScrollingAffirmationText from re-evaluating on every
+            // audio level tick (~43Hz). It only re-renders when matchedWordCount changes.
+            let isListening = isCurrentPage && store.isInListeningPhase
 
             AffirmationContentView(
                 affirmation: affirmation,
@@ -109,8 +112,7 @@ struct PracticePageViewBuilder {
                 scrollGeneration: store.flowGeneration,
                 maxTextHeight: maxTextHeight,
                 isListeningMode: isListening,
-                matchedWordCount: isListening ? (listeningContext?.matchedWordCount ?? 0) : 0,
-                totalExpectedWords: isListening ? (listeningContext?.totalExpectedWords ?? 0) : 0,
+                matchedWordCount: isListening ? store.listeningMatchedWordCount : 0,
                 topPadding: topPadding,
                 bottomPadding: bottomPadding,
                 onShare: { store.send(.shareAffirmation) },

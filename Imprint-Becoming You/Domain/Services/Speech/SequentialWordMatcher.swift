@@ -102,12 +102,56 @@ enum SequentialWordMatcher {
         )
     }
 
+    /// Matches recognized text against pre-normalized expected words in sequential order.
+    ///
+    /// Use this overload when calling repeatedly with the same expected text
+    /// (e.g., during a listening session) to avoid redundant normalization of
+    /// the expected text on every call.
+    ///
+    /// - Parameters:
+    ///   - expectedWords: Pre-normalized expected word array (from ``normalizeText(_:)``)
+    ///   - recognized: The partial or final transcription from speech recognition
+    /// - Returns: Match result with count of sequentially matched words
+    static func matchSequentially(
+        expectedWords: [String],
+        recognized: String
+    ) -> MatchResult {
+        guard !expectedWords.isEmpty else {
+            return MatchResult(matchedCount: 0, totalExpectedWords: 0)
+        }
+
+        let recognizedWords = normalizeText(recognized)
+
+        guard !recognizedWords.isEmpty else {
+            return MatchResult(matchedCount: 0, totalExpectedWords: expectedWords.count)
+        }
+
+        var expectedIndex = 0
+
+        for recognizedWord in recognizedWords {
+            guard expectedIndex < expectedWords.count else { break }
+
+            if recognizedWord == expectedWords[expectedIndex] {
+                expectedIndex += 1
+            }
+        }
+
+        return MatchResult(
+            matchedCount: expectedIndex,
+            totalExpectedWords: expectedWords.count
+        )
+    }
+
     // MARK: - Normalization
 
     /// Normalizes text for word-level comparison.
     ///
     /// Strips punctuation, lowercases, and splits by whitespace.
     /// Matches `TextAccuracyCalculator.normalizeText()` for consistency.
+    ///
+    /// Call once before a listening session and pass the result to
+    /// ``matchSequentially(expectedWords:recognized:)`` to avoid
+    /// redundant normalization on every update.
     ///
     /// - Parameter text: Raw text to normalize
     /// - Returns: Array of normalized words

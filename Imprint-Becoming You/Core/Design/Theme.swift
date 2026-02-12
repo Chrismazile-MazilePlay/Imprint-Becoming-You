@@ -133,7 +133,7 @@ enum AppTheme {
         
         /// Bouncy animation for playful feedback
         static let bouncy = SwiftUI.Animation.spring(duration: 0.4, bounce: 0.4)
-        
+
         /// Smooth animation for page transitions
         static let pageTransition = SwiftUI.Animation.easeInOut(duration: 0.4)
     }

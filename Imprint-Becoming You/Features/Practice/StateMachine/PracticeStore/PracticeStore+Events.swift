@@ -222,8 +222,8 @@ extension PracticeStore {
         case .listeningUpdate(let context):
             handleListeningUpdate(context)
             
-        case .listeningCompleted(let text, let duration):
-            handleListeningCompleted(text: text, duration: duration)
+        case .listeningCompleted(let text, let duration, let voiceAnalytics):
+            handleListeningCompleted(text: text, duration: duration, voiceAnalytics: voiceAnalytics)
             
         case .listeningFailed(let error):
             AppLogger.error("Listening failed: \(error)", category: .speech)

@@ -193,8 +193,8 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     /// Speech recognition update (partial results, audio level)
     case listeningUpdate(ListeningContext)
     
-    /// Speech recognition completed with final text
-    case listeningCompleted(recognizedText: String, duration: TimeInterval)
+    /// Speech recognition completed with final text and voice analytics
+    case listeningCompleted(recognizedText: String, duration: TimeInterval, voiceAnalytics: VoiceAnalyticsSummary)
     
     /// Speech recognition failed
     case listeningFailed(PracticeError)
@@ -550,8 +550,8 @@ extension PracticeEvent: CustomStringConvertible {
             return "listeningStarted"
         case .listeningUpdate(let ctx):
             return "listeningUpdate(level: \(String(format: "%.2f", ctx.audioLevel)))"
-        case .listeningCompleted(let text, let dur):
-            return "listeningCompleted(\(text.prefix(20))..., \(String(format: "%.1f", dur))s)"
+        case .listeningCompleted(let text, let dur, let analytics):
+            return "listeningCompleted(\(text.prefix(20))..., \(String(format: "%.1f", dur))s, segments: \(analytics.segmentCount))"
         case .listeningFailed(let err):
             return "listeningFailed(\(err))"
         case .listeningCancelled:

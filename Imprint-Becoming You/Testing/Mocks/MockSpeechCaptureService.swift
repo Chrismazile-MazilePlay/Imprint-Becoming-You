@@ -63,6 +63,9 @@ final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked S
     /// Stub value for `currentTranscription`
     var stubCurrentTranscription: String = ""
 
+    /// Stub value for `currentVoiceAnalytics`
+    var stubCurrentVoiceAnalytics: VoiceAnalyticsSummary = VoiceAnalyticsSummary()
+
     // MARK: - Stream
 
     /// Continuation for emitting test updates
@@ -119,6 +122,7 @@ final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked S
 
     var isCapturing: Bool { stubIsCapturing }
     var currentTranscription: String { stubCurrentTranscription }
+    var currentVoiceAnalytics: VoiceAnalyticsSummary { stubCurrentVoiceAnalytics }
 
     // MARK: - Reset
 
@@ -135,6 +139,7 @@ final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked S
         stubStopCaptureResult = ""
         stubIsCapturing = false
         stubCurrentTranscription = ""
+        stubCurrentVoiceAnalytics = VoiceAnalyticsSummary()
         streamContinuation?.finish()
         streamContinuation = nil
     }

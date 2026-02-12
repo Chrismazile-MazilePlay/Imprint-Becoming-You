@@ -92,6 +92,9 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
     nonisolated(unsafe) private var silenceTimer: Task<Void, Never>?
     private let silenceThreshold: TimeInterval = 1.5
     
+    /// Accumulated voice analytics from the current capture session
+    private(set) var currentVoiceAnalytics = VoiceAnalyticsSummary()
+
     /// Audio level smoothing
     private var smoothedLevel: Float = 0
     private let smoothingFactor: Float = 0.3
@@ -251,6 +254,7 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         
         isCapturing = true
         currentTranscription = ""
+        currentVoiceAnalytics = VoiceAnalyticsSummary()
         lastSpeechTime = Date()
         
         // Start silence monitoring
@@ -341,6 +345,7 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
 
         isCapturing = false
         currentTranscription = ""
+        currentVoiceAnalytics = VoiceAnalyticsSummary()
 
         // End signpost interval
         endCaptureSignpost()
@@ -572,17 +577,22 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         }
         
         guard let result = result else { return }
-        
+
         // Get transcription
         let transcription = result.bestTranscription.formattedString
         currentTranscription = transcription
-        
+
+        // Extract voice analytics from recognition metadata (iOS 14.5+).
+        // speechRecognitionMetadata provides aggregate voiceAnalytics for the
+        // entire utterance, replacing the deprecated per-segment API.
+        extractVoiceAnalytics(from: result)
+
         // Update last speech time
         lastSpeechTime = Date()
-        
+
         // Emit transcription update
         emit(.transcription(text: transcription, isFinal: result.isFinal))
-        
+
         #if DEBUG
         if result.isFinal {
             AppLogger.debug("Final transcription - \"\(transcription)\"", category: .speech)
@@ -617,6 +627,32 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         emit(.audioLevel(normalizedLevel))
     }
     
+    /// Extracts voice analytics from the recognition result's metadata.
+    ///
+    /// Uses `SFSpeechRecognitionResult.speechRecognitionMetadata.voiceAnalytics`
+    /// (iOS 14.5+) which provides aggregate analytics for the entire utterance.
+    /// Each callback replaces the previous data (cumulative result).
+    ///
+    /// - Parameter result: The speech recognition result containing metadata
+    private func extractVoiceAnalytics(from result: SFSpeechRecognitionResult) {
+        guard let analytics = result.speechRecognitionMetadata?.voiceAnalytics else { return }
+
+        // Extract per-frame values from each acoustic feature.
+        // acousticFeatureValuePerFrame returns [Double] in Swift.
+        let pitchFrames = analytics.pitch.acousticFeatureValuePerFrame.map { Float($0) }
+        let jitterFrames = analytics.jitter.acousticFeatureValuePerFrame.map { Float($0) }
+        let shimmerFrames = analytics.shimmer.acousticFeatureValuePerFrame.map { Float($0) }
+        let voicingFrames = analytics.voicing.acousticFeatureValuePerFrame.map { Float($0) }
+
+        currentVoiceAnalytics.rebuild(
+            pitch: pitchFrames,
+            jitter: jitterFrames,
+            shimmer: shimmerFrames,
+            voicing: voicingFrames,
+            segments: result.bestTranscription.segments.count
+        )
+    }
+
     /// Starts monitoring for silence
     private func startSilenceMonitoring() {
         silenceTimer?.cancel()

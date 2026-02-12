@@ -275,18 +275,27 @@ enum Constants {
     // MARK: - Resonance Scoring
     
     enum ResonanceScoring {
-        /// Weight for text accuracy in final score
-        static let textAccuracyWeight: Float = 0.10
-        
-        /// Weight for vocal energy (RMS) in final score
-        static let vocalEnergyWeight: Float = 0.60
-        
-        /// Weight for pitch stability in final score
-        static let pitchStabilityWeight: Float = 0.30
-        
+        /// Weight for text accuracy in final score (15%)
+        static let textAccuracyWeight: Float = 0.15
+
+        /// Weight for vocal steadiness (jitter + shimmer) in final score (35%)
+        ///
+        /// Stored in `ResonanceRecord.vocalEnergy` for SwiftData compatibility.
+        static let vocalSteadinessWeight: Float = 0.35
+
+        /// Weight for pitch expression (pitch CV) in final score (25%)
+        ///
+        /// Stored in `ResonanceRecord.pitchStability` for SwiftData compatibility.
+        static let pitchExpressionWeight: Float = 0.25
+
+        /// Weight for speaking clarity (voicing ratio) in final score (25%)
+        ///
+        /// Folds into composite score only — not stored separately.
+        static let speakingClarityWeight: Float = 0.25
+
         /// Minimum score threshold for "good" resonance
         static let goodThreshold: Float = 0.6
-        
+
         /// Minimum score threshold for "excellent" resonance
         static let excellentThreshold: Float = 0.8
     }

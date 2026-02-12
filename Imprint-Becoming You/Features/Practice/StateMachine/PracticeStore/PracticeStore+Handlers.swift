@@ -542,63 +542,43 @@ extension PracticeStore {
         }
     }
     
-    func handleListeningCompleted(text: String, duration: TimeInterval) {
+    func handleListeningCompleted(text: String, duration: TimeInterval, voiceAnalytics: VoiceAnalyticsSummary) {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else {
             AppLogger.warning("Empty transcription received, showing timeout alert", category: .speech)
             handleListeningTimedOut()
             return
         }
-        
+
         // Cancel capture and transition to analyzing
         speechCaptureService.cancelCapture()
         transitionToAnalyzing()
-        
-        // Calculate score
-        // Fire-and-forget: score calculation is quick, result sent via event
-        Task { [weak self] in
-            guard let self = self else { return }
-            
-            var score: Double = 0.0
-            var components = ScoreComponents(textAccuracy: 0, vocalEnergy: 0, pitchStability: 0)
-            
-            guard let rawExpectedText = self.currentAffirmation?.text else {
-                self.send(.scoreFailed(.scoreCalculationError("No affirmation text")))
-                return
-            }
-            
-            // Strip citation (e.g., "(Philippians 4:13)") from expected text
-            // so verse references don't need to be spoken
-            let expectedText = rawExpectedText.strippingTrailingCitation
-            
-            let result = TextAccuracyCalculator.evaluateCompletion(
-                expected: expectedText,
-                recognized: trimmedText
-            )
-            
-            AppLogger.debug(
-                "Score calculated",
-                category: .practice,
-                context: ["accuracy": Int(result.accuracy * 100)]
-            )
-            
-            score = Double(result.accuracy)
-            components = ScoreComponents(
-                textAccuracy: Double(result.accuracy),
-                vocalEnergy: Double(result.accuracy),
-                pitchStability: Double(result.accuracy)
-            )
-            
-            let scoreResult = ScoreResult(
-                score: score,
-                components: components,
-                duration: duration,
-                mode: self.currentMode,
-                recognizedText: trimmedText
-            )
-            
-            self.send(.scoreCalculated(scoreResult))
+
+        // Calculate score synchronously — VoiceAnalyticsScoreCalculator is pure
+        // arithmetic (< 1ms), no Task wrapper needed.
+        guard let rawExpectedText = currentAffirmation?.text else {
+            send(.scoreFailed(.scoreCalculationError("No affirmation text")))
+            return
         }
+
+        // Strip citation (e.g., "(Philippians 4:13)") from expected text
+        // so verse references don't need to be spoken
+        let expectedText = rawExpectedText.strippingTrailingCitation
+
+        let textResult = TextAccuracyCalculator.evaluateCompletion(
+            expected: expectedText,
+            recognized: trimmedText
+        )
+
+        let scoreResult = VoiceAnalyticsScoreCalculator.computeScore(
+            textAccuracy: textResult.accuracy,
+            voiceAnalytics: voiceAnalytics,
+            duration: duration,
+            mode: currentMode,
+            recognizedText: trimmedText
+        )
+
+        send(.scoreCalculated(scoreResult))
     }
     
     func transitionToAnalyzing() {

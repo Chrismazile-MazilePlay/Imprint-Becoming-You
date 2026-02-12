@@ -8,27 +8,16 @@
 import Foundation
 import Accelerate
 
-// MARK: - ResonanceScoreCalculator
+// MARK: - ResonanceScoreCalculator (Legacy)
 
-/// Calculates resonance scores from speech analysis data.
+/// Legacy resonance score calculator used by `SpeechAnalysisService`.
 ///
-/// The resonance score is computed from three components:
-/// - **Vocal Energy (60%)**: How confidently and loudly the user speaks
-/// - **Pitch Stability (30%)**: Consistency of pitch throughout utterance
-/// - **Text Accuracy (10%)**: How well the spoken text matches the affirmation
+/// > **Note:** The primary scoring path now uses `VoiceAnalyticsScoreCalculator`
+/// > which leverages Apple's `SFVoiceAnalytics` for zero-cost, accurate scoring.
+/// > This class is retained for `SpeechAnalysisService` compatibility only.
 ///
-/// ## Scoring Philosophy
-/// The weighting prioritizes *how* you say something over *what* you say,
-/// based on neuroplasticity research showing emotional conviction matters
-/// more than perfect recitation.
-///
-/// ## Usage
-/// ```swift
-/// let calculator = ResonanceScoreCalculator()
-/// calculator.addSample(rms: 0.3, pitch: 180)
-/// calculator.setTextAccuracy(0.95)
-/// let score = calculator.computeFinalScore()
-/// ```
+/// Calculates resonance scores from RMS and pitch samples collected during
+/// audio capture via `AudioInputManager`.
 final class ResonanceScoreCalculator: @unchecked Sendable {
     
     // MARK: - Properties
@@ -133,10 +122,10 @@ final class ResonanceScoreCalculator: @unchecked Sendable {
         let pitchStability = computePitchStabilityScore()
         let textScore = textAccuracy
         
-        // Weighted combination
+        // Weighted combination (legacy path — SpeechAnalysisService only)
         let overallScore =
-            (vocalEnergy * Constants.ResonanceScoring.vocalEnergyWeight) +
-            (pitchStability * Constants.ResonanceScoring.pitchStabilityWeight) +
+            (vocalEnergy * Constants.ResonanceScoring.vocalSteadinessWeight) +
+            (pitchStability * Constants.ResonanceScoring.pitchExpressionWeight) +
             (textScore * Constants.ResonanceScoring.textAccuracyWeight)
         
         let duration = startTime.map { Date().timeIntervalSince($0) } ?? 0

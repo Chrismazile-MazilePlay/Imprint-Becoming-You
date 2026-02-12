@@ -520,22 +520,25 @@ extension PracticeStore {
         // Clean up listening task
         cancelListeningTask()
         
+        // Capture voice analytics BEFORE stopping capture (stopCapture resets state)
+        let voiceAnalytics = captureService.currentVoiceAnalytics
+
         let finalText = captureService.stopCapture()
         if !finalText.isEmpty { lastTranscription = finalText }
-        
+
         guard shouldContinueFlow(generation: generation) else { return }
         guard hasStarted else { return }
-        
+
         let duration = Date().timeIntervalSince(startTime)
-        
+
         if lastTranscription.isEmpty {
             AppLogger.debug("Timeout: No transcription received", category: .speech)
             send(.listeningTimedOut)
             return
         }
-        
+
         let completion = TextAccuracyCalculator.evaluateCompletion(expected: affirmationText, recognized: lastTranscription)
-        
+
         AppLogger.debug(
             "Final completion check",
             category: .speech,
@@ -544,12 +547,14 @@ extension PracticeStore {
                 "accuracy": String(format: "%.2f", completion.accuracy),
                 "wordsCovered": String(format: "%.2f", completion.wordsCovered),
                 "matchedWords": completion.matchedWordCount,
-                "expectedWords": completion.expectedWordCount
+                "expectedWords": completion.expectedWordCount,
+                "voiceAnalyticsSegments": voiceAnalytics.segmentCount,
+                "hasVoiceData": voiceAnalytics.hasEnoughData
             ]
         )
-        
+
         if completion.isComplete {
-            send(.listeningCompleted(recognizedText: lastTranscription, duration: duration))
+            send(.listeningCompleted(recognizedText: lastTranscription, duration: duration, voiceAnalytics: voiceAnalytics))
         } else {
             send(.listeningTimedOut)
         }

@@ -14,10 +14,15 @@ import Foundation
 /// Captures all metrics from a user's spoken affirmation, including
 /// the composite score and individual components.
 ///
-/// ## Scoring Components
-/// - **Text Accuracy**: How closely the user's words matched the affirmation (10%)
-/// - **Vocal Energy**: RMS energy level indicating confidence/projection (60%)
-/// - **Pitch Stability**: Consistency of vocal pitch throughout (30%)
+/// ## Scoring Components (via `VoiceAnalyticsScoreCalculator`)
+/// - **Text Accuracy (15%)**: How closely the user's words matched the affirmation
+/// - **Vocal Steadiness (35%)**: Stored in `vocalEnergy` — jitter + shimmer from `SFVoiceAnalytics`
+/// - **Pitch Expression (25%)**: Stored in `pitchStability` — pitch CV from `SFVoiceAnalytics`
+/// - **Speaking Clarity (25%)**: Voicing ratio — folds into composite score only
+///
+/// > **Note:** Field names (`vocalEnergy`, `pitchStability`) are retained for
+/// > SwiftData backward compatibility. Their semantic meaning has changed from
+/// > RMS energy / pitch consistency to vocal steadiness / pitch expression.
 ///
 /// ## Usage
 /// ```swift
@@ -47,12 +52,16 @@ struct ResonanceRecord: Sendable, Codable, Equatable, Identifiable {
     /// Measures how closely spoken words matched the expected affirmation
     let textAccuracy: Float
     
-    /// Vocal energy component (0.0 - 1.0)
-    /// Measures RMS energy level relative to user's calibrated baseline
+    /// Vocal steadiness component (0.0 - 1.0)
+    ///
+    /// Measures vocal control from jitter + shimmer (SFVoiceAnalytics).
+    /// Field name retained as `vocalEnergy` for SwiftData compatibility.
     let vocalEnergy: Float
-    
-    /// Pitch stability component (0.0 - 1.0)
-    /// Measures consistency of vocal pitch throughout the affirmation
+
+    /// Pitch expression component (0.0 - 1.0)
+    ///
+    /// Measures vocal expressiveness from pitch CV (SFVoiceAnalytics).
+    /// Field name retained as `pitchStability` for SwiftData compatibility.
     let pitchStability: Float
     
     /// Session mode used during this recording

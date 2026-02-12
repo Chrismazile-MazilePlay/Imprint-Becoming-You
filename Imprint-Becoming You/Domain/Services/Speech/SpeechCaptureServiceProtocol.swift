@@ -155,4 +155,11 @@ protocol SpeechCaptureServiceProtocol: AnyObject {
 
     /// The current accumulated transcription text.
     var currentTranscription: String { get }
+
+    /// Accumulated voice analytics from the current capture session.
+    ///
+    /// Contains pitch, jitter, shimmer, and voicing data extracted from
+    /// `SFTranscriptionSegment.voiceAnalytics` during recognition callbacks.
+    /// Reset when a new capture session starts.
+    var currentVoiceAnalytics: VoiceAnalyticsSummary { get }
 }

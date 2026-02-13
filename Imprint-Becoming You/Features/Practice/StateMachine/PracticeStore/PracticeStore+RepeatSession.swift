@@ -14,16 +14,17 @@ extension PracticeStore {
     /// Repeats the session with user-specified configuration from the summary dock.
     ///
     /// Called via `send(.repeatSessionWithConfig(...))` from `ResultsSummaryView`.
-    /// Follows the same instant-restart pattern as `handleRepeatSession()` â€”
-    /// reuses the existing TTS cache (no loading screen, no re-synthesis).
     ///
     /// ## Cache Reuse Strategy
-    /// - **No shuffle**: Cache is 100% valid â€” same affirmations, same order, same voice.
+    /// - **No shuffle**: Cache is 100% valid — same affirmations, same order, same voice.
     ///   Flow restarts instantly from index 0.
     /// - **Shuffle enabled**: Cache invalidated (indices no longer match) but voice settings
     ///   preserved. On-demand synthesis handles each affirmation during playback.
-    /// - **Mode change**: Does not affect TTS cache. The flow logic determines whether
-    ///   to play audio based on mode (Read Aloud plays TTS, Speak Only doesn't).
+    /// - **Mode switch TO TTS mode without cache**: When switching from Speak Only
+    ///   (no TTS audio) to Read Aloud or Read & Speak, shows the inline preparation
+    ///   loading screen within the existing session cover to synthesize all affirmations
+    ///   before starting playback. Uses `prepareAndStartSession(mode:)`.
+    /// - **Mode switch WITH cache**: Direct start (instant restart, no loading screen).
     ///
     /// - Parameters:
     ///   - mode: The session mode to use for the repeat
@@ -156,7 +157,15 @@ extension PracticeStore {
             dependencies.sessionTTSQueueService.updateAffirmationOrder(newOrder)
         }
 
-        // Update session mode and set flow to idle for the new mode
+        // Check if TTS preparation is needed (switching TO a TTS mode without cache).
+        // When repeating from Speak Only → Read Aloud, no TTS audio exists yet.
+        // The loading screen must appear inline within the session cover.
+        let needsTTS = mode == .readAloud || mode == .readThenSpeak
+        let hasCache = !sessionAffirmations.isEmpty
+            && dependencies.sessionTTSQueueService.isReady(sessionAffirmations[0].id)
+
+        // Update session mode and set flow to idle for the new mode.
+        // Done BEFORE preparation so prepareAndStartSession reads the correct mode.
         sessionMode = mode
         switch mode {
         case .readAloud:
@@ -170,31 +179,67 @@ extension PracticeStore {
         }
 
         #if DEBUG
-        AppLogger.info("Repeating session with mode=\(mode.displayName), loops=\(loopCount), shuffle=\(shuffle), spacedRep=\(spacedRepetition), voiceId: \(selectedVoiceId ?? "nil")", category: .practice)
+        AppLogger.info("Repeating session with mode=\(mode.displayName), loops=\(loopCount), shuffle=\(shuffle), spacedRep=\(spacedRepetition), voiceId: \(selectedVoiceId ?? "nil"), needsTTS=\(needsTTS), hasCache=\(hasCache)", category: .practice)
         #endif
 
-        // Pop summary from NavigationStack (cover stays presented).
-        // SessionContainerView.onChange(of: store.isShowingSummary) handles the pop.
-        setShowingSummary(false)
+        if needsTTS && !hasCache {
+            // TTS preparation needed — show loading screen inline.
+            //
+            // Set isPreparingSession = true BEFORE popping the summary so
+            // SessionPreparationView (zIndex 25 in session root) is already
+            // rendered underneath. The pop reveals it directly instead of
+            // briefly showing bare session content.
+            //
+            // Only set the UI flags here (lightweight property assignments).
+            // The actual synthesis work (prepareAndStartSession) is deferred
+            // until after the pop animation to avoid blocking the transition.
+            let totalCount = sessionAffirmations.count
+            setPendingSessionMode(mode)
+            setSessionPreparation(isActive: true, progress: 0, preparedCount: 0, target: totalCount)
+            setSessionPreparationPhase(.waitingForKokoro)
 
-        // Guard against rapid re-tap: capture flowGeneration so the delayed
-        // callback becomes a no-op if the user taps repeat again before delay.
-        let repeatGeneration = flowGeneration
-        Task { [weak self] in
-            guard let self = self else { return }
-            // Wait for NavigationStack pop animation to complete
-            try? await Task.sleep(for: .milliseconds(Int(PracticeTiming.summaryDismissDuration * 1000) + 50))
-            guard !Task.isCancelled else { return }
-            guard self.flowGeneration == repeatGeneration else { return }
+            // Pop summary — reveals the already-showing loading screen.
+            setShowingSummary(false)
 
-            // Pre-configure audio session to .playback to eliminate
-            // the 50-200ms HAL reconfiguration delay on first playback.
-            await self.playbackCoordinator.preConfigureAudioSession()
-            guard self.flowGeneration == repeatGeneration else { return }
+            // Start actual TTS synthesis after the pop animation completes.
+            let prepGeneration = flowGeneration
+            Task { [weak self] in
+                guard let self = self else { return }
+                try? await Task.sleep(for: .milliseconds(Int(PracticeTiming.summaryDismissDuration * 1000) + 50))
+                guard !Task.isCancelled else { return }
+                guard self.flowGeneration == prepGeneration else { return }
+                self.prepareAndStartSession(mode: mode)
+            }
+        } else {
+            // Pop summary from NavigationStack (cover stays presented).
+            // SessionContainerView.onChange(of: store.isShowingSummary) handles the pop.
+            setShowingSummary(false)
 
-            // Signal dock to start segment timer in sync with flow start
-            self.incrementSegmentGeneration()
-            self.startFlowForCurrentAffirmation()
+            // Cache exists or mode doesn't use TTS — direct start (instant restart)
+            let repeatGeneration = flowGeneration
+            Task { [weak self] in
+                guard let self = self else { return }
+                // Wait for NavigationStack pop animation to complete
+                try? await Task.sleep(for: .milliseconds(Int(PracticeTiming.summaryDismissDuration * 1000) + 50))
+                guard !Task.isCancelled else { return }
+                guard self.flowGeneration == repeatGeneration else { return }
+
+                // Pre-configure audio session to .playback ONLY for TTS modes.
+                // Speak Only uses microphone capture (.playAndRecord), not TTS
+                // playback. Setting .playback here would force an immediate
+                // category switch back to .playAndRecord in startCapture(),
+                // which can cause AVAudioEngine's input node to report
+                // sampleRate = 0 during HAL driver reconfiguration — breaking
+                // speech capture and word highlighting.
+                if mode != .speakOnly {
+                    await self.playbackCoordinator.preConfigureAudioSession()
+                    guard self.flowGeneration == repeatGeneration else { return }
+                }
+
+                // Signal dock to start segment timer in sync with flow start
+                self.incrementSegmentGeneration()
+                self.startFlowForCurrentAffirmation()
+            }
         }
 
         HapticFeedback.notification(.success)

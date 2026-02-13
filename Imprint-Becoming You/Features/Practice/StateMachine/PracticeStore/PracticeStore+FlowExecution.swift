@@ -606,7 +606,7 @@ extension PracticeStore {
                 }
             }
         }
-        
+
         // Wait with timeout using task group
         await withTaskGroup(of: Void.self) { group in
             group.addTask { [weak self] in await self?.listeningTask?.value }
@@ -614,15 +614,26 @@ extension PracticeStore {
             await group.next()
             group.cancelAll()
         }
-        
-        // Clean up listening task
+
+        // CRITICAL: Check generation BEFORE any shared-resource cleanup.
+        //
+        // During rapid skipping, a NEW flow may have already started capture
+        // on the shared speechCaptureService. If we call stopCapture() here
+        // on a stale (cancelled) flow, we kill the NEW flow's audio engine,
+        // causing it to see empty transcription → false "Listening Timed Out".
+        //
+        // cancelCurrentActivity() already called cancelCapture() which cleans
+        // up the OLD capture session. No stopCapture() is needed here for
+        // stale flows — the generation guard ensures only the ACTIVE flow
+        // performs final cleanup.
+        guard generation == flowGeneration else { return }
+        guard hasStarted else { return }
+
+        // Clean up listening task (only reached by the active flow)
         cancelListeningTask()
-        
+
         let finalText = captureService.stopCapture()
         if !finalText.isEmpty { lastTranscription = finalText }
-        
-        guard shouldContinueFlow(generation: generation) else { return }
-        guard hasStarted else { return }
         
         let duration = Date().timeIntervalSince(startTime)
         

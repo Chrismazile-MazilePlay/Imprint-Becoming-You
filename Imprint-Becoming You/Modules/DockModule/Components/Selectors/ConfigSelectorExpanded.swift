@@ -271,6 +271,8 @@ public struct ConfigSelectorExpanded: View {
             Image(systemName: isExtendedLoopPage ? "chevron.left" : "chevron.right")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(isExtendedLoopSelected ? tokens.accent : tokens.textSecondary)
+                .contentTransition(.identity)
+                .animation(nil, value: isExtendedLoopPage)
                 .frame(width: 28, height: tokens.chipHeight)
                 .contentShape(Rectangle())
         }

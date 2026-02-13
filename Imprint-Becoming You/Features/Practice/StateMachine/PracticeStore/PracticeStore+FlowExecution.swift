@@ -537,15 +537,11 @@ extension PracticeStore {
 
                     if elapsed >= PracticeTiming.maximumListeningDuration { break captureLoop }
 
-                    // Audio level updates drive waveform animation only — no word matching here
-                    let context = ListeningContext(
-                        elapsed: elapsed,
-                        audioLevel: lastAudioLevel,
-                        recognizedText: lastTranscription,
-                        matchedWordCount: lastMatchedWordCount,
-                        totalExpectedWords: totalExpectedWords
-                    )
-                    self.send(.listeningUpdate(context))
+                    // Update audio level directly — avoids creating a ListeningContext
+                    // (which copies recognizedText as a String) and dispatching a
+                    // .listeningUpdate event + setFlow() on every tick (~30fps).
+                    // Only the dock waveform observes this lightweight Double property.
+                    self.setListeningAudioLevel(lastAudioLevel)
                     
                 case .silenceDetected(let silenceDuration):
                     if lastTranscription.isEmpty {
@@ -558,18 +554,23 @@ extension PracticeStore {
                             break captureLoop
                         }
                     } else {
-                        let completion = TextAccuracyCalculator.evaluateCompletion(expected: affirmationText, recognized: lastTranscription)
+                        // Use the sequential high-water mark — the same strict standard
+                        // as the in-loop auto-complete at line 514. Only treat the
+                        // affirmation as "complete" when ALL words have been matched
+                        // sequentially, ensuring every word is highlighted before the
+                        // short silence threshold can exit the loop.
+                        let isSequentiallyComplete = lastMatchedWordCount >= totalExpectedWords
                         AppLogger.debug(
                             "Silence detected",
                             category: .speech,
                             context: [
                                 "silenceDuration": silenceDuration,
-                                "matchedWords": completion.matchedWordCount,
-                                "expectedWords": completion.expectedWordCount,
-                                "isComplete": completion.isComplete
+                                "matchedWords": lastMatchedWordCount,
+                                "expectedWords": totalExpectedWords,
+                                "isComplete": isSequentiallyComplete
                             ]
                         )
-                        if completion.isComplete {
+                        if isSequentiallyComplete {
                             if silenceDuration >= PracticeTiming.completedAffirmationSilenceThreshold {
                                 AppLogger.debug(
                                     "Breaking: Complete + silence",
@@ -668,11 +669,14 @@ extension PracticeStore {
             ]
         )
 
-        // Accept if sequential match, high-water mark, OR text accuracy says complete.
-        // The high-water mark covers the case where the recognizer revised a partial
-        // after all words were matched during the session — the final transcription
-        // may not show all matches, but the user did say them.
-        if matchResult.isComplete || lastMatchedWordCount >= totalExpectedWords || completion.isComplete {
+        // Accept ONLY if ALL words were matched sequentially.
+        // - matchResult.isComplete: final transcription matches all words in order.
+        // - lastMatchedWordCount >= totalExpectedWords: high-water mark reached 100%
+        //   at some point (covers recognizer revisions that drop the final text).
+        // The lenient bag-of-words check (completion.isComplete) is intentionally
+        // excluded — it uses a 75% threshold that can trigger celebration before
+        // all words are highlighted, violating the word-by-word feedback contract.
+        if matchResult.isComplete || lastMatchedWordCount >= totalExpectedWords {
             send(.listeningCompleted(recognizedText: lastTranscription, duration: duration))
         } else {
             send(.listeningTimedOut)

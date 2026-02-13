@@ -402,8 +402,11 @@ private extension PracticeDockAdapter {
             case .preparingToListen:
                 // Green breathing animation while speech engine initializes
                 return .preparing
-            case .listening(let context):
-                return .listening(audioLevel: CGFloat(context.audioLevel))
+            case .listening:
+                // Read audio level from the dedicated lightweight property instead
+                // of the flow enum's ListeningContext. This avoids triggering
+                // setFlow() + ListeningContext String copies on every audio tick.
+                return .listening(audioLevel: CGFloat(store.listeningAudioLevel))
             case .celebrating:
                 return .idle
             }
@@ -415,8 +418,11 @@ private extension PracticeDockAdapter {
             case .preparingToListen:
                 // Green breathing animation while speech engine initializes
                 return .preparing
-            case .listening(let context):
-                return .listening(audioLevel: CGFloat(context.audioLevel))
+            case .listening:
+                // Read audio level from the dedicated lightweight property instead
+                // of the flow enum's ListeningContext. This avoids triggering
+                // setFlow() + ListeningContext String copies on every audio tick.
+                return .listening(audioLevel: CGFloat(store.listeningAudioLevel))
             case .celebrating:
                 return .idle
             }

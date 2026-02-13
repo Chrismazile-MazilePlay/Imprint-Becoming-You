@@ -432,8 +432,9 @@ extension PracticeStore {
             // Release pipeline once background synthesis finishes.
             // All audio will be cached — the pipeline is no longer needed for playback.
             queueService.onBackgroundSynthesisComplete = { [weak self] in
-                guard let self = self else { return }
-                Task {
+                guard let self else { return }
+                Task { [weak self] in
+                    guard let self else { return }
                     await self.dependencies.ttsService.releasePipelineMemory()
                     #if DEBUG
                     AppLogger.debug("Released Kokoro pipeline after background synthesis (~1.3GB freed)", category: .practice)
@@ -448,7 +449,8 @@ extension PracticeStore {
             // AudioPlayerService, bypassing TTSService entirely.
             // Soft-release frees CoreML buffers while keeping isKokoroReady=true,
             // so the pipeline transparently reloads on next session preparation.
-            Task {
+            Task { [weak self] in
+                guard let self else { return }
                 await self.dependencies.ttsService.releasePipelineMemory()
                 #if DEBUG
                 AppLogger.debug("Released Kokoro pipeline after full preparation (~1.3GB freed)", category: .practice)
@@ -498,7 +500,8 @@ extension PracticeStore {
         // The pipeline was loaded during preparation but is no longer needed.
         // cancelAll() only schedules release via a 30s idle timer — this
         // bypasses the delay for instant memory recovery.
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             await self.dependencies.ttsService.releasePipelineMemory()
             #if DEBUG
             AppLogger.debug("Released Kokoro pipeline on cancel preparation (~1.3GB freed)", category: .practice)

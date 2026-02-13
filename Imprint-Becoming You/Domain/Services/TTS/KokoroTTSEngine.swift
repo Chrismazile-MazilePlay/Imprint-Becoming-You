@@ -526,43 +526,58 @@ actor KokoroTTSEngine {
         return nil
     }
     
+    /// Encodes raw Float32 PCM samples into WAV format (16-bit, mono).
+    ///
+    /// ## Memory Optimization
+    /// - Pre-allocates `Data` with exact capacity (44-byte header + `samples.count * 2`)
+    ///   to avoid repeated reallocations during append.
+    /// - Appends raw bytes from `withUnsafeBytes(of:)` directly to `Data` without
+    ///   wrapping in intermediate `Array<UInt8>` — eliminates ~720K temporary array
+    ///   allocations for 30s of 24kHz audio.
     private func createWAVData(from samples: [Float], sampleRate: Int) -> Data {
-        var data = Data()
-        
-        // WAV header
+        // WAV header constants
         let numChannels: Int16 = 1
         let bitsPerSample: Int16 = 16
         let byteRate = Int32(sampleRate * Int(numChannels) * Int(bitsPerSample) / 8)
         let blockAlign = Int16(numChannels * bitsPerSample / 8)
         let dataSize = Int32(samples.count * 2)
         let fileSize = 36 + dataSize
-        
+
+        // Pre-allocate exact capacity: 44-byte header + 2 bytes per sample.
+        var data = Data(capacity: 44 + samples.count * 2)
+
+        /// Appends a fixed-width integer in little-endian byte order.
+        func appendLE<T: FixedWidthInteger>(_ value: T) {
+            var le = value.littleEndian
+            withUnsafeBytes(of: &le) { data.append(contentsOf: $0) }
+        }
+
         // RIFF header
         data.append(contentsOf: "RIFF".utf8)
-        data.append(contentsOf: withUnsafeBytes(of: fileSize.littleEndian) { Array($0) })
+        appendLE(fileSize)
         data.append(contentsOf: "WAVE".utf8)
-        
+
         // fmt chunk
         data.append(contentsOf: "fmt ".utf8)
-        data.append(contentsOf: withUnsafeBytes(of: Int32(16).littleEndian) { Array($0) })
-        data.append(contentsOf: withUnsafeBytes(of: Int16(1).littleEndian) { Array($0) }) // PCM
-        data.append(contentsOf: withUnsafeBytes(of: numChannels.littleEndian) { Array($0) })
-        data.append(contentsOf: withUnsafeBytes(of: Int32(sampleRate).littleEndian) { Array($0) })
-        data.append(contentsOf: withUnsafeBytes(of: byteRate.littleEndian) { Array($0) })
-        data.append(contentsOf: withUnsafeBytes(of: blockAlign.littleEndian) { Array($0) })
-        data.append(contentsOf: withUnsafeBytes(of: bitsPerSample.littleEndian) { Array($0) })
-        
-        // data chunk
+        appendLE(Int32(16))       // Subchunk1Size
+        appendLE(Int16(1))        // AudioFormat (PCM)
+        appendLE(numChannels)
+        appendLE(Int32(sampleRate))
+        appendLE(byteRate)
+        appendLE(blockAlign)
+        appendLE(bitsPerSample)
+
+        // data chunk header
         data.append(contentsOf: "data".utf8)
-        data.append(contentsOf: withUnsafeBytes(of: dataSize.littleEndian) { Array($0) })
-        
-        // Audio samples (convert Float to Int16)
+        appendLE(dataSize)
+
+        // Audio samples: Float32 → clamped Int16 little-endian
         for sample in samples {
-            let clampedSample = max(-1.0, min(1.0, sample))
-            let int16Sample = Int16(clampedSample * Float(Int16.max))
-            data.append(contentsOf: withUnsafeBytes(of: int16Sample.littleEndian) { Array($0) })
+            let clamped = max(-1.0, min(1.0, sample))
+            var int16 = Int16(clamped * Float(Int16.max)).littleEndian
+            withUnsafeBytes(of: &int16) { data.append(contentsOf: $0) }
         }
-        
+
         return data
     }
 }

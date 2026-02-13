@@ -77,7 +77,7 @@ extension PracticeStore {
         // Clear task references
         activeFlowTask = nil
         listeningTask = nil
-        // Note: sessionPreparationTask is cleared via clearSessionPreparation()
+        sessionPreparationTask = nil
         
         AppLogger.debug("Cancelled all managed tasks", category: .practice)
     }

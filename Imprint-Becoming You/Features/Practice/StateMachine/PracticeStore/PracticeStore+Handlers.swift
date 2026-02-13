@@ -63,7 +63,15 @@ extension PracticeStore {
             category: .practice,
             context: ["mode": String(describing: mode), "affirmationCount": affirmations.count]
         )
-        
+
+        // Release speech capture service memory when switching to Read Aloud.
+        // Read Aloud uses TTS playback only — no microphone needed (~7-15MB freed).
+        // Service is lazily recreated if user switches back to a listening mode.
+        // Note: Do NOT release for readThenSpeak — it uses listening after TTS playback.
+        if mode == .readAloud {
+            releaseSpeechCaptureService()
+        }
+
         // Reset position and progress, but keep same affirmations
         setSessionState(index: 0)
         setSessionResults([])
@@ -715,8 +723,22 @@ extension PracticeStore {
 extension PracticeStore {
 
     /// Transitions to celebrating phase and schedules auto-advance after celebration duration.
+    ///
+    /// The flow change uses a disabled-animation transaction so SwiftUI applies
+    /// the `.celebrating` state immediately without interpolating view properties.
+    /// This prevents the `withAnimation` spring from triggering a cross-fade on
+    /// `AutoScrollingAffirmationText`'s `foregroundStyle`, which would momentarily
+    /// flash highlighted text back to the default white color before celebration.
+    /// Segment progress animates separately since it's a continuous 0→1.0 value.
     func handleCelebrationStarted() {
-        withAnimation(AppTheme.Animation.standard) {
+        // Set flow to celebrating WITHOUT animation to prevent text color flash.
+        // When wrapped in withAnimation, SwiftUI's spring interpolation can cause
+        // the AttributedString foregroundColor (accent) to briefly blend with the
+        // parent .foregroundStyle (white), producing a visible un-highlight flash
+        // before the celebration sparkle burst appears.
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
             switch flow {
             case .readAndSpeak:
                 setFlow(.readAndSpeak(.celebrating))
@@ -725,6 +747,11 @@ extension PracticeStore {
             default:
                 break
             }
+        }
+
+        // Animate segment progress separately — this is a continuous value (0→1.0)
+        // that benefits from smooth animation in the dock's segment bar.
+        withAnimation(AppTheme.Animation.standard) {
             setSegmentProgress(1.0)
         }
 

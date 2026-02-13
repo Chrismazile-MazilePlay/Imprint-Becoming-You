@@ -129,6 +129,13 @@ final class PracticeStore {
     /// avoid unnecessary re-evaluation on every audio frame.
     private(set) var listeningMatchedWordCount: Int = 0
 
+    /// Current audio level during listening (0.0–1.0), updated at ~30fps.
+    ///
+    /// Separated from `flow` so that audio level ticks do NOT trigger `setFlow()` or
+    /// create `ListeningContext` structs with `recognizedText` copies. The dock waveform
+    /// reads this directly via `PracticeDockAdapter.mapFlowToCenterContent()`.
+    private(set) var listeningAudioLevel: Double = 0
+
     // MARK: - Browse Queue State (Default Mode)
     
     /// Affirmations for browse mode (batch of 30).
@@ -558,6 +565,7 @@ final class PracticeStore {
         )
         isInListeningPhase = false
         listeningMatchedWordCount = 0
+        listeningAudioLevel = 0
     }
 
     /// Marks the listening phase as active.
@@ -574,6 +582,15 @@ final class PracticeStore {
     /// the `AutoScrollingAffirmationText` view update frequency low.
     func setListeningMatchedWordCount(_ count: Int) {
         listeningMatchedWordCount = count
+    }
+
+    /// Updates the current audio level during listening.
+    ///
+    /// Called directly from the capture loop's `.audioLevel` case at ~30fps.
+    /// Avoids creating `ListeningContext` structs or dispatching events through
+    /// the state machine — only the dock waveform observes this property.
+    func setListeningAudioLevel(_ level: Double) {
+        listeningAudioLevel = level
     }
 
     /// Updates browse queue state

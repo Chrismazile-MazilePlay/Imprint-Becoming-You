@@ -51,12 +51,28 @@ final class TTSAudioCache {
         storage[id]
     }
 
+    /// Maximum number of cached entries.
+    ///
+    /// Defensive cap well above the practical maximum (~20 for expanded spaced-rep sessions).
+    /// Prevents runaway memory if session teardown is missed. At ~4MB per entry, 50 entries
+    /// caps in-memory audio at ~200MB.
+    private static let maxEntries = 50
+
     /// Stores audio data for an affirmation.
+    ///
+    /// Skips the insert if the cache is at capacity (defensive guard — not expected
+    /// to fire in normal operation since session lifecycle clears the cache).
     ///
     /// - Parameters:
     ///   - id: The affirmation's unique identifier
     ///   - data: The synthesized audio data (PCM or WAV)
     func set(_ id: UUID, data: Data) {
+        guard storage.count < Self.maxEntries else {
+            #if DEBUG
+            AppLogger.debug("TTSAudioCache at capacity (\(storage.count) entries), skipping insert", category: .tts)
+            #endif
+            return
+        }
         storage[id] = data
     }
 

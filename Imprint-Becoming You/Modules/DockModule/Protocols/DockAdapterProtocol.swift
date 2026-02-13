@@ -283,6 +283,20 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
     /// The adapter should toggle the spaced repetition state.
     func toggleSpacedRepetition()
 
+    // MARK: - Loop Page Navigation
+
+    /// Whether the extended loop page is active.
+    ///
+    /// When `false` (default), the config menu shows base loop options `[1, 3, 5]`.
+    /// When `true`, the config menu shows extended options `[2, 6, 10]`.
+    var isExtendedLoopPage: Bool { get }
+
+    /// Called when the user taps the loop page arrow.
+    ///
+    /// The adapter should toggle `isExtendedLoopPage` and map the current
+    /// `loopCount` to the corresponding value on the target page.
+    func navigateLoopPage()
+
     /// Called when the user taps the play button.
     ///
     /// The adapter should start the configured practice session.
@@ -343,6 +357,12 @@ public extension DockAdapterProtocol {
 
     /// Default loop count selection — no-op.
     func selectLoopCount(_ count: Int) { }
+
+    /// Default extended loop page state — base page.
+    var isExtendedLoopPage: Bool { false }
+
+    /// Default loop page navigation — no-op.
+    func navigateLoopPage() { }
     
     /// Default session segments returns nil (no session active).
     var sessionSegments: DockSessionSegments? {

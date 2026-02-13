@@ -179,6 +179,11 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     /// Defaults to `false` (standard 10-segment session).
     var isSpacedRepetitionEnabled: Bool = false
 
+    /// Whether the extended loop page (2, 6, 10) is shown in the config menu.
+    ///
+    /// Defaults to `false` (base page with 1, 3, 5).
+    var isExtendedLoopPage: Bool = false
+
     /// Not applicable for practice mode.
     var isShuffleEnabled: Bool { false }
     
@@ -299,8 +304,13 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     }
 
     func selectLoopCount(_ count: Int) {
-        guard [1, 3, 5].contains(count) else { return }
+        let allValid = LoopConfiguration.loopOptions + LoopConfiguration.extendedLoopOptions
+        guard allValid.contains(count) else { return }
         loopCount = count
+    }
+
+    func navigateLoopPage() {
+        isExtendedLoopPage.toggle()
     }
 
     func toggleShuffle() {
@@ -310,7 +320,7 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     func toggleSpacedRepetition() {
         isSpacedRepetitionEnabled.toggle()
     }
-    
+
     func play() {
         // Not applicable for practice mode
     }

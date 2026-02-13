@@ -168,11 +168,15 @@ public struct AdaptiveDockContainer<Content: View>: View {
                 Spacer(minLength: 0)
                 ConfigSelectorExpanded(
                     loopCount: adapter.loopCount,
+                    isExtendedLoopPage: adapter.isExtendedLoopPage,
                     isShuffleEnabled: adapter.isShuffleEnabled,
                     showsShuffleOption: adapter.showsShuffleOption,
                     isSpacedRepetitionEnabled: adapter.isSpacedRepetitionEnabled,
                     onSelectLoopCount: { count in
                         adapter.selectLoopCount(count)
+                    },
+                    onNavigateLoopPage: {
+                        adapter.navigateLoopPage()
                     },
                     onToggleShuffle: {
                         adapter.toggleShuffle()

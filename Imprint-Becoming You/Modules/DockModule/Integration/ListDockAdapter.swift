@@ -104,6 +104,11 @@ final class ListDockAdapter: DockAdapterProtocol {
     /// Whether spaced repetition (Reinforce) is enabled.
     var isSpacedRepetitionEnabled: Bool = false
 
+    /// Whether the extended loop page (2, 6, 10) is shown in the config menu.
+    ///
+    /// Defaults to `false` (base page with 1, 3, 5).
+    var isExtendedLoopPage: Bool = false
+
     /// The number of unique base affirmations available for the session.
     ///
     /// Used to validate Reinforce mode requirements at `play()` time.
@@ -283,19 +288,35 @@ final class ListDockAdapter: DockAdapterProtocol {
     // MARK: - Configuration Mode Actions
 
     func cycleLoopCount() {
-        switch loopCount {
-        case 1:
-            loopCount = 3
-        case 3:
-            loopCount = 5
-        default:
-            loopCount = 1
+        if isExtendedLoopPage {
+            switch loopCount {
+            case 2:
+                loopCount = 6
+            case 6:
+                loopCount = 10
+            default:
+                loopCount = 2
+            }
+        } else {
+            switch loopCount {
+            case 1:
+                loopCount = 3
+            case 3:
+                loopCount = 5
+            default:
+                loopCount = 1
+            }
         }
     }
 
     func selectLoopCount(_ count: Int) {
-        guard [1, 3, 5].contains(count) else { return }
+        let allValid = LoopConfiguration.loopOptions + LoopConfiguration.extendedLoopOptions
+        guard allValid.contains(count) else { return }
         loopCount = count
+    }
+
+    func navigateLoopPage() {
+        isExtendedLoopPage.toggle()
     }
 
     func toggleShuffle() {

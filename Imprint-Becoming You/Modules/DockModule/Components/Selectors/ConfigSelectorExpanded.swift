@@ -9,7 +9,7 @@ import SwiftUI
 
 // MARK: - ConfigSelectorExpanded
 
-/// An expanded panel showing loop count and shuffle options.
+/// An expanded panel showing loop count, reinforce, and shuffle options.
 ///
 /// The config menu uses the same visual shell as `ModeSelectorExpanded` and
 /// `BinauralSelectorExpanded`: rounded rectangle with secondary background,
@@ -19,9 +19,17 @@ import SwiftUI
 ///
 /// ```
 /// ┌──────────────────────────────────────────┐
-/// │  ↺  Loop              (1)  (3)  (5)     │  ← label + 3 circular buttons
+/// │  ↺  Loop              (1)  (3)  (5)  ›  │  ← page 1 + right arrow
+/// │ ──────────────────────────────────────── │
+/// │  ⟳  Reinforce                    Off     │
 /// │ ──────────────────────────────────────── │  ← divider (only if shuffle visible)
-/// │  🔀  Shuffle                    On       │  ← label + On/Off state text
+/// │  🔀  Shuffle                     On      │  ← label + On/Off state text
+/// └──────────────────────────────────────────┘
+///
+/// ┌──────────────────────────────────────────┐
+/// │  ↺  Loop           ‹  (2)  (6)  (10)    │  ← page 2 + left arrow
+/// │ ──────────────────────────────────────── │
+/// │  ...                                     │
 /// └──────────────────────────────────────────┘
 /// ```
 ///
@@ -37,10 +45,14 @@ import SwiftUI
 /// ```swift
 /// ConfigSelectorExpanded(
 ///     loopCount: adapter.loopCount,
+///     isExtendedLoopPage: adapter.isExtendedLoopPage,
 ///     isShuffleEnabled: adapter.isShuffleEnabled,
 ///     showsShuffleOption: adapter.showsShuffleOption,
+///     isSpacedRepetitionEnabled: adapter.isSpacedRepetitionEnabled,
 ///     onSelectLoopCount: { adapter.selectLoopCount($0) },
-///     onToggleShuffle: { adapter.toggleShuffle() }
+///     onNavigateLoopPage: { adapter.navigateLoopPage() },
+///     onToggleShuffle: { adapter.toggleShuffle() },
+///     onToggleSpacedRepetition: { adapter.toggleSpacedRepetition() }
 /// )
 /// ```
 public struct ConfigSelectorExpanded: View {
@@ -52,8 +64,13 @@ public struct ConfigSelectorExpanded: View {
 
     // MARK: - Properties
 
-    /// The currently selected loop count (1, 3, or 5).
+    /// The currently selected loop count.
+    ///
+    /// Base page values: 1, 3, or 5. Extended page values: 2, 6, or 10.
     public let loopCount: Int
+
+    /// Whether the extended loop page (2, 6, 10) is currently shown.
+    public let isExtendedLoopPage: Bool
 
     /// Whether shuffle is currently enabled.
     public let isShuffleEnabled: Bool
@@ -70,32 +87,44 @@ public struct ConfigSelectorExpanded: View {
     /// Called when the user selects a loop count.
     public let onSelectLoopCount: (Int) -> Void
 
+    /// Called when the user taps the loop page arrow to navigate between pages.
+    public let onNavigateLoopPage: () -> Void
+
     /// Called when the user toggles shuffle.
     public let onToggleShuffle: () -> Void
 
     /// Called when the user toggles spaced repetition (Reinforce).
     public let onToggleSpacedRepetition: () -> Void
 
-    // MARK: - Constants
+    // MARK: - Computed Properties
 
-    private static let loopCounts = [1, 3, 5]
+    /// The loop counts to display based on the current page.
+    private var displayedLoopCounts: [Int] {
+        isExtendedLoopPage
+            ? LoopConfiguration.extendedLoopOptions
+            : LoopConfiguration.loopOptions
+    }
 
     // MARK: - Initialization
 
     public init(
         loopCount: Int,
+        isExtendedLoopPage: Bool,
         isShuffleEnabled: Bool,
         showsShuffleOption: Bool,
         isSpacedRepetitionEnabled: Bool,
         onSelectLoopCount: @escaping (Int) -> Void,
+        onNavigateLoopPage: @escaping () -> Void,
         onToggleShuffle: @escaping () -> Void,
         onToggleSpacedRepetition: @escaping () -> Void
     ) {
         self.loopCount = loopCount
+        self.isExtendedLoopPage = isExtendedLoopPage
         self.isShuffleEnabled = isShuffleEnabled
         self.showsShuffleOption = showsShuffleOption
         self.isSpacedRepetitionEnabled = isSpacedRepetitionEnabled
         self.onSelectLoopCount = onSelectLoopCount
+        self.onNavigateLoopPage = onNavigateLoopPage
         self.onToggleShuffle = onToggleShuffle
         self.onToggleSpacedRepetition = onToggleSpacedRepetition
     }
@@ -135,7 +164,7 @@ public struct ConfigSelectorExpanded: View {
 
     // MARK: - Loop Row
 
-    /// Row with repeat icon, "Loop" label, and three circular count buttons.
+    /// Row with repeat icon, "Loop" label, paged count buttons, and a navigation arrow.
     private var loopRow: some View {
         HStack(spacing: tokens.spacingSM) {
             // Icon
@@ -149,7 +178,7 @@ public struct ConfigSelectorExpanded: View {
                 Text("Loop")
                     .font(tokens.headline)
                     .foregroundStyle(loopCount > 1 ? tokens.accent : tokens.textPrimary)
-                Text("Repeat affirmations")
+                Text("Repeat session")
                     .font(tokens.caption1)
                     .foregroundStyle(tokens.textTertiary)
                     .lineLimit(1)
@@ -157,19 +186,96 @@ public struct ConfigSelectorExpanded: View {
 
             Spacer(minLength: 0)
 
-            // Circular count buttons
-            HStack(spacing: tokens.spacingXS) {
-                ForEach(Self.loopCounts, id: \.self) { count in
-                    loopCountButton(count)
-                }
-            }
+            // Paged loop buttons with arrow navigation
+            loopButtonsWithArrow
         }
         .padding(.horizontal, tokens.spacingMD)
         .padding(.vertical, tokens.spacingSM)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Loop count")
-        .accessibilityValue(loopCount == 1 ? "Single play" : "Loop \(loopCount) times")
-        .accessibilityHint("Select 1, 3, or 5 loops")
+    }
+
+    // MARK: - Loop Buttons with Arrow
+
+    /// Page identifiers for the loop ScrollView.
+    private enum LoopPage: Hashable {
+        case base
+        case extended
+    }
+
+    /// Paged loop buttons with a chevron arrow to navigate between pages.
+    ///
+    /// A horizontal `ScrollView` with two pages (`[1,3,5]` and `[2,6,10]`),
+    /// scrolled programmatically via the arrow button. User gesture scrolling is disabled.
+    /// The arrow always sits on the right; its icon flips between `chevron.right` (page 1)
+    /// and `chevron.left` (page 2).
+    private var loopButtonsWithArrow: some View {
+        HStack(spacing: tokens.spacingXS) {
+            // Paged ScrollView — fixed width, no user gesture scrolling
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: tokens.spacingXS) {
+                        loopPage(counts: LoopConfiguration.loopOptions)
+                            .id(LoopPage.base)
+
+                        loopPage(counts: LoopConfiguration.extendedLoopOptions)
+                            .id(LoopPage.extended)
+                    }
+                    .scrollTargetLayout()
+                }
+                .scrollTargetBehavior(.paging)
+                .scrollDisabled(true)
+                .frame(width: loopPageWidth)
+                .onChange(of: isExtendedLoopPage) { _, extended in
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        proxy.scrollTo(extended ? LoopPage.extended : LoopPage.base, anchor: .leading)
+                    }
+                }
+            }
+
+            // Arrow — always on the right, icon flips per page
+            loopPageArrowButton
+        }
+    }
+
+    /// Width of a single loop page (3 buttons × 44pt + 2 gaps × 4pt).
+    private var loopPageWidth: CGFloat {
+        (tokens.chipHeight * 3) + (tokens.spacingXS * 2)
+    }
+
+    /// A row of three loop count buttons for one page.
+    private func loopPage(counts: [Int]) -> some View {
+        HStack(spacing: tokens.spacingXS) {
+            ForEach(counts, id: \.self) { count in
+                loopCountButton(count)
+            }
+        }
+        .frame(width: loopPageWidth)
+    }
+
+    /// Whether the current loop count is an extended (page 2) value.
+    private var isExtendedLoopSelected: Bool {
+        LoopConfiguration.extendedLoopOptions.contains(loopCount)
+    }
+
+    /// A chevron arrow button for navigating between loop pages.
+    ///
+    /// Always positioned on the right. Shows `chevron.right` on page 1,
+    /// `chevron.left` on page 2. Highlighted in accent when an extended
+    /// loop count is actively selected.
+    private var loopPageArrowButton: some View {
+        Button {
+            haptics.selectionFeedback()
+            onNavigateLoopPage()
+        } label: {
+            Image(systemName: isExtendedLoopPage ? "chevron.left" : "chevron.right")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(isExtendedLoopSelected ? tokens.accent : tokens.textSecondary)
+                .frame(width: 28, height: tokens.chipHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isExtendedLoopPage ? "Previous loop options" : "More loop options")
     }
 
     // MARK: - Loop Count Button
@@ -309,10 +415,33 @@ public struct ConfigSelectorExpanded: View {
             Spacer()
             ConfigSelectorExpanded(
                 loopCount: 1,
+                isExtendedLoopPage: false,
                 isShuffleEnabled: false,
                 showsShuffleOption: false,
                 isSpacedRepetitionEnabled: false,
                 onSelectLoopCount: { _ in },
+                onNavigateLoopPage: { },
+                onToggleShuffle: { },
+                onToggleSpacedRepetition: { }
+            )
+            .padding()
+        }
+    }
+}
+
+#Preview("Config Selector - Extended Page") {
+    ZStack {
+        Color.black.ignoresSafeArea()
+        VStack {
+            Spacer()
+            ConfigSelectorExpanded(
+                loopCount: 6,
+                isExtendedLoopPage: true,
+                isShuffleEnabled: false,
+                showsShuffleOption: false,
+                isSpacedRepetitionEnabled: false,
+                onSelectLoopCount: { _ in },
+                onNavigateLoopPage: { },
                 onToggleShuffle: { },
                 onToggleSpacedRepetition: { }
             )
@@ -328,10 +457,12 @@ public struct ConfigSelectorExpanded: View {
             Spacer()
             ConfigSelectorExpanded(
                 loopCount: 3,
+                isExtendedLoopPage: false,
                 isShuffleEnabled: true,
                 showsShuffleOption: true,
                 isSpacedRepetitionEnabled: true,
                 onSelectLoopCount: { _ in },
+                onNavigateLoopPage: { },
                 onToggleShuffle: { },
                 onToggleSpacedRepetition: { }
             )
@@ -347,10 +478,12 @@ public struct ConfigSelectorExpanded: View {
             Spacer()
             ConfigSelectorExpanded(
                 loopCount: 5,
+                isExtendedLoopPage: false,
                 isShuffleEnabled: false,
                 showsShuffleOption: true,
                 isSpacedRepetitionEnabled: false,
                 onSelectLoopCount: { _ in },
+                onNavigateLoopPage: { },
                 onToggleShuffle: { },
                 onToggleSpacedRepetition: { }
             )

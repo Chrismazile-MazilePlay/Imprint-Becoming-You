@@ -132,6 +132,9 @@ struct LoopConfiguration: Equatable, Sendable {
     
     /// Available loop count options
     static let loopOptions = [1, 3, 5]
+
+    /// Extended loop count options (page 2 — doubled values)
+    static let extendedLoopOptions = [2, 6, 10]
 }
 
 // MARK: - Preview Support

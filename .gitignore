@@ -3,3 +3,7 @@ CLAUDE.md
 .claude/
 *.py
 xcuserdata/
+*.epub
+*.epub/
+*.pub
+*.md

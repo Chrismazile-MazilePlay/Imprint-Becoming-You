@@ -7,7 +7,6 @@
 
 import SwiftUI
 import SwiftData
-import AVFoundation
 
 // MARK: - Voice Settings View
 
@@ -65,8 +64,8 @@ struct VoiceSettingsView: View {
     /// Whether Kokoro engine is ready
     @State private var isKokoroReady = false
     
-    /// Audio player for preview playback
-    @State private var audioPlayer: AVAudioPlayer?
+    /// Task for current preview playback (for cancellation)
+    @State private var previewPlaybackTask: Task<Void, Never>?
     
     /// Voice selected for modification (triggers navigation)
     @State private var voiceForModification: Voice?
@@ -339,10 +338,16 @@ struct VoiceSettingsView: View {
                 // Verify still previewing same voice
                 guard previewingVoiceId == capturedVoiceId else { return }
                 
-                // Transition to playing
+                // Transition to playing — route through unified engine
                 playbackState = .playing
-                try playAudioData(audioData)
-                
+                try await playAudioData(audioData)
+
+                // Playback completed naturally
+                if previewingVoiceId == capturedVoiceId {
+                    previewingVoiceId = nil
+                    playbackState = .idle
+                }
+
             } catch is CancellationError {
                 #if DEBUG
                 print("VoiceSettingsView: Synthesis cancelled for \(capturedTtsVoiceId)")
@@ -352,7 +357,7 @@ struct VoiceSettingsView: View {
                 print("VoiceSettingsView: Preview failed for \(capturedTtsVoiceId): \(error)")
                 #endif
             }
-            
+
             // Only clear state if still on this voice and synthesis failed/cancelled
             if previewingVoiceId == capturedVoiceId && playbackState == .synthesizing {
                 previewingVoiceId = nil
@@ -360,48 +365,37 @@ struct VoiceSettingsView: View {
             }
         }
     }
-    
-    private func playAudioData(_ data: Data) throws {
-        // Stop any existing playback
-        stopAudioPlayback()
-        
-        // Configure audio session
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-        try session.setActive(true)
-        
-        // Create and play
-        audioPlayer = try AVAudioPlayer(data: data)
-        audioPlayer?.delegate = AudioPlayerDelegateHandler.shared
-        audioPlayer?.prepareToPlay()
-        
-        // Set up completion handler
-        AudioPlayerDelegateHandler.shared.onFinished = { [weak audioPlayer] in
-            if self.audioPlayer === audioPlayer {
-                self.previewingVoiceId = nil
-                self.playbackState = .idle
-            }
+
+    /// Plays audio data through the unified engine via AudioPlayerService.
+    ///
+    /// Routes TTS preview audio through the same `AVAudioEngine` as background
+    /// music, eliminating the dual-render-client static that occurred with
+    /// standalone `AVAudioPlayer(data:)`.
+    private func playAudioData(_ data: Data) async throws {
+        // Ensure engine is running (may not be if user hasn't started a session yet)
+        if !dependencies.audioService.isRunning {
+            try await dependencies.audioService.start()
         }
-        
-        guard audioPlayer?.play() == true else {
-            throw AppError.ttsError("Failed to start audio playback")
-        }
-        
+
+        try await dependencies.audioPlayerService.playRawPCMData(data, sampleRate: 24000)
+
         #if DEBUG
         print("VoiceSettingsView: Playing audio (\(data.count) bytes)")
         #endif
     }
-    
+
     private func stopPreview() {
         dependencies.voicePreviewCacheService.cancelSynthesis()
         stopAudioPlayback()
         previewingVoiceId = nil
         playbackState = .idle
     }
-    
+
     private func stopAudioPlayback() {
-        audioPlayer?.stop()
-        audioPlayer = nil
+        dependencies.audioPlayerService.immediateStop()
+        Task {
+            await dependencies.audioPlayerService.cancelAndStop()
+        }
         dependencies.ttsService.stopSpeaking()
     }
     
@@ -447,22 +441,6 @@ struct VoiceSettingsView: View {
         #if DEBUG
         print("VoiceSettingsView: \(voicesWithCustomSettings.count) voices have custom settings")
         #endif
-    }
-}
-
-// MARK: - Audio Player Delegate Handler
-
-/// Shared delegate handler for AVAudioPlayer completion callbacks.
-private class AudioPlayerDelegateHandler: NSObject, AVAudioPlayerDelegate {
-    static let shared = AudioPlayerDelegateHandler()
-    
-    var onFinished: (() -> Void)?
-    
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        DispatchQueue.main.async {
-            self.onFinished?()
-            self.onFinished = nil
-        }
     }
 }
 

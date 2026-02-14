@@ -69,12 +69,16 @@ final class TTSService: TTSServiceProtocol {
     /// System TTS service for fallback
     private let systemTTS: SystemTTSService
     
-    /// Audio player for Kokoro output
-    private var audioPlayer: AVAudioPlayer?
-    
-    /// Audio player delegate (must be retained)
-    private var playerDelegate: TTSAudioPlayerDelegate?
-    
+    /// Audio player service for unified engine playback.
+    ///
+    /// Set by `DependencyContainer` after construction. Routes TTS audio through
+    /// the same `AVAudioEngine` as background music, eliminating dual-render-client
+    /// contention that caused static on first playback.
+    var audioPlayerService: (any AudioPlayerServiceProtocol)?
+
+    /// Audio service for engine lifecycle (ensures engine is running before playback).
+    var audioService: (any AudioServiceProtocol)?
+
     /// Audio cache manager
     private let cacheManager: AudioCacheManager
     
@@ -99,19 +103,7 @@ final class TTSService: TTSServiceProtocol {
     /// cleared by `resumeSynthesisIdleTimer()`.
     private var _isIdleTimerSuppressed: Bool = false
     
-    // MARK: - Audio Session State (Issue 2.4 Fix)
-    
-    /// Whether audio session has been pre-configured during warm-up.
-    ///
-    /// When `true`, `playAudioData()` can skip the potentially blocking
-    /// `setCategory()` call and only activate the session.
-    private var isAudioSessionConfigured: Bool = false
-    
-    /// Last configured audio session category.
-    ///
-    /// Used to avoid redundant `setCategory()` calls which can block
-    /// the main thread for 50-200ms.
-    private var lastConfiguredCategory: AVAudioSession.Category?
+    // (Audio session state removed — AudioService/AudioCoordinator now owns session config)
     
     // MARK: - Synthesis Idle Timer
     
@@ -161,7 +153,7 @@ final class TTSService: TTSServiceProtocol {
     // MARK: - TTSServiceProtocol
     
     var isSpeaking: Bool {
-        _isSpeaking || systemTTS.isSpeaking || (audioPlayer?.isPlaying ?? false)
+        _isSpeaking || systemTTS.isSpeaking
     }
     
     var isKokoroReady: Bool {
@@ -188,16 +180,12 @@ final class TTSService: TTSServiceProtocol {
         // Reset background release flag
         _isReleasedForBackground = false
         
-        // Cancel any pending idle timer â€” fresh warm-up should not be released
+        // Cancel any pending idle timer â€" fresh warm-up should not be released
         cancelSynthesisIdleTimer()
-        
-        // Pre-configure audio session on background queue (Issue 2.4)
-        // This moves the potentially blocking setCategory() off the main thread
-        await preConfigureAudioSession()
 
-        // Pre-warm the AVAudioPlayer render path to avoid first-use HAL allocation
-        // that can glitch concurrent AVAudioEngine output (background music).
-        preWarmAudioPlayer()
+        // Audio session pre-configuration and AVAudioPlayer pre-warming are no longer
+        // needed — all audio routes through the unified AVAudioEngine via AudioPlayerService.
+        // The engine is configured by AudioService.start() through AudioCoordinator.
 
         do {
             try await kokoroEngine.warmUp()
@@ -235,11 +223,7 @@ final class TTSService: TTSServiceProtocol {
         // Reset state
         _isKokoroReady = false
         _isReleasedForBackground = false
-        
-        // Reset audio session configuration state
-        isAudioSessionConfigured = false
-        lastConfiguredCategory = nil
-        
+
         // Create a fresh engine instance
         kokoroEngine = KokoroTTSEngine()
         
@@ -364,9 +348,11 @@ final class TTSService: TTSServiceProtocol {
     }
     
     func stopSpeaking() {
-        audioPlayer?.stop()
-        audioPlayer = nil
-        playerDelegate = nil
+        // Stop unified engine playback
+        audioPlayerService?.immediateStop()
+        Task {
+            await audioPlayerService?.cancelAndStop()
+        }
         systemTTS.stopSpeaking()
         _isSpeaking = false
     }
@@ -412,12 +398,7 @@ final class TTSService: TTSServiceProtocol {
         // Update state
         _isKokoroReady = false
         _isReleasedForBackground = true
-        
-        // Reset audio session configuration state
-        // This ensures we re-configure on next warm-up
-        isAudioSessionConfigured = false
-        lastConfiguredCategory = nil
-        
+
         #if DEBUG
         AppLogger.debug("Kokoro released for background", category: .tts)
         #endif
@@ -579,178 +560,9 @@ final class TTSService: TTSServiceProtocol {
         preSynthesisTask = nil
     }
     
-    // MARK: - Audio Session Pre-Configuration (Issue 2.4 Fix)
-    
-    /// Pre-configures audio session for playback on a background queue.
-    ///
-    /// This method moves the potentially blocking `AVAudioSession.setCategory()`
-    /// call off the main thread, reducing UI jank during TTS initialization.
-    /// Called during `warmUp()` to ensure the session is ready before playback.
-    ///
-    /// ## Performance Impact
-    /// - `setCategory()` can block for 50-200ms on main thread
-    /// - By pre-configuring during warm-up, `playAudioData()` only needs
-    ///   a quick `setActive()` call which is typically <5ms
-    private func preConfigureAudioSession() async {
-        guard !isAudioSessionConfigured else {
-            #if DEBUG
-            AppLogger.debug("Audio session already pre-configured", category: .tts)
-            #endif
-            return
-        }
-        
-        // Measure audio session configuration with signpost
-        await AppLogger.measureAsync(AppLogger.SignpostName.audioSessionConfig, category: .audio) {
-            await performAudioSessionConfiguration()
-        }
-    }
-    
-    /// Internal audio session configuration (separated for signpost measurement).
-    private func performAudioSessionConfiguration() async {
-        #if DEBUG
-        AppLogger.debug("Pre-configuring audio session on background queue...", category: .tts)
-        #endif
-
-        // Configure on background queue to avoid main thread blocking
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let session = AVAudioSession.sharedInstance()
-                // Fast path: skip setCategory() when already in .playback.
-                // Background music may have already configured the session —
-                // calling setCategory() redundantly triggers a 50-200ms HAL
-                // reconfiguration that causes UI stutter during session start.
-                guard session.category != .playback else {
-                    Task { @MainActor in
-                        self.isAudioSessionConfigured = true
-                        self.lastConfiguredCategory = .playback
-
-                        #if DEBUG
-                        AppLogger.debug("Audio session already in .playback — skipping pre-config", category: .tts)
-                        #endif
-
-                        continuation.resume()
-                    }
-                    return
-                }
-                do {
-                    try session.setCategory(
-                        .playback,
-                        mode: .default,
-                        options: [.mixWithOthers]
-                    )
-
-                    // Update state on main actor
-                    Task { @MainActor in
-                        self.isAudioSessionConfigured = true
-                        self.lastConfiguredCategory = .playback
-
-                        #if DEBUG
-                        AppLogger.debug("Audio session pre-configured successfully", category: .tts)
-                        #endif
-
-                        continuation.resume()
-                    }
-                } catch {
-                    // Update state on main actor even on failure
-                    Task { @MainActor in
-                        #if DEBUG
-                        AppLogger.debug("Audio session pre-config failed", category: .tts, context: ["error": error])
-                        #endif
-
-                        // Don't mark as configured - will try again during playback
-                        continuation.resume()
-                    }
-                }
-            }
-        }
-    }
-
-    /// Pre-warms the `AVAudioPlayer` render path during warm-up.
-    ///
-    /// The first `AVAudioPlayer(data:)` instantiation in a process allocates
-    /// system audio resources for the AVAudioPlayer HAL path. If background
-    /// music is playing on `AVAudioEngine`, this allocation can cause a brief
-    /// audio glitch on the engine output.
-    ///
-    /// By creating a minimal silent player during warm-up (before any session),
-    /// the HAL path is pre-allocated. Subsequent `AVAudioPlayer(data:)` calls
-    /// (for TTS playback) reuse the existing path without disruption.
-    private func preWarmAudioPlayer() {
-        // Minimal 44-byte WAV header representing 0 samples at 24000 Hz mono 16-bit.
-        // This is enough to trigger AVAudioPlayer's internal pipeline allocation
-        // without producing any audible output.
-        var wavHeader = Data(count: 44)
-        wavHeader.withUnsafeMutableBytes { raw in
-            let ptr = raw.baseAddress!
-            // RIFF header
-            "RIFF".utf8.enumerated().forEach { ptr.storeBytes(of: $0.element, toByteOffset: $0.offset, as: UInt8.self) }
-            ptr.storeBytes(of: UInt32(36).littleEndian, toByteOffset: 4, as: UInt32.self) // file size - 8
-            "WAVE".utf8.enumerated().forEach { ptr.storeBytes(of: $0.element, toByteOffset: 8 + $0.offset, as: UInt8.self) }
-            // fmt chunk
-            "fmt ".utf8.enumerated().forEach { ptr.storeBytes(of: $0.element, toByteOffset: 12 + $0.offset, as: UInt8.self) }
-            ptr.storeBytes(of: UInt32(16).littleEndian, toByteOffset: 16, as: UInt32.self) // chunk size
-            ptr.storeBytes(of: UInt16(1).littleEndian, toByteOffset: 20, as: UInt16.self)  // PCM format
-            ptr.storeBytes(of: UInt16(1).littleEndian, toByteOffset: 22, as: UInt16.self)  // 1 channel
-            ptr.storeBytes(of: UInt32(24000).littleEndian, toByteOffset: 24, as: UInt32.self) // sample rate
-            ptr.storeBytes(of: UInt32(48000).littleEndian, toByteOffset: 28, as: UInt32.self) // byte rate
-            ptr.storeBytes(of: UInt16(2).littleEndian, toByteOffset: 32, as: UInt16.self)  // block align
-            ptr.storeBytes(of: UInt16(16).littleEndian, toByteOffset: 34, as: UInt16.self) // bits per sample
-            // data chunk
-            "data".utf8.enumerated().forEach { ptr.storeBytes(of: $0.element, toByteOffset: 36 + $0.offset, as: UInt8.self) }
-            ptr.storeBytes(of: UInt32(0).littleEndian, toByteOffset: 40, as: UInt32.self)  // data size = 0
-        }
-
-        // Create and prepare — this primes the internal audio render path.
-        // The player is discarded immediately after; no playback occurs.
-        if let player = try? AVAudioPlayer(data: wavHeader) {
-            player.prepareToPlay()
-            #if DEBUG
-            AppLogger.debug("AVAudioPlayer render path pre-warmed", category: .tts)
-            #endif
-        }
-    }
-
-    /// Ensures audio session is active and properly configured before playback.
-    ///
-    /// This method is optimized for minimal main thread blocking:
-    /// 1. If already configured for playback, skips entirely (no system calls)
-    /// 2. If category changed, reconfigures + activates (should be rare after warm-up)
-    ///
-    /// ## Performance
-    /// - Already configured: ~0ms (no system calls)
-    /// - Category changed: ~50-200ms (setCategory + setActive)
-    ///
-    /// ## Why setActive(true) is inside the reconfiguration branch
-    /// Redundant `setActive(true)` calls can cause brief HAL disruptions
-    /// that glitch concurrent `AVAudioEngine` output (background music).
-    /// When the session is already `.playback` and active (from `AudioService.start()`
-    /// or a previous call), skipping `setActive()` eliminates first-session stutter.
-    private func ensureAudioSessionActive() throws {
-        let session = AVAudioSession.sharedInstance()
-
-        // Reconfigure if category changed, not yet configured, or externally modified.
-        // SpeechCaptureService changes the session to .playAndRecord during listening
-        // phases without updating TTSService's cache, so we also check the actual
-        // session category to catch external changes.
-        if lastConfiguredCategory != .playback || session.category != .playback {
-            #if DEBUG
-            AppLogger.debug("Reconfiguring audio session (category changed)", category: .tts)
-            #endif
-
-            try session.setCategory(
-                .playback,
-                mode: .default,
-                options: [.mixWithOthers]
-            )
-            lastConfiguredCategory = .playback
-            isAudioSessionConfigured = true
-
-            // Only activate after reconfiguration. When the category is already
-            // .playback, the session is already active from AudioService.start()
-            // or a prior call — redundant setActive() causes HAL disruptions.
-            try session.setActive(true)
-        }
-    }
+    // (Audio session pre-configuration, AVAudioPlayer pre-warming, and ensureAudioSessionActive
+    // have been removed — all audio now routes through the unified AVAudioEngine via
+    // AudioPlayerService. Session configuration is handled by AudioService/AudioCoordinator.)
     
     // MARK: - Kokoro Synthesis
     
@@ -908,72 +720,31 @@ final class TTSService: TTSServiceProtocol {
     }
     
     // MARK: - Audio Playback
-    
-    /// Plays audio data using AVAudioPlayer.
+
+    /// Plays audio data through the unified engine via AudioPlayerService.
     ///
-    /// ## Issue 2.4 Optimization
-    /// Uses `ensureAudioSessionActive()` instead of direct `setCategory()` call.
-    /// Since the session was pre-configured during `warmUp()`, this typically
-    /// only needs to call `setActive()` which is much faster (~1-5ms vs 50-200ms).
+    /// Routes TTS audio through the same `AVAudioEngine` as background music,
+    /// eliminating the dual-render-client contention (AVAudioPlayer vs AVAudioEngine)
+    /// that caused static/glitch on first TTS playback.
     private func playAudioData(_ data: Data) async throws {
         // Measure playback with signpost
         let signpostID = AppLogger.makeSignpostID(for: .tts)
         AppLogger.beginInterval(AppLogger.SignpostName.ttsPlayback, id: signpostID, category: .tts)
-        
+
         defer {
             AppLogger.endInterval(AppLogger.SignpostName.ttsPlayback, id: signpostID, category: .tts)
         }
-        
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            do {
-                let player = try AVAudioPlayer(data: data)
-                self.audioPlayer = player
-                
-                let delegate = TTSAudioPlayerDelegate { [weak self] success in
-                    self?.audioPlayer = nil
-                    self?.playerDelegate = nil
-                    if success {
-                        continuation.resume()
-                    } else {
-                        continuation.resume(throwing: AppError.ttsError("Audio playback interrupted"))
-                    }
-                }
-                
-                self.playerDelegate = delegate
-                player.delegate = delegate
-                
-                // Issue 2.4 Fix: Use optimized session activation
-                // This is fast since session was pre-configured during warmUp()
-                try self.ensureAudioSessionActive()
-                
-                if !player.play() {
-                    continuation.resume(throwing: AppError.ttsError("Failed to start audio playback"))
-                }
-                
-            } catch {
-                continuation.resume(throwing: error)
-            }
+
+        // Ensure engine is running (AudioService owns session configuration)
+        if let audioService, !audioService.isRunning {
+            try await audioService.start()
         }
-    }
-}
 
-// MARK: - Audio Player Delegate
+        guard let audioPlayerService else {
+            throw AppError.ttsError("Audio player service not available — cannot play TTS")
+        }
 
-/// Helper class to handle AVAudioPlayer delegate callbacks.
-private final class TTSAudioPlayerDelegate: NSObject, AVAudioPlayerDelegate {
-    
-    private let completion: (Bool) -> Void
-    
-    init(completion: @escaping (Bool) -> Void) {
-        self.completion = completion
-    }
-    
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        completion(flag)
-    }
-    
-    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-        completion(false)
+        try await audioPlayerService.playRawPCMData(data, sampleRate: 24000)
     }
 }
 #endif

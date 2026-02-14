@@ -164,18 +164,25 @@ final class DependencyContainer: Sendable {
         return service
     }
     
-    /// Audio player service for TTS playback
+    /// Audio player service for TTS playback.
     ///
-    /// Separate from `audioService` - this handles TTS audio playback
-    /// while `audioService` handles background music and ambient audio.
+    /// In production, returns the engine-attached player from `AudioService`,
+    /// ensuring all TTS audio routes through the same `AVAudioEngine` as
+    /// background music (one render client, zero static).
+    ///
+    /// In preview mode, returns a mock.
     private var _audioPlayerService: (any AudioPlayerServiceProtocol)?
     var audioPlayerService: any AudioPlayerServiceProtocol {
         if let existing = _audioPlayerService {
             return existing
         }
-        let service: AudioPlayerServiceProtocol = isPreview
-            ? MockAudioPlayerService()
-            : AudioPlayerService()
+        if isPreview {
+            let service: any AudioPlayerServiceProtocol = MockAudioPlayerService()
+            _audioPlayerService = service
+            return service
+        }
+        // Use the engine-attached player from AudioService
+        let service = audioService.audioPlayerService
         _audioPlayerService = service
         return service
     }
@@ -191,7 +198,11 @@ final class DependencyContainer: Sendable {
         return service
     }
     
-    /// Text-to-speech service
+    /// Text-to-speech service.
+    ///
+    /// In production, injects `audioService` and `audioPlayerService` references
+    /// so TTS playback routes through the unified `AVAudioEngine` (no standalone
+    /// `AVAudioPlayer`, no dual-render-client contention).
     private var _ttsService: (any TTSServiceProtocol)?
     var ttsService: any TTSServiceProtocol {
         if let existing = _ttsService {
@@ -200,7 +211,15 @@ final class DependencyContainer: Sendable {
         #if targetEnvironment(simulator)
         let service: any TTSServiceProtocol = MockTTSService()
         #else
-        let service: any TTSServiceProtocol = isPreview ? MockTTSService() : TTSService()
+        if isPreview {
+            let service: any TTSServiceProtocol = MockTTSService()
+            _ttsService = service
+            return service
+        }
+        let concrete = TTSService()
+        concrete.audioService = audioService
+        concrete.audioPlayerService = audioPlayerService
+        let service: any TTSServiceProtocol = concrete
         #endif
         _ttsService = service
         return service

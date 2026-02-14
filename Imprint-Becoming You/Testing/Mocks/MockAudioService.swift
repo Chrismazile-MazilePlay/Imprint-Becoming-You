@@ -21,6 +21,9 @@ final class MockAudioService: AudioServiceProtocol {
     var isRunning: Bool = false
     var playbackVolume: Float = 1.0
 
+    /// Mock audio player service for testing
+    var audioPlayerService: any AudioPlayerServiceProtocol = MockAudioPlayerService()
+
     // MARK: - Background Music State
 
     private(set) var isBackgroundMusicPlaying: Bool = false

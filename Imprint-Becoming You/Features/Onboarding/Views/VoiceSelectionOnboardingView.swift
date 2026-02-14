@@ -136,6 +136,8 @@ struct VoiceSelectionOnboardingView: View {
     private func injectDependencies() {
         viewModel.ttsService = dependencies.ttsService
         viewModel.voicePreviewCacheService = dependencies.voicePreviewCacheService
+        viewModel.audioService = dependencies.audioService
+        viewModel.audioPlayerService = dependencies.audioPlayerService
     }
 }
 

@@ -71,6 +71,15 @@ final class AudioService: AudioServiceProtocol {
     /// Whether the audio engine is running
     private(set) var isRunning: Bool = false
 
+    /// The engine-attached audio player for TTS playback.
+    ///
+    /// Exposed via `AudioServiceProtocol` so `DependencyContainer` can wire
+    /// the same instance into `SessionPlaybackCoordinator` and other consumers.
+    /// This ensures all TTS audio routes through the shared `AVAudioEngine`.
+    var audioPlayerService: any AudioPlayerServiceProtocol {
+        audioPlayer
+    }
+
     /// Main mixer volume
     private var mainVolume: Float = 1.0
 

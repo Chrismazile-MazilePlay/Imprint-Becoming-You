@@ -10,23 +10,33 @@ import os
 
 // MARK: - AudioPlayerService
 
-/// Plays cached audio files using AVAudioEngine.
+/// Plays audio through AVAudioEngine using AVAudioPlayerNode.
 ///
-/// This service handles playback of TTS audio files that have been cached
-/// from ElevenLabs or other sources. It integrates with the main audio engine
-/// to allow simultaneous playback with background music.
+/// All audio — both TTS (Kokoro PCM) and cached files — is routed through the
+/// shared `AVAudioEngine` via `AVAudioPlayerNode`. This eliminates the
+/// dual-render-client contention (AVAudioPlayer vs AVAudioEngine) that caused
+/// static/glitch on the first TTS playback when background music was playing.
+///
+/// ## Architecture
+/// ```
+/// Kokoro TTS (24000 Hz mono Float32)
+///     → AVAudioPCMBuffer
+///     → playerNode.scheduleBuffer()
+///     → mainMixerNode (auto sample-rate conversion)
+///     → outputNode → Hardware
+/// ```
 ///
 /// ## Usage
 /// ```swift
 /// let player = AudioPlayerService()
 /// player.attachTo(engine: audioEngine)
-/// try await player.playFile(named: "cached-audio.mp3")
+/// try await player.playRawPCMData(kokoroData, sampleRate: 24000)
 /// ```
 actor AudioPlayerService: AudioPlayerServiceProtocol {
 
     // MARK: - Properties
 
-    /// Player node for audio playback
+    /// Player node for audio playback (TTS + files)
     private var playerNode: AVAudioPlayerNode
 
     /// Audio file currently loaded
@@ -44,8 +54,11 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
     /// Delegate for playback events
     weak var delegate: AudioPlayerDelegate?
 
-    /// Continuation for playback completion
+    /// Continuation for playback completion (file path)
     private var playbackContinuation: CheckedContinuation<Void, Error>?
+
+    /// Continuation for PCM data playback completion
+    private var dataPlaybackContinuation: CheckedContinuation<Void, Error>?
 
     /// Reference to attached engine
     private weak var attachedEngine: AVAudioEngine?
@@ -53,40 +66,56 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
     /// Cache manager for file access
     private let cacheManager: AudioCacheManager
 
-    /// AVAudioPlayer instance for data playback (separate from AVAudioEngine)
-    private var dataPlayer: AVAudioPlayer?
+    /// The format currently connected on the playerNode output.
+    /// Tracked to avoid unnecessary disconnect/reconnect cycles.
+    private var currentConnectionFormat: AVAudioFormat?
 
-    /// Delegate for data player completion (must be retained)
-    private var dataPlayerDelegate: AudioPlayerCompletionDelegate?
+    /// Total frame count of the currently scheduled PCM buffer (for progress).
+    private var scheduledFrameCount: AVAudioFrameCount = 0
 
-    /// Continuation for data playback completion
-    private var dataPlaybackContinuation: CheckedContinuation<Void, Error>?
-
-    /// Thread-safe reference for synchronous stop from any isolation context.
+    /// Thread-safe reference to the player node for synchronous cross-isolation stop.
     ///
-    /// Protects the active `AVAudioPlayer` reference used by `immediateStop()`.
-    /// Written inside actor isolation, read by `nonisolated immediateStop()`.
-    private let _immediatePlayerRef = OSAllocatedUnfairLock<AVAudioPlayer?>(initialState: nil)
+    /// `AVAudioPlayerNode` is safe to call `volume`/`stop()` from any thread.
+    /// This lock provides the actor-isolation bridge so `nonisolated immediateStop()`
+    /// can silence the node synchronously without waiting for actor scheduling.
+    ///
+    /// Initialized with the playerNode at actor init; cleared to nil is NOT needed
+    /// because the same node is reused. The `isActive` flag inside controls behavior.
+    private let _immediateNodeRef: OSAllocatedUnfairLock<(node: AVAudioPlayerNode, isActive: Bool)>
 
     // MARK: - Initialization
 
     /// Creates a new audio player service
     /// - Parameter cacheManager: The cache manager to use for file access
     init(cacheManager: AudioCacheManager = .shared) {
-        self.playerNode = AVAudioPlayerNode()
+        let node = AVAudioPlayerNode()
+        self.playerNode = node
         self.cacheManager = cacheManager
+        self._immediateNodeRef = OSAllocatedUnfairLock(initialState: (node: node, isActive: false))
     }
 
     // MARK: - Engine Attachment
 
-    /// Attaches the player to an audio engine
+    /// Attaches the player to an audio engine.
+    ///
+    /// Connects with the Kokoro TTS native format (24000 Hz, mono, Float32)
+    /// since that's the primary playback format. The mixer handles sample rate
+    /// conversion to the hardware output rate automatically.
+    ///
     /// - Parameter engine: The audio engine to attach to
     func attachTo(engine: AVAudioEngine) {
         engine.attach(playerNode)
 
-        // Connect with a flexible format - will reconnect when playing
-        let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)!
-        engine.connect(playerNode, to: engine.mainMixerNode, format: format)
+        // Connect with Kokoro's native format — the mixer auto-converts
+        // to the hardware output rate (44100/48000 Hz).
+        let ttsFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 24000,
+            channels: 1,
+            interleaved: false
+        )!
+        engine.connect(playerNode, to: engine.mainMixerNode, format: ttsFormat)
+        currentConnectionFormat = ttsFormat
 
         attachedEngine = engine
     }
@@ -96,6 +125,7 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
         stop()
         engine.detach(playerNode)
         attachedEngine = nil
+        currentConnectionFormat = nil
     }
 
     // MARK: - Playback Control
@@ -129,10 +159,7 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
         currentAudioFile = audioFile
 
         // Reconnect player node with correct format if needed
-        if let engine = attachedEngine {
-            engine.disconnectNodeOutput(playerNode)
-            engine.connect(playerNode, to: engine.mainMixerNode, format: audioFile.processingFormat)
-        }
+        reconnectIfNeeded(format: audioFile.processingFormat)
 
         // Schedule the file for playback with explicit callback type
         // Using .dataPlayedBack ensures callback fires when audio reaches output hardware
@@ -147,6 +174,7 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
 
         // Start playback
         playerNode.play()
+        _immediateNodeRef.withLock { $0.isActive = true }
         isPlaying = true
         isPaused = false
 
@@ -184,15 +212,19 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
         }
     }
 
-    /// Plays audio data directly using AVAudioPlayer (from Kokoro TTS)
+    /// Plays raw PCM audio data through the engine's AVAudioPlayerNode.
     ///
-    /// Uses `AVAudioPlayer(data:)` which handles the audio format automatically.
-    /// This is the same approach used by TTSService and works reliably with
-    /// Kokoro TTS output.
+    /// Converts Kokoro TTS output (WAV `Data`) into an `AVAudioPCMBuffer` and
+    /// schedules it on the player node. The engine's mixer handles sample rate
+    /// conversion from 24000 Hz to the hardware output rate automatically.
+    ///
+    /// **This is the unified playback path.** All TTS audio flows through the
+    /// same `AVAudioEngine` as background music — one render client, zero
+    /// contention, zero static.
     ///
     /// - Parameters:
     ///   - data: Audio data (WAV format from Kokoro TTS)
-    ///   - sampleRate: Sample rate (unused, kept for API compatibility)
+    ///   - sampleRate: Expected sample rate (used for validation logging only)
     /// - Throws: `AppError.audioPlaybackFailed` if playback fails
     func playRawPCMData(_ data: Data, sampleRate: Double = 24000) async throws {
         // Stop any in-progress playback cleanly. Uses stop() which resumes
@@ -204,58 +236,52 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
             throw AppError.audioPlaybackFailed(reason: "No audio data to play")
         }
 
+        guard let engine = attachedEngine, engine.isRunning else {
+            throw AppError.audioPlaybackFailed(reason: "Audio engine not running — cannot play TTS")
+        }
+
         #if DEBUG
-        AppLogger.debug("Playing \(data.count) bytes via AVAudioPlayer", category: .audio)
+        AppLogger.debug("Playing \(data.count) bytes via AVAudioPlayerNode", category: .audio)
         #endif
 
-        // Create the player synchronously within actor context
-        let player: AVAudioPlayer
+        // Parse WAV data into an AVAudioPCMBuffer.
+        // Kokoro outputs: 24000 Hz, mono, Float32 PCM wrapped in a WAV container.
+        let pcmBuffer: AVAudioPCMBuffer
         do {
-            player = try AVAudioPlayer(data: data)
+            pcmBuffer = try Self.createPCMBuffer(from: data)
         } catch {
-            throw AppError.audioPlaybackFailed(reason: "Failed to create audio player: \(error.localizedDescription)")
+            throw AppError.audioPlaybackFailed(reason: "Failed to parse WAV data: \(error.localizedDescription)")
         }
 
-        // Store reference
-        self.dataPlayer = player
-        _immediatePlayerRef.withLock { $0 = player }
+        // Reconnect the player node if the buffer format differs from current connection.
+        // This handles edge cases like file playback (44100 Hz stereo) followed by
+        // TTS playback (24000 Hz mono), or vice versa.
+        reconnectIfNeeded(format: pcmBuffer.format)
 
-        // Create delegate with weak self capture - callback dispatches back to actor
-        let delegate = AudioPlayerCompletionDelegate { [weak self] success in
+        // Store frame count for progress tracking
+        scheduledFrameCount = pcmBuffer.frameLength
+
+        // Schedule the buffer with a completion callback
+        playerNode.scheduleBuffer(pcmBuffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             Task {
-                await self?.handleDataPlaybackComplete(success: success)
+                await self?.handleDataPlaybackComplete(success: true)
             }
         }
-        self.dataPlayerDelegate = delegate
-        player.delegate = delegate
-        player.volume = self.volume
 
-        // Ensure audio session is active with correct category.
-        //
-        // TTSService.preConfigureAudioSession() sets `.playback` during warm-up,
-        // but SpeechCaptureService changes the category to `.playAndRecord` during
-        // listening phases. If the listening phase was interrupted (e.g., rapid skip
-        // or loop transition), the category may still be `.playAndRecord` when we
-        // try to play TTS in the next segment.
-        //
-        // The `setCategory()` call blocks for 50-200ms (HAL reconfiguration), so
-        // it is dispatched to a background queue and awaited. This keeps the actor
-        // free during the category switch while guaranteeing the session is in
-        // `.playback` before playback begins.
-        //
-        // When the category is already `.playback` the background dispatch returns
-        // almost immediately (~0ms) since `setActive()` is the only work.
+        // Apply volume and start playback
+        playerNode.volume = volume
+        playerNode.play()
+        _immediateNodeRef.withLock { $0.isActive = true }
+        isPlaying = true
+
+        // Ensure the audio session is in .playback category.
+        // SpeechCaptureService may have changed it to .playAndRecord.
+        // This is non-blocking when already in .playback (fast path).
         try await ensurePlaybackCategory()
 
-        // Start playback
-        guard player.play() else {
-            throw AppError.audioPlaybackFailed(reason: "Failed to start playback")
-        }
-
-        self.isPlaying = true
-
         #if DEBUG
-        AppLogger.debug("Playback started (duration: \(String(format: "%.2f", player.duration))s)", category: .audio)
+        let durationSec = Double(pcmBuffer.frameLength) / pcmBuffer.format.sampleRate
+        AppLogger.debug("PCM buffer scheduled (duration: \(String(format: "%.2f", durationSec))s, frames: \(pcmBuffer.frameLength))", category: .audio)
         #endif
 
         // Wait for completion using continuation
@@ -264,12 +290,11 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
         }
     }
 
-    /// Handles completion of data playback (called from delegate callback)
+    /// Handles completion of PCM data playback (called from schedule callback)
     private func handleDataPlaybackComplete(success: Bool) {
-        dataPlayer = nil
-        dataPlayerDelegate = nil
-        _immediatePlayerRef.withLock { $0 = nil }
+        _immediateNodeRef.withLock { $0.isActive = false }
         isPlaying = false
+        scheduledFrameCount = 0
 
         if success {
             dataPlaybackContinuation?.resume(returning: ())
@@ -279,23 +304,26 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
         dataPlaybackContinuation = nil
     }
 
-    /// Immediately silences audio from any isolation context.
+    /// Immediately silences the player node from any isolation context.
     ///
-    /// Bypasses actor isolation to stop `AVAudioPlayer` synchronously,
+    /// Bypasses actor isolation to stop the `AVAudioPlayerNode` synchronously,
     /// eliminating audible bleed when exiting sessions or transitioning.
     /// Zeros volume before stopping to silence any residual hardware
     /// buffer drain (~5-10ms on speaker, more on Bluetooth).
     ///
-    /// `AVAudioPlayer.stop()` does **not** trigger delegate callbacks,
-    /// so continuations remain pending until `cancelAndStop()` or `stop()`
-    /// runs on the actor.
+    /// `playerNode.stop()` clears all scheduled buffers but does **not**
+    /// trigger schedule completion callbacks, so continuations remain pending
+    /// until `cancelAndStop()` or `stop()` runs on the actor.
     ///
     /// - Note: Always follow with an actor-isolated `cancelAndStop()` call
     ///   to clean up continuations and internal state.
     nonisolated func immediateStop() {
-        _immediatePlayerRef.withLock { player in
-            player?.volume = 0
-            player?.stop()
+        _immediateNodeRef.withLock { state in
+            guard state.isActive else { return }
+            // AVAudioPlayerNode.volume/stop() are thread-safe for cross-thread access.
+            state.node.volume = 0
+            state.node.stop()
+            state.isActive = false
         }
     }
 
@@ -305,7 +333,7 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
     /// `immediateStop()` + `stop()` pattern, this performs all cleanup in a
     /// single actor turn:
     /// 1. Zeros volume to silence hardware buffer drain
-    /// 2. Stops all players (AVAudioPlayerNode + AVAudioPlayer)
+    /// 2. Stops player node (clears all scheduled buffers)
     /// 3. Resumes pending continuations with `CancellationError` so callers
     ///    can distinguish cancellation from successful completion
     ///
@@ -317,18 +345,16 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
     ///   `resume(returning: ())` semantics are needed.
     func cancelAndStop() {
         // Zero volume BEFORE stop to silence hardware buffer drain
-        dataPlayer?.volume = 0
+        playerNode.volume = 0
 
         // Stop all playback
         playerNode.stop()
-        dataPlayer?.stop()
-        dataPlayer = nil
-        dataPlayerDelegate = nil
-        _immediatePlayerRef.withLock { $0 = nil }
+        _immediateNodeRef.withLock { $0.isActive = false }
 
         isPlaying = false
         isPaused = false
         currentAudioFile = nil
+        scheduledFrameCount = 0
 
         // Resume continuations with CancellationError to unblock callers cleanly.
         // This lets the caller's try-await distinguish cancellation from success.
@@ -341,18 +367,14 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
 
     /// Stops playback and cleans up actor state.
     func stop() {
-        // Stop AVAudioEngine playback
+        // Stop player node
         playerNode.stop()
-
-        // Stop AVAudioPlayer playback (for data/TTS)
-        dataPlayer?.stop()
-        dataPlayer = nil
-        dataPlayerDelegate = nil
-        _immediatePlayerRef.withLock { $0 = nil }
+        _immediateNodeRef.withLock { $0.isActive = false }
 
         isPlaying = false
         isPaused = false
         currentAudioFile = nil
+        scheduledFrameCount = 0
 
         // Cancel any waiting continuations
         playbackContinuation?.resume(returning: ())
@@ -366,7 +388,6 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
     func pause() {
         guard isPlaying && !isPaused else { return }
         playerNode.pause()
-        dataPlayer?.pause()
         isPaused = true
     }
 
@@ -374,7 +395,6 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
     func resume() {
         guard isPaused else { return }
         playerNode.play()
-        dataPlayer?.play()
         isPaused = false
     }
 
@@ -383,7 +403,6 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
     func setVolume(_ newVolume: Float) {
         volume = max(0, min(1, newVolume))
         playerNode.volume = volume
-        dataPlayer?.volume = volume
     }
 
     // MARK: - Audio Session
@@ -400,19 +419,13 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
     /// The `setCategory()` call blocks for 50-200ms (HAL driver reconfiguration).
     /// By dispatching to a background queue and awaiting via continuation,
     /// the actor remains free during the reconfiguration. When the category
-    /// is already `.playback`, only `setActive(true)` runs (~1-5ms).
-    ///
-    /// `SpeechCaptureService.stopCapture()/cancelCapture()` also fire a
-    /// best-effort background restoration, but that dispatch is not awaited
-    /// and may not complete before this method runs. This method is the
-    /// definitive guarantee.
+    /// is already `.playback`, the fast path returns immediately (~0ms).
     private func ensurePlaybackCategory() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             DispatchQueue.global(qos: .userInitiated).async {
                 let session = AVAudioSession.sharedInstance()
                 // Fast path: when already in .playback (e.g., background music
                 // activated the session), skip entirely to avoid redundant HAL work.
-                // This eliminates ~1-5ms per TTS segment when music is playing.
                 guard session.category != .playback else {
                     continuation.resume()
                     return
@@ -441,12 +454,6 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
 
     /// Current playback position in seconds
     var currentTime: TimeInterval {
-        // Check data player first
-        if let dataPlayer = dataPlayer, dataPlayer.isPlaying {
-            return dataPlayer.currentTime
-        }
-
-        // Then check engine player
         guard let nodeTime = playerNode.lastRenderTime,
               let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else {
             return 0
@@ -456,14 +463,15 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
 
     /// Total duration of current audio in seconds
     var duration: TimeInterval {
-        // Check data player first
-        if let dataPlayer = dataPlayer {
-            return dataPlayer.duration
+        // For file playback
+        if let audioFile = currentAudioFile {
+            return Double(audioFile.length) / audioFile.processingFormat.sampleRate
         }
-
-        // Then check audio file
-        guard let audioFile = currentAudioFile else { return 0 }
-        return Double(audioFile.length) / audioFile.processingFormat.sampleRate
+        // For PCM buffer playback
+        if scheduledFrameCount > 0, let format = currentConnectionFormat {
+            return Double(scheduledFrameCount) / format.sampleRate
+        }
+        return 0
     }
 
     /// Playback progress (0.0 - 1.0)
@@ -474,8 +482,9 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
 
     // MARK: - Private Methods
 
-    /// Handles playback completion
+    /// Handles file playback completion
     private func handlePlaybackComplete() {
+        _immediateNodeRef.withLock { $0.isActive = false }
         isPlaying = false
         isPaused = false
 
@@ -487,6 +496,67 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
         Task { @MainActor in
             await delegate?.audioPlaybackDidComplete()
         }
+    }
+
+    /// Reconnects the player node to the mixer if the format has changed.
+    ///
+    /// Avoids unnecessary `disconnectNodeOutput` / `connect` cycles which
+    /// disrupt the audio graph. Only reconnects when the sample rate or
+    /// channel count actually differs from the current connection.
+    private func reconnectIfNeeded(format: AVAudioFormat) {
+        guard let engine = attachedEngine else { return }
+
+        // Check if reconnection is actually needed
+        if let current = currentConnectionFormat,
+           current.sampleRate == format.sampleRate,
+           current.channelCount == format.channelCount {
+            return
+        }
+
+        engine.disconnectNodeOutput(playerNode)
+        engine.connect(playerNode, to: engine.mainMixerNode, format: format)
+        currentConnectionFormat = format
+    }
+
+    /// Parses WAV `Data` into an `AVAudioPCMBuffer` for scheduling on the player node.
+    ///
+    /// Kokoro TTS outputs WAV files with a standard 44-byte header followed by
+    /// raw Float32 PCM samples at 24000 Hz, mono. This method reads the header
+    /// to determine format and frame count, then copies the sample data into
+    /// an `AVAudioPCMBuffer`.
+    ///
+    /// - Parameter data: WAV audio data (header + PCM samples)
+    /// - Returns: An `AVAudioPCMBuffer` ready for `scheduleBuffer()`
+    /// - Throws: If the WAV header is invalid or the data is malformed
+    private static func createPCMBuffer(from data: Data) throws -> AVAudioPCMBuffer {
+        // Write to a temporary file so AVAudioFile can parse the WAV container.
+        // This handles all WAV variants (16-bit int, 32-bit float, etc.) correctly
+        // and lets Core Audio handle the format negotiation.
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+
+        defer {
+            try? FileManager.default.removeItem(at: tempURL)
+        }
+
+        try data.write(to: tempURL, options: .atomic)
+
+        let audioFile = try AVAudioFile(forReading: tempURL)
+        let format = audioFile.processingFormat
+        let frameCount = AVAudioFrameCount(audioFile.length)
+
+        guard frameCount > 0 else {
+            throw AppError.audioPlaybackFailed(reason: "WAV file has zero frames")
+        }
+
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+            throw AppError.audioPlaybackFailed(reason: "Failed to create PCM buffer (format: \(format))")
+        }
+
+        try audioFile.read(into: buffer)
+
+        return buffer
     }
 }
 
@@ -510,83 +580,4 @@ extension AudioPlayerDelegate {
     func audioPlaybackDidComplete() {}
     func audioPlaybackWasInterrupted() {}
     func audioPlaybackDidFail(with error: AppError) {}
-}
-
-// MARK: - Audio Player Completion Delegate
-
-/// Helper class to handle AVAudioPlayer delegate callbacks for data playback.
-final class AudioPlayerCompletionDelegate: NSObject, AVAudioPlayerDelegate {
-
-    private let completion: @Sendable (Bool) -> Void
-
-    init(completion: @escaping @Sendable (Bool) -> Void) {
-        self.completion = completion
-    }
-
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        completion(flag)
-    }
-
-    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-        #if DEBUG
-        AppLogger.warning("AudioPlayerCompletionDelegate: Decode error - \(error?.localizedDescription ?? "unknown")", category: .audio)
-        #endif
-        completion(false)
-    }
-}
-
-// MARK: - Streaming Audio Player
-
-/// Alternative player for streaming audio (future ElevenLabs streaming support)
-actor StreamingAudioPlayer {
-
-    // MARK: - Properties
-
-    private var playerNode: AVAudioPlayerNode
-    private var converter: AVAudioConverter?
-    private var isPlaying: Bool = false
-    private weak var attachedEngine: AVAudioEngine?
-
-    // MARK: - Initialization
-
-    init() {
-        playerNode = AVAudioPlayerNode()
-    }
-
-    // MARK: - Engine Attachment
-
-    func attachTo(engine: AVAudioEngine) {
-        engine.attach(playerNode)
-        let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)!
-        engine.connect(playerNode, to: engine.mainMixerNode, format: format)
-        attachedEngine = engine
-    }
-
-    func detachFrom(engine: AVAudioEngine) {
-        stop()
-        engine.detach(playerNode)
-        attachedEngine = nil
-    }
-
-    // MARK: - Streaming
-
-    /// Streams audio data as it's received
-    /// - Parameter chunk: Audio data chunk
-    func streamChunk(_ chunk: Data) async throws {
-        // TODO: Implement streaming playback for ElevenLabs streaming API
-        // This would involve:
-        // 1. Decoding MP3 chunks on the fly
-        // 2. Converting to PCM
-        // 3. Scheduling buffers for playback
-    }
-
-    func start() {
-        playerNode.play()
-        isPlaying = true
-    }
-
-    func stop() {
-        playerNode.stop()
-        isPlaying = false
-    }
 }

@@ -9,7 +9,6 @@ import Foundation
 import SwiftData
 import SwiftUI
 import Observation
-import AVFoundation
 
 // MARK: - OnboardingViewModel
 
@@ -83,12 +82,15 @@ final class OnboardingViewModel {
     
     /// TTS service for voice preview (injected by view)
     var ttsService: (any TTSServiceProtocol)?
-    
+
     /// Voice preview cache service (injected by view)
     var voicePreviewCacheService: (any VoicePreviewCacheServiceProtocol)?
-    
-    /// Audio player for cached preview playback
-    private var audioPlayer: AVAudioPlayer?
+
+    /// Audio service for engine lifecycle (injected by view)
+    var audioService: (any AudioServiceProtocol)?
+
+    /// Audio player service for unified engine playback (injected by view)
+    var audioPlayerService: (any AudioPlayerServiceProtocol)?
     
     // MARK: - Computed Properties
     
@@ -308,10 +310,16 @@ final class OnboardingViewModel {
                 // Verify still previewing same voice
                 guard self.previewingVoiceId == capturedVoiceId else { return }
                 
-                // Transition to playing
+                // Transition to playing — route through unified engine
                 self.playbackState = .playing
-                try self.playAudioData(audioData)
-                
+                try await self.playAudioData(audioData)
+
+                // Playback completed naturally
+                if self.previewingVoiceId == capturedVoiceId {
+                    self.previewingVoiceId = nil
+                    self.playbackState = .idle
+                }
+
             } catch is CancellationError {
                 // User tapped another voice - this is expected
                 AppLogger.debug("Synthesis cancelled", category: .tts, context: ["voiceId": capturedTtsVoiceId])
@@ -331,57 +339,48 @@ final class OnboardingViewModel {
         }
     }
     
-    /// Plays audio data using AVAudioPlayer.
+    /// Plays audio data through the unified engine via AudioPlayerService.
+    ///
+    /// Routes TTS preview audio through the same `AVAudioEngine` as background
+    /// music, eliminating the dual-render-client static that occurred with
+    /// standalone `AVAudioPlayer(data:)`.
     ///
     /// - Parameter data: WAV audio data to play
     /// - Throws: Error if audio playback fails
-    private func playAudioData(_ data: Data) throws {
-        // Stop any existing playback
-        stopAudioPlayback()
-        
-        // Configure audio session
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-        try session.setActive(true)
-        
-        // Create and configure player
-        audioPlayer = try AVAudioPlayer(data: data)
-        audioPlayer?.delegate = OnboardingAudioPlayerDelegate.shared
-        audioPlayer?.prepareToPlay()
-        
-        // Set up completion handler
-        OnboardingAudioPlayerDelegate.shared.onFinished = { [weak self, weak audioPlayer] in
-            guard let self = self else { return }
-            if self.audioPlayer === audioPlayer {
-                self.previewingVoiceId = nil
-                self.playbackState = .idle
-            }
+    private func playAudioData(_ data: Data) async throws {
+        // Ensure engine is running (may not be if user hasn't started a session yet)
+        if let audioService, !audioService.isRunning {
+            try await audioService.start()
         }
-        
-        guard audioPlayer?.play() == true else {
-            throw AppError.ttsError("Failed to start audio playback")
+
+        guard let audioPlayerService else {
+            throw AppError.ttsError("Audio player service not available")
         }
-        
+
+        try await audioPlayerService.playRawPCMData(data, sampleRate: 24000)
+
         AppLogger.debug("Playing audio", category: .tts, context: ["bytes": data.count])
     }
-    
+
     /// Stops audio playback without clearing preview state.
     private func stopAudioPlayback() {
-        audioPlayer?.stop()
-        audioPlayer = nil
+        audioPlayerService?.immediateStop()
+        Task {
+            await audioPlayerService?.cancelAndStop()
+        }
     }
-    
+
     /// Stops any currently playing voice preview.
     func stopPreview() {
-        // Stop AVAudioPlayer
+        // Stop unified engine playback
         stopAudioPlayback()
-        
+
         // Stop TTS service
         ttsService?.stopSpeaking()
-        
+
         // Cancel any in-flight synthesis
         voicePreviewCacheService?.cancelSynthesis()
-        
+
         // Clear state
         playbackState = .idle
         previewingVoiceId = nil
@@ -469,22 +468,6 @@ final class OnboardingViewModel {
     func dismissError() {
         errorMessage = nil
         showError = false
-    }
-}
-
-// MARK: - Onboarding Audio Player Delegate
-
-/// Shared delegate handler for AVAudioPlayer completion callbacks in onboarding.
-private class OnboardingAudioPlayerDelegate: NSObject, AVAudioPlayerDelegate {
-    static let shared = OnboardingAudioPlayerDelegate()
-    
-    var onFinished: (() -> Void)?
-    
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        DispatchQueue.main.async {
-            self.onFinished?()
-            self.onFinished = nil
-        }
     }
 }
 

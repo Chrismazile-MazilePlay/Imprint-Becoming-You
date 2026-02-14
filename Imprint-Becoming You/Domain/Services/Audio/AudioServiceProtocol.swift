@@ -22,6 +22,13 @@ import Foundation
 /// - Audio file playback
 /// - Audio session interruption handling
 ///
+/// ## Unified Engine Architecture
+/// All audio (background music AND TTS) routes through a single `AVAudioEngine`.
+/// The `audioPlayerService` property exposes the engine-attached player so that
+/// consumers (SessionPlaybackCoordinator, VoiceSettingsView, etc.) play TTS
+/// through the same render client as background music — eliminating the
+/// dual-render-client HAL contention that causes static/glitch.
+///
 /// ## Usage
 /// ```swift
 /// let audio: AudioServiceProtocol = AudioService()
@@ -30,8 +37,8 @@ import Foundation
 /// try await audio.start()
 /// audio.playBackgroundMusic(category: .focus)
 ///
-/// // Play TTS audio
-/// try await audio.playAudioData(synthesizedData)
+/// // Play TTS through the unified engine
+/// try await audio.audioPlayerService.playRawPCMData(data, sampleRate: 24000)
 ///
 /// // Adjust volumes
 /// audio.setBackgroundMusicVolume(0.2)
@@ -44,6 +51,13 @@ protocol AudioServiceProtocol: AnyObject {
 
     /// Whether the audio engine is currently running
     var isRunning: Bool { get }
+
+    /// The engine-attached audio player for TTS playback.
+    ///
+    /// This is the **same** player node that is connected to the shared
+    /// `AVAudioEngine`. Consumers must use this instance (not create
+    /// standalone players) to ensure all audio routes through one engine.
+    var audioPlayerService: any AudioPlayerServiceProtocol { get }
 
     // MARK: - Engine Control
 

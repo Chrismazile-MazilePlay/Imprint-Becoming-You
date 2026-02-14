@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import AVFoundation
 
 // MARK: - Voice Modification View
 
@@ -62,9 +61,6 @@ struct VoiceModificationView: View {
     
     /// Whether preview is synthesizing
     @State private var isPreviewSynthesizing: Bool = false
-    
-    /// Audio player for preview
-    @State private var audioPlayer: AVAudioPlayer?
     
     // MARK: - Computed Properties
     
@@ -438,17 +434,17 @@ struct VoiceModificationView: View {
             #endif
             return
         }
-        
+
         isPreviewSynthesizing = true
-        
+
         Task { @MainActor in
             do {
                 let settings = currentSettings
-                
+
                 #if DEBUG
                 print("VoiceModificationView: Synthesizing preview with settings: speed=\(settings.speed), pitch=\(settings.pitchShiftSemitones), range=\(settings.pitchRangeScale)")
                 #endif
-                
+
                 // Pass ALL settings including speed
                 let audioData = try await dependencies.ttsService.synthesize(
                     text: Voice.previewPhrase,
@@ -457,80 +453,62 @@ struct VoiceModificationView: View {
                     pitchShiftSemitones: settings.pitchShiftFloat,
                     pitchRangeScale: settings.pitchRangeScale
                 )
-                
+
                 // Check we're still wanting to play
                 guard isPreviewSynthesizing else { return }
-                
+
                 isPreviewSynthesizing = false
                 isPreviewPlaying = true
-                
-                try playAudioData(audioData)
-                
+
+                // Route through unified engine via AudioPlayerService
+                try await playAudioData(audioData)
+
+                // Playback completed naturally
+                isPreviewPlaying = false
+
+            } catch is CancellationError {
+                #if DEBUG
+                print("VoiceModificationView: Preview cancelled")
+                #endif
             } catch {
                 isPreviewSynthesizing = false
                 isPreviewPlaying = false
-                
+
                 #if DEBUG
                 print("VoiceModificationView: Preview failed: \(error)")
                 #endif
             }
         }
     }
-    
-    private func playAudioData(_ data: Data) throws {
-        // Stop any existing playback
-        stopAudioPlayback()
-        
-        // Configure audio session
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-        try session.setActive(true)
-        
-        // Create and play
-        audioPlayer = try AVAudioPlayer(data: data)
-        audioPlayer?.delegate = VoiceModificationAudioDelegate.shared
-        audioPlayer?.prepareToPlay()
-        
-        // Set up completion handler
-        VoiceModificationAudioDelegate.shared.onFinished = { [weak audioPlayer] in
-            if self.audioPlayer === audioPlayer {
-                self.isPreviewPlaying = false
-            }
+
+    /// Plays audio data through the unified engine via AudioPlayerService.
+    ///
+    /// Routes TTS preview audio through the same `AVAudioEngine` as background
+    /// music, eliminating the dual-render-client static that occurred with
+    /// standalone `AVAudioPlayer(data:)`.
+    private func playAudioData(_ data: Data) async throws {
+        // Ensure engine is running (may not be if user hasn't started a session yet)
+        if !dependencies.audioService.isRunning {
+            try await dependencies.audioService.start()
         }
-        
-        guard audioPlayer?.play() == true else {
-            throw AppError.ttsError("Failed to start audio playback")
-        }
-        
+
+        try await dependencies.audioPlayerService.playRawPCMData(data, sampleRate: 24000)
+
         #if DEBUG
         print("VoiceModificationView: Playing preview (\(data.count) bytes)")
         #endif
     }
-    
+
     private func stopPreview() {
         isPreviewSynthesizing = false
         isPreviewPlaying = false
         stopAudioPlayback()
     }
-    
+
     private func stopAudioPlayback() {
-        audioPlayer?.stop()
-        audioPlayer = nil
-    }
-}
-
-// MARK: - Audio Delegate
-
-/// Shared delegate handler for preview audio playback.
-private class VoiceModificationAudioDelegate: NSObject, AVAudioPlayerDelegate {
-    static let shared = VoiceModificationAudioDelegate()
-    
-    var onFinished: (() -> Void)?
-    
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        DispatchQueue.main.async {
-            self.onFinished?()
-            self.onFinished = nil
+        dependencies.audioPlayerService.immediateStop()
+        Task {
+            await dependencies.audioPlayerService.cancelAndStop()
         }
     }
 }

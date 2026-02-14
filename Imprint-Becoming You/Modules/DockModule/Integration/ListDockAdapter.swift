@@ -91,6 +91,9 @@ final class ListDockAdapter: DockAdapterProtocol {
     /// the music button stays highlighted across all dock contexts.
     var musicCategory: DockMusicCategory = .off
 
+    /// The current background music volume (0.0–1.0).
+    var musicVolume: Float = 0.15
+
     /// Whether the shuffle option appears in the config menu.
     ///
     /// Set to `true` for Favorites, Saved Sessions, and Results views.
@@ -186,6 +189,13 @@ final class ListDockAdapter: DockAdapterProtocol {
     /// When `nil`, music selection only updates the local `musicCategory` property.
     var onMusicSelectHandler: ((DockMusicCategory) -> Void)?
 
+    /// Called when the user adjusts the music volume slider.
+    ///
+    /// Routes volume changes back to the `PracticeStore` so the audio service
+    /// adjusts volume in real time. When `nil`, volume changes only update
+    /// the local `musicVolume` property.
+    var onMusicVolumeChangeHandler: ((Float) -> Void)?
+
     // MARK: - Initialization
 
     /// Creates a list dock adapter.
@@ -196,6 +206,7 @@ final class ListDockAdapter: DockAdapterProtocol {
     ///   - initialShuffle: Starting shuffle state (default: `false`)
     ///   - initialSpacedRepetition: Starting spaced repetition state (default: `false`)
     ///   - initialMusic: Starting music category (default: `.off`)
+    ///   - initialMusicVolume: Starting music volume 0.0–1.0 (default: `0.15`)
     ///   - baseAffirmationCount: Number of unique base affirmations available (default: `0`)
     ///   - showsShuffleOption: Whether shuffle appears in config menu (default: `true`)
     ///   - labelText: Text for floating play button (default: `""`)
@@ -206,6 +217,7 @@ final class ListDockAdapter: DockAdapterProtocol {
         initialShuffle: Bool = false,
         initialSpacedRepetition: Bool = false,
         initialMusic: DockMusicCategory = .off,
+        initialMusicVolume: Float = 0.15,
         baseAffirmationCount: Int = 0,
         showsShuffleOption: Bool = true,
         labelText: String = "",
@@ -216,6 +228,7 @@ final class ListDockAdapter: DockAdapterProtocol {
         self.isShuffleEnabled = initialShuffle
         self.isSpacedRepetitionEnabled = initialSpacedRepetition
         self.musicCategory = initialMusic
+        self.musicVolume = initialMusicVolume
         self.baseAffirmationCount = baseAffirmationCount
         self.showsShuffleOption = showsShuffleOption
         self.labelText = labelText
@@ -245,6 +258,11 @@ final class ListDockAdapter: DockAdapterProtocol {
         // Route to PracticeStore if handler is set, so background music
         // playback is controlled centrally and persists across contexts.
         onMusicSelectHandler?(category)
+    }
+
+    func setMusicVolume(_ volume: Float) {
+        musicVolume = volume
+        onMusicVolumeChangeHandler?(volume)
     }
 
     // MARK: - Navigation Actions (No-op)
@@ -393,7 +411,7 @@ final class ListDockAdapter: DockAdapterProtocol {
         let previousOptions = session.categoryOptions
 
         do {
-            try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetoothHFP])
+            try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers])
             try session.setActive(true, options: .notifyOthersOnDeactivation)
             // Restore previous session state
             try? session.setCategory(previousCategory, mode: previousMode, options: previousOptions)

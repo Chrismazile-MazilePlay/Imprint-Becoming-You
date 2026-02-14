@@ -149,6 +149,16 @@ extension PracticeStore {
             dependencies.audioService.stopBackgroundMusic()
         }
     }
+
+    /// Handles background music volume changes from the dock.
+    ///
+    /// Clamps the value to `0.0...1.0`, updates the stored property,
+    /// and forwards to `AudioService` for real-time volume adjustment.
+    func handleSetBackgroundMusicVolume(_ volume: Float) {
+        let clamped = max(0, min(1, volume))
+        setBackgroundMusicVolume(clamped)
+        dependencies.audioService.setBackgroundMusicVolume(clamped)
+    }
 }
 
 // MARK: - Navigation Handlers

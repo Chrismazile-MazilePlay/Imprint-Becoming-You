@@ -77,6 +77,7 @@ struct SavedSessionsFullListView: View {
         let initialMusic = Self.mapMusicCategory(store.backgroundMusicCategory)
         let adapter = ListDockAdapter(
             initialMusic: initialMusic,
+            initialMusicVolume: store.backgroundMusicVolume,
             showsShuffleOption: true,
             labelText: "",
             isPlayEnabled: false
@@ -84,6 +85,9 @@ struct SavedSessionsFullListView: View {
         adapter.onMusicSelectHandler = { dockCategory in
             let musicCategory = Self.mapDockMusicToCategory(dockCategory)
             store.send(.selectBackgroundMusic(musicCategory))
+        }
+        adapter.onMusicVolumeChangeHandler = { volume in
+            store.send(.setBackgroundMusicVolume(volume))
         }
         self._dockAdapter = State(initialValue: adapter)
     }

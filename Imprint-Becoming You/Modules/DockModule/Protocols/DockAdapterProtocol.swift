@@ -99,6 +99,19 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
     /// The currently selected background music category.
     var musicCategory: DockMusicCategory { get }
 
+    /// The current background music volume (0.0–1.0).
+    ///
+    /// Default is `0.15`. The dock's volume slider reads and writes this value.
+    var musicVolume: Float { get }
+
+    /// Called when the user adjusts the music volume slider.
+    ///
+    /// The adapter should forward the value to the audio service for
+    /// real-time volume adjustment.
+    ///
+    /// - Parameter volume: The new volume (0.0–1.0)
+    func setMusicVolume(_ volume: Float)
+
     /// Whether the shuffle option appears in the config menu.
     ///
     /// Returns `false` on the home screen (no predefined set to shuffle).
@@ -342,6 +355,12 @@ public extension DockAdapterProtocol {
         expandedSelector = nil
         isErrorBarVisible = false
     }
+
+    /// Default music volume — matches `BackgroundMusicService` initial volume.
+    var musicVolume: Float { 0.15 }
+
+    /// Default music volume setter — no-op.
+    func setMusicVolume(_ volume: Float) { }
 
     /// Default shuffle option visibility — hidden.
     var showsShuffleOption: Bool { false }

@@ -194,7 +194,11 @@ final class TTSService: TTSServiceProtocol {
         // Pre-configure audio session on background queue (Issue 2.4)
         // This moves the potentially blocking setCategory() off the main thread
         await preConfigureAudioSession()
-        
+
+        // Pre-warm the AVAudioPlayer render path to avoid first-use HAL allocation
+        // that can glitch concurrent AVAudioEngine output (background music).
+        preWarmAudioPlayer()
+
         do {
             try await kokoroEngine.warmUp()
             _isKokoroReady = true
@@ -632,7 +636,7 @@ final class TTSService: TTSServiceProtocol {
                     try session.setCategory(
                         .playback,
                         mode: .default,
-                        options: [.duckOthers]
+                        options: [.mixWithOthers]
                     )
 
                     // Update state on main actor
@@ -660,19 +664,70 @@ final class TTSService: TTSServiceProtocol {
             }
         }
     }
-    
+
+    /// Pre-warms the `AVAudioPlayer` render path during warm-up.
+    ///
+    /// The first `AVAudioPlayer(data:)` instantiation in a process allocates
+    /// system audio resources for the AVAudioPlayer HAL path. If background
+    /// music is playing on `AVAudioEngine`, this allocation can cause a brief
+    /// audio glitch on the engine output.
+    ///
+    /// By creating a minimal silent player during warm-up (before any session),
+    /// the HAL path is pre-allocated. Subsequent `AVAudioPlayer(data:)` calls
+    /// (for TTS playback) reuse the existing path without disruption.
+    private func preWarmAudioPlayer() {
+        // Minimal 44-byte WAV header representing 0 samples at 24000 Hz mono 16-bit.
+        // This is enough to trigger AVAudioPlayer's internal pipeline allocation
+        // without producing any audible output.
+        var wavHeader = Data(count: 44)
+        wavHeader.withUnsafeMutableBytes { raw in
+            let ptr = raw.baseAddress!
+            // RIFF header
+            "RIFF".utf8.enumerated().forEach { ptr.storeBytes(of: $0.element, toByteOffset: $0.offset, as: UInt8.self) }
+            ptr.storeBytes(of: UInt32(36).littleEndian, toByteOffset: 4, as: UInt32.self) // file size - 8
+            "WAVE".utf8.enumerated().forEach { ptr.storeBytes(of: $0.element, toByteOffset: 8 + $0.offset, as: UInt8.self) }
+            // fmt chunk
+            "fmt ".utf8.enumerated().forEach { ptr.storeBytes(of: $0.element, toByteOffset: 12 + $0.offset, as: UInt8.self) }
+            ptr.storeBytes(of: UInt32(16).littleEndian, toByteOffset: 16, as: UInt32.self) // chunk size
+            ptr.storeBytes(of: UInt16(1).littleEndian, toByteOffset: 20, as: UInt16.self)  // PCM format
+            ptr.storeBytes(of: UInt16(1).littleEndian, toByteOffset: 22, as: UInt16.self)  // 1 channel
+            ptr.storeBytes(of: UInt32(24000).littleEndian, toByteOffset: 24, as: UInt32.self) // sample rate
+            ptr.storeBytes(of: UInt32(48000).littleEndian, toByteOffset: 28, as: UInt32.self) // byte rate
+            ptr.storeBytes(of: UInt16(2).littleEndian, toByteOffset: 32, as: UInt16.self)  // block align
+            ptr.storeBytes(of: UInt16(16).littleEndian, toByteOffset: 34, as: UInt16.self) // bits per sample
+            // data chunk
+            "data".utf8.enumerated().forEach { ptr.storeBytes(of: $0.element, toByteOffset: 36 + $0.offset, as: UInt8.self) }
+            ptr.storeBytes(of: UInt32(0).littleEndian, toByteOffset: 40, as: UInt32.self)  // data size = 0
+        }
+
+        // Create and prepare — this primes the internal audio render path.
+        // The player is discarded immediately after; no playback occurs.
+        if let player = try? AVAudioPlayer(data: wavHeader) {
+            player.prepareToPlay()
+            #if DEBUG
+            AppLogger.debug("AVAudioPlayer render path pre-warmed", category: .tts)
+            #endif
+        }
+    }
+
     /// Ensures audio session is active and properly configured before playback.
     ///
     /// This method is optimized for minimal main thread blocking:
-    /// 1. If already configured for playback, only activates the session
-    /// 2. If category changed, reconfigures (should be rare after warm-up)
+    /// 1. If already configured for playback, skips entirely (no system calls)
+    /// 2. If category changed, reconfigures + activates (should be rare after warm-up)
     ///
     /// ## Performance
-    /// - With pre-configuration: ~1-5ms (setActive only)
-    /// - Without pre-configuration: ~50-200ms (setCategory + setActive)
+    /// - Already configured: ~0ms (no system calls)
+    /// - Category changed: ~50-200ms (setCategory + setActive)
+    ///
+    /// ## Why setActive(true) is inside the reconfiguration branch
+    /// Redundant `setActive(true)` calls can cause brief HAL disruptions
+    /// that glitch concurrent `AVAudioEngine` output (background music).
+    /// When the session is already `.playback` and active (from `AudioService.start()`
+    /// or a previous call), skipping `setActive()` eliminates first-session stutter.
     private func ensureAudioSessionActive() throws {
         let session = AVAudioSession.sharedInstance()
-        
+
         // Reconfigure if category changed, not yet configured, or externally modified.
         // SpeechCaptureService changes the session to .playAndRecord during listening
         // phases without updating TTSService's cache, so we also check the actual
@@ -681,18 +736,20 @@ final class TTSService: TTSServiceProtocol {
             #if DEBUG
             AppLogger.debug("Reconfiguring audio session (category changed)", category: .tts)
             #endif
-            
+
             try session.setCategory(
                 .playback,
                 mode: .default,
-                options: [.duckOthers]
+                options: [.mixWithOthers]
             )
             lastConfiguredCategory = .playback
             isAudioSessionConfigured = true
+
+            // Only activate after reconfiguration. When the category is already
+            // .playback, the session is already active from AudioService.start()
+            // or a prior call — redundant setActive() causes HAL disruptions.
+            try session.setActive(true)
         }
-        
-        // Activate the session (fast operation)
-        try session.setActive(true)
     }
     
     // MARK: - Kokoro Synthesis

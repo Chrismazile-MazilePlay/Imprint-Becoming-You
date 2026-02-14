@@ -88,6 +88,9 @@ public final class MockDockAdapter: DockAdapterProtocol {
     /// The currently selected background music category.
     public var musicCategory: DockMusicCategory = .off
 
+    /// The current background music volume (0.0–1.0).
+    public var musicVolume: Float = 0.15
+
     /// Whether the shuffle option appears in the config menu.
     public var showsShuffleOption: Bool = false
 
@@ -159,7 +162,15 @@ public final class MockDockAdapter: DockAdapterProtocol {
         print("[MockDockAdapter] Selected music: \(category.displayName)")
         #endif
     }
-    
+
+    /// Handles music volume changes.
+    public func setMusicVolume(_ volume: Float) {
+        musicVolume = volume
+        #if DEBUG
+        print("[MockDockAdapter] Music volume: \(String(format: "%.2f", volume))")
+        #endif
+    }
+
     // MARK: - Navigation Actions
     
     /// Handles previous navigation.

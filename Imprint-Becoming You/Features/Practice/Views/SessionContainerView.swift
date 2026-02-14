@@ -261,6 +261,7 @@ struct SessionContainerView: View {
             isFavoritesSession: store.isFavoritesSession,
             isSessionSaved: store.hasSessionBeenSaved,
             currentMusicCategory: Self.mapMusicCategory(store.backgroundMusicCategory),
+            currentMusicVolume: store.backgroundMusicVolume,
             onClose: {
                 store.send(.dismissSummary)
             },
@@ -277,6 +278,9 @@ struct SessionContainerView: View {
             onMusicSelect: { dockCategory in
                 let musicCategory = Self.mapDockMusicToCategory(dockCategory)
                 store.send(.selectBackgroundMusic(musicCategory))
+            },
+            onMusicVolumeChange: { volume in
+                store.send(.setBackgroundMusicVolume(volume))
             }
         )
         .navigationBarBackButtonHidden(true)

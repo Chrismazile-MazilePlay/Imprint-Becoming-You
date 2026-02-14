@@ -295,7 +295,7 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
             try audioSession.setCategory(
                 .playback,
                 mode: .spokenAudio, // Optimized for speech
-                options: [.duckOthers] // Duck other audio, don't mix
+                options: [.mixWithOthers] // Mix with background music on our own engine
             )
             currentCategory = .playback
         } catch {

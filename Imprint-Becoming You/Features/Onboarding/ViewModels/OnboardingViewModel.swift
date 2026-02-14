@@ -341,7 +341,7 @@ final class OnboardingViewModel {
         
         // Configure audio session
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playback, mode: .default, options: [.duckOthers])
+        try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
         try session.setActive(true)
         
         // Create and configure player

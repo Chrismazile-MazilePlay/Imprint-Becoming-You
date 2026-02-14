@@ -42,6 +42,9 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     /// User selected a background music category (nil = Off)
     case selectBackgroundMusic(MusicCategory?)
 
+    /// User changed the background music volume
+    case setBackgroundMusicVolume(Float)
+
     /// User toggled the mode selector expansion
     case toggleModeSelector
 
@@ -441,6 +444,8 @@ extension PracticeEvent: CustomStringConvertible {
             return "selectMode(\(mode.rawValue))"
         case .selectBackgroundMusic(let category):
             return "selectBackgroundMusic(\(category?.rawValue ?? "off"))"
+        case .setBackgroundMusicVolume(let vol):
+            return "setBackgroundMusicVolume(\(String(format: "%.2f", vol)))"
         case .toggleModeSelector:
             return "toggleModeSelector"
         case .toggleMusicSelector:

@@ -433,7 +433,7 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                             try session.setCategory(
                                 .playAndRecord,
                                 mode: .measurement,
-                                options: [.defaultToSpeaker, .allowBluetoothHFP]
+                                options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers]
                             )
                             try session.setActive(true, options: .notifyOthersOnDeactivation)
                             

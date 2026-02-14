@@ -181,7 +181,7 @@ final class SessionPlaybackCoordinator {
                     return
                 }
                 do {
-                    try session.setCategory(.playback, mode: .default, options: [.duckOthers])
+                    try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
                     try session.setActive(true)
                 } catch {
                     #if DEBUG

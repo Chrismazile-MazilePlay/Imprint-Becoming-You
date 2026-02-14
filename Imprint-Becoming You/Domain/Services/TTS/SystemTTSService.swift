@@ -129,7 +129,7 @@ final class SystemTTSService: NSObject, @unchecked Sendable {
         try? AVAudioSession.sharedInstance().setCategory(
             .playback,
             mode: .default,
-            options: [.duckOthers]
+            options: [.mixWithOthers]
         )
         try? AVAudioSession.sharedInstance().setActive(true)
         

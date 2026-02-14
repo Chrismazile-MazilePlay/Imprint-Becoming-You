@@ -127,17 +127,29 @@ public struct AdaptiveDockContainer<Content: View>: View {
     
     @ViewBuilder
     private var expandedMenus: some View {
-        // Music selector — left-aligned (matches left music button)
+        // Music selector + volume slider — left-aligned (matches left music button)
+        // Both panels present/dismiss together as a single unit.
         if adapter.expandedSelector == .music {
-            HStack {
-                MusicSelectorExpanded(
-                    selectedCategory: adapter.musicCategory
-                ) { category in
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                        adapter.selectMusic(category)
+            VStack(spacing: tokens.spacingSM) {
+                HStack {
+                    MusicSelectorExpanded(
+                        selectedCategory: adapter.musicCategory
+                    ) { category in
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            adapter.selectMusic(category)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                // Volume slider — only shown when music is playing
+                if adapter.musicCategory != .off {
+                    MusicVolumeSlider(
+                        volume: adapter.musicVolume
+                    ) { newVolume in
+                        adapter.setMusicVolume(newVolume)
                     }
                 }
-                Spacer(minLength: 0)
             }
             .padding(.horizontal, tokens.spacingMD)
             .padding(.bottom, tokens.spacingSM)

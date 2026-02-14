@@ -277,6 +277,12 @@ final class PracticeStore {
     
     /// Current background music category (nil = Off)
     private(set) var backgroundMusicCategory: MusicCategory? = nil
+
+    /// Current background music volume (0.0–1.0).
+    ///
+    /// Default is `Constants.Audio.backgroundMusicVolume` (0.15).
+    /// Persists across sessions until the user changes it or the app restarts.
+    private(set) var backgroundMusicVolume: Float = Constants.Audio.backgroundMusicVolume
     
     // MARK: - UI State
     
@@ -682,6 +688,11 @@ final class PracticeStore {
     /// Updates background music category
     func setBackgroundMusicCategory(_ category: MusicCategory?) {
         backgroundMusicCategory = category
+    }
+
+    /// Updates background music volume
+    func setBackgroundMusicVolume(_ volume: Float) {
+        backgroundMusicVolume = volume
     }
     
     /// Updates error state

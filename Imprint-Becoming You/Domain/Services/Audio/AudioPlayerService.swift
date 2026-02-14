@@ -424,7 +424,7 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
                     try session.setCategory(
                         .playback,
                         mode: .default,
-                        options: [.duckOthers]
+                        options: [.mixWithOthers]
                     )
                     try session.setActive(true)
                     continuation.resume()

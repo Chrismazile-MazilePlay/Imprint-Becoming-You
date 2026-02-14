@@ -28,7 +28,10 @@ extension PracticeStore {
             
         case .selectBackgroundMusic(let category):
             handleSelectBackgroundMusic(category)
-            
+
+        case .setBackgroundMusicVolume(let volume):
+            handleSetBackgroundMusicVolume(volume)
+
         case .toggleModeSelector:
             withAnimation(AppTheme.Animation.standard) {
                 isModeSelectorExpanded.toggle()

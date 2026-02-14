@@ -121,6 +121,10 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     var musicCategory: DockMusicCategory {
         mapMusicCategory(store.backgroundMusicCategory)
     }
+
+    var musicVolume: Float {
+        store.backgroundMusicVolume
+    }
     
     // MARK: - Session State
     
@@ -228,7 +232,11 @@ final class PracticeDockAdapter: DockAdapterProtocol {
         store.send(.selectBackgroundMusic(musicCategory))
         expandedSelector = nil
     }
-    
+
+    func setMusicVolume(_ volume: Float) {
+        store.send(.setBackgroundMusicVolume(volume))
+    }
+
     // MARK: - Navigation Actions
     
     /// Navigates to the previous affirmation via button tap.

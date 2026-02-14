@@ -11,7 +11,7 @@ import SwiftUI
 
 /// A circular icon-only button for the dock selector row.
 ///
-/// Used for Binaural (left) and Gear/Settings (right) buttons. Displays a single
+/// Used for Music (left) and Gear/Settings (right) buttons. Displays a single
 /// SF Symbol icon in a circle, with active state highlighting. No label, no chevron.
 ///
 /// ## Design Specifications
@@ -24,7 +24,7 @@ import SwiftUI
 ///
 /// ## Accessibility
 ///
-/// - **Label:** Provided by caller (e.g., "Binaural beats: Focus" or "Settings")
+/// - **Label:** Provided by caller (e.g., "Background music: Focus" or "Settings")
 /// - **Value:** "Expanded" or "Collapsed"
 /// - **Hint:** "Double tap to expand/collapse options"
 /// - **Traits:** `.isSelected` when expanded
@@ -32,13 +32,13 @@ import SwiftUI
 /// ## Usage
 ///
 /// ```swift
-/// // Binaural button
+/// // Music button
 /// DockCircularButton(
-///     icon: adapter.binauralPreset.iconName,
-///     isExpanded: adapter.isBinauralSelectorExpanded,
-///     isActive: adapter.binauralPreset.isActive,
-///     accessibilityLabel: adapter.binauralPreset.accessibilityLabel,
-///     action: { toggleBinauralSelector() }
+///     icon: adapter.musicCategory.iconName,
+///     isExpanded: adapter.isMusicSelectorExpanded,
+///     isActive: adapter.musicCategory.isActive,
+///     accessibilityLabel: adapter.musicCategory.accessibilityLabel,
+///     action: { toggleMusicSelector() }
 /// )
 ///
 /// // Gear button
@@ -135,7 +135,7 @@ public struct DockCircularButton: View {
                     icon: "speaker.slash.fill",
                     isExpanded: false,
                     isActive: false,
-                    accessibilityLabel: "Binaural beats off",
+                    accessibilityLabel: "Background music off",
                     action: {}
                 )
                 DockCircularButton(
@@ -151,7 +151,7 @@ public struct DockCircularButton: View {
                     icon: "brain.head.profile",
                     isExpanded: false,
                     isActive: true,
-                    accessibilityLabel: "Binaural beats: Focus",
+                    accessibilityLabel: "Background music: Focus",
                     action: {}
                 )
                 DockCircularButton(

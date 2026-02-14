@@ -12,7 +12,7 @@ import Foundation
 /// Represents which selector menu is currently expanded in the dock.
 ///
 /// Replaces three separate boolean properties (`isModeSelectorExpanded`,
-/// `isBinauralSelectorExpanded`, `isConfigSelectorExpanded`) with a single
+/// `isMusicSelectorExpanded`, `isConfigSelectorExpanded`) with a single
 /// optional enum. This makes it structurally impossible to have multiple
 /// selectors open simultaneously — enforced by the type system rather than
 /// close-before-open logic.
@@ -30,7 +30,7 @@ import Foundation
 /// adapter.expandedSelector = (adapter.expandedSelector == .mode) ? nil : .mode
 ///
 /// // Check if a specific selector is open
-/// if adapter.expandedSelector == .binaural { ... }
+/// if adapter.expandedSelector == .music { ... }
 ///
 /// // Check if any selector is open
 /// if adapter.expandedSelector != nil { ... }
@@ -39,8 +39,8 @@ public enum DockExpandedSelector: Equatable, Sendable {
     /// The mode selector menu (e.g., Read Aloud, Read & Speak).
     case mode
 
-    /// The binaural preset selector menu (e.g., Focus, Relax, Sleep).
-    case binaural
+    /// The background music category selector menu (e.g., Coffee, Focus, Nature).
+    case music
 
     /// The config/settings selector menu (e.g., Loop Count, Shuffle).
     case config

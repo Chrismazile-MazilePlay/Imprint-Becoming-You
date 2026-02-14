@@ -12,16 +12,16 @@ import Foundation
 /// Configuration determining which dock layout to render.
 ///
 /// The dock uses a unified 3-button row across all compact layouts:
-/// **Binaural (left) — Mode (center) — Settings/Gear (right)**
+/// **Music (left) — Mode (center) — Settings/Gear (right)**
 ///
 /// ## Visual Overview
 ///
 /// ```
-/// HOME/COMPACT:  [Binaural ▼]    [Mode ▼]    [⚙ Settings ▼]
+/// HOME/COMPACT:  [Music ▼]    [Mode ▼]    [⚙ Settings ▼]
 ///
 /// SESSION:       [═══════════ Segments ═══════════════]
 ///                [◀]   [Center Content Slot]    [▶]
-///                [Binaural ▼]    [Mode ▼]    [⚙ Settings ▼]
+///                [Music ▼]    [Mode ▼]    [⚙ Settings ▼]
 /// ```
 ///
 /// ## Slot Visibility
@@ -32,7 +32,7 @@ import Foundation
 /// | Navigation Arrows  | ✗    | ✓       |
 /// | Center Content     | ✗    | ✓       |
 /// | Mode Selector      | ✓    | ✓       |
-/// | Binaural Selector  | ✓    | ✓       |
+/// | Music Selector     | ✓    | ✓       |
 /// | Config Selector    | ✓    | ✓*      |
 ///
 /// *Config selector shows error bar during session instead of opening menu.
@@ -48,7 +48,7 @@ import Foundation
 /// ```
 public enum DockConfiguration: Equatable, Sendable {
 
-    /// Compact mode — unified 3-button row with binaural, mode, and config selectors.
+    /// Compact mode — unified 3-button row with music, mode, and config selectors.
     ///
     /// Used when:
     /// - User is browsing affirmations (home)
@@ -95,10 +95,10 @@ public extension DockConfiguration {
         }
     }
 
-    /// Whether this configuration shows the binaural selector button.
+    /// Whether this configuration shows the music selector button.
     ///
-    /// Always `true` — the unified 3-button row includes binaural on all layouts.
-    var showsBinauralSelector: Bool {
+    /// Always `true` — the unified 3-button row includes music on all layouts.
+    var showsMusicSelector: Bool {
         true
     }
 

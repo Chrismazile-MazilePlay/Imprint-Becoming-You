@@ -10,12 +10,12 @@ import SwiftUI
 // MARK: - DockErrorBar
 
 /// An expandable error bar displayed above the dock, matching the visual style
-/// of `ModeSelectorExpanded` and `BinauralSelectorExpanded`.
+/// of `ModeSelectorExpanded` and `MusicSelectorExpanded`.
 ///
 /// ## Behavior
 /// - Appears with the same expand/collapse transition as other dock menus
 /// - Auto-dismisses after 3 seconds
-/// - Immediately dismissed by mode or binaural button taps
+/// - Immediately dismissed by mode or music button taps
 ///
 /// ## Visual Design
 /// Matches the dock menu panel style — rounded rectangle with the same

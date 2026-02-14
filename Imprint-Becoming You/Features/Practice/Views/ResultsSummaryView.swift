@@ -25,10 +25,12 @@ struct ResultsSummaryView: View {
     let isPlayingSavedSession: Bool
     let isFavoritesSession: Bool
     let isSessionSaved: Bool
+    let currentMusicCategory: DockMusicCategory
     let onClose: () -> Void
     let onRepeat: (_ mode: SessionMode, _ loopCount: Int, _ shuffle: Bool, _ spacedRepetition: Bool) -> Void
     let onSaveSession: () -> Void
     let onToggleFavorite: (_ affirmationId: UUID) -> Void
+    let onMusicSelect: (DockMusicCategory) -> Void
     
     // MARK: - State
     
@@ -84,21 +86,25 @@ struct ResultsSummaryView: View {
         isPlayingSavedSession: Bool,
         isFavoritesSession: Bool,
         isSessionSaved: Bool,
+        currentMusicCategory: DockMusicCategory = .off,
         onClose: @escaping () -> Void,
         onRepeat: @escaping (_ mode: SessionMode, _ loopCount: Int, _ shuffle: Bool, _ spacedRepetition: Bool) -> Void,
         onSaveSession: @escaping () -> Void,
-        onToggleFavorite: @escaping (_ affirmationId: UUID) -> Void
+        onToggleFavorite: @escaping (_ affirmationId: UUID) -> Void,
+        onMusicSelect: @escaping (DockMusicCategory) -> Void = { _ in }
     ) {
         self.summary = summary
         self.loopConfiguration = loopConfiguration
         self.isPlayingSavedSession = isPlayingSavedSession
         self.isFavoritesSession = isFavoritesSession
         self.isSessionSaved = isSessionSaved
+        self.currentMusicCategory = currentMusicCategory
         self.onClose = onClose
         self.onRepeat = onRepeat
         self.onSaveSession = onSaveSession
         self.onToggleFavorite = onToggleFavorite
-        
+        self.onMusicSelect = onMusicSelect
+
         let initialDockMode: DockMode = {
             switch summary.mode {
             case .readOnly: return .readOnly
@@ -107,18 +113,20 @@ struct ResultsSummaryView: View {
             case .speakOnly: return .speakOnly
             }
         }()
-        
+
         let adapter = ListDockAdapter(
             initialMode: initialDockMode,
             initialLoopCount: loopConfiguration.loopCount,
             initialShuffle: loopConfiguration.isShuffleEnabled,
             initialSpacedRepetition: loopConfiguration.isSpacedRepetitionEnabled,
+            initialMusic: currentMusicCategory,
             baseAffirmationCount: summary.results.count,
             showsShuffleOption: true,
             labelText: "Repeat Session",
             isPlayEnabled: true
         )
         adapter.onPlayHandler = onRepeat
+        adapter.onMusicSelectHandler = onMusicSelect
         self._dockAdapter = State(initialValue: adapter)
     }
     

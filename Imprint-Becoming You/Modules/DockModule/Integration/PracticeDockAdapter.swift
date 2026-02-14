@@ -116,10 +116,10 @@ final class PracticeDockAdapter: DockAdapterProtocol {
         return DockMode.allCases
     }
     
-    // MARK: - Binaural State
-    
-    var binauralPreset: DockBinauralPreset {
-        mapBinaural(store.binauralPreset)
+    // MARK: - Music State
+
+    var musicCategory: DockMusicCategory {
+        mapMusicCategory(store.backgroundMusicCategory)
     }
     
     // MARK: - Session State
@@ -221,11 +221,11 @@ final class PracticeDockAdapter: DockAdapterProtocol {
         }
     }
     
-    // MARK: - Binaural Actions
-    
-    func selectBinaural(_ preset: DockBinauralPreset) {
-        let binauralPreset = mapDockBinauralToPreset(preset)
-        store.send(.selectBinaural(binauralPreset))
+    // MARK: - Music Actions
+
+    func selectMusic(_ category: DockMusicCategory) {
+        let musicCategory = mapDockMusicToCategory(category)
+        store.send(.selectBackgroundMusic(musicCategory))
         expandedSelector = nil
     }
     
@@ -358,32 +358,16 @@ private extension PracticeDockAdapter {
         }
     }
     
-    /// Maps BinauralPreset to DockBinauralPreset.
-    func mapBinaural(_ preset: BinauralPreset) -> DockBinauralPreset {
-        switch preset {
-        case .off:
-            return .off
-        case .focus:
-            return .focus
-        case .relax:
-            return .relax
-        case .sleep:
-            return .sleep
-        }
+    /// Maps MusicCategory? to DockMusicCategory.
+    func mapMusicCategory(_ category: MusicCategory?) -> DockMusicCategory {
+        guard let category = category else { return .off }
+        return DockMusicCategory(rawValue: category.rawValue) ?? .off
     }
-    
-    /// Maps DockBinauralPreset back to BinauralPreset.
-    func mapDockBinauralToPreset(_ dockPreset: DockBinauralPreset) -> BinauralPreset {
-        switch dockPreset {
-        case .off:
-            return .off
-        case .focus:
-            return .focus
-        case .relax:
-            return .relax
-        case .sleep:
-            return .sleep
-        }
+
+    /// Maps DockMusicCategory back to MusicCategory?.
+    func mapDockMusicToCategory(_ dockCategory: DockMusicCategory) -> MusicCategory? {
+        guard dockCategory != .off else { return nil }
+        return MusicCategory(rawValue: dockCategory.rawValue)
     }
     
     /// Maps PracticeFlow to DockCenterContentState.

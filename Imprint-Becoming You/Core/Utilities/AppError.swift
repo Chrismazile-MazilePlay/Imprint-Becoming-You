@@ -42,8 +42,8 @@ enum AppError: Error, Equatable, Sendable {
     /// Audio recording failed
     case audioRecordingFailed(reason: String)
     
-    /// Binaural beat generation failed
-    case binauralGenerationFailed(reason: String)
+    /// Background music playback failed
+    case backgroundMusicFailed(reason: String)
     
     // MARK: - Speech Errors
     
@@ -258,8 +258,8 @@ extension AppError: LocalizedError {
             return "Unable to play audio: \(reason)"
         case .audioRecordingFailed(let reason):
             return "Unable to record audio: \(reason)"
-        case .binauralGenerationFailed(let reason):
-            return "Unable to generate binaural beats: \(reason)"
+        case .backgroundMusicFailed(let reason):
+            return "Unable to play background music: \(reason)"
             
         // Speech Errors
         case .speechRecognitionDenied:

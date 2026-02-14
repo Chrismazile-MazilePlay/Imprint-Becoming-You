@@ -252,24 +252,8 @@ enum Constants {
         /// Buffer size for audio processing
         static let bufferSize: UInt32 = 1024
         
-        /// Volume level for binaural beats (0.0 - 1.0)
-        static let binauralVolume: Float = 0.15
-        
-        /// Base carrier frequency for binaural beats (Hz)
-        static let binauralCarrierFrequency: Float = 200.0
-    }
-    
-    // MARK: - Binaural Frequencies
-    
-    enum BinauralFrequencies {
-        /// Focus preset - Beta waves (14 Hz difference)
-        static let focus: Float = 14.0
-        
-        /// Relax preset - Alpha waves (10 Hz difference)
-        static let relax: Float = 10.0
-        
-        /// Sleep preset - Theta waves (6 Hz difference)
-        static let sleep: Float = 6.0
+        /// Default volume for background music (0.0–1.0). Plays quietly behind TTS.
+        static let backgroundMusicVolume: Float = 0.15
     }
     
     // MARK: - Cache Configuration
@@ -365,7 +349,7 @@ enum Constants {
     enum StorageKeys {
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
         static let preferredSessionMode = "preferredSessionMode"
-        static let binauralPreset = "binauralPreset"
+        static let backgroundMusicCategory = "backgroundMusicCategory"
         static let lastSessionAffirmationIndex = "lastSessionAffirmationIndex"
         static let lastSessionBatchId = "lastSessionBatchId"
         

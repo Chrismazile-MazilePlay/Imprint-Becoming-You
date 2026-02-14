@@ -42,7 +42,7 @@ import UIKit
 /// - `sessionPreparationTask` - TTS pre-synthesis
 ///
 /// **Fire-and-Forget Tasks** (short-lived, self-terminating):
-/// - Binaural toggle (instant)
+/// - Music toggle (instant)
 /// - Score display delay (< 3s with isCancelled check)
 /// - Navigation lock (< 3s)
 /// - Auto-advance delay (< 2s with isCancelled check)
@@ -275,16 +275,16 @@ final class PracticeStore {
     
     // MARK: - Audio State
     
-    /// Current binaural preset
-    private(set) var binauralPreset: BinauralPreset = .off
+    /// Current background music category (nil = Off)
+    private(set) var backgroundMusicCategory: MusicCategory? = nil
     
     // MARK: - UI State
     
     /// Whether mode selector is expanded
     var isModeSelectorExpanded: Bool = false
     
-    /// Whether binaural selector is expanded
-    var isBinauralSelectorExpanded: Bool = false
+    /// Whether music selector is expanded
+    var isMusicSelectorExpanded: Bool = false
     
     /// Current error (if any)
     private(set) var error: PracticeError? = nil
@@ -679,9 +679,9 @@ final class PracticeStore {
         hasSessionBeenSaved = saved
     }
     
-    /// Updates binaural preset
-    func setBinauralPreset(_ preset: BinauralPreset) {
-        binauralPreset = preset
+    /// Updates background music category
+    func setBackgroundMusicCategory(_ category: MusicCategory?) {
+        backgroundMusicCategory = category
     }
     
     /// Updates error state

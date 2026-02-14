@@ -13,7 +13,7 @@ import SwiftUI
 ///
 /// This container wraps `AdaptiveBottomDock` and handles:
 /// - Play button (conditional, above dock row)
-/// - Expanded selector menus (Mode, Binaural, Config/Settings)
+/// - Expanded selector menus (Mode, Music, Config/Settings)
 /// - Label text (conditional, below dock row)
 /// - Optional gradient background
 /// - Error bar display
@@ -41,7 +41,7 @@ import SwiftUI
 /// ## Menu Alignment
 ///
 /// - Mode selector: **left-aligned** (expands toward center from left button)
-/// - Binaural selector: **left-aligned** (expands from left button position)
+/// - Music selector: **left-aligned** (expands from left button position)
 /// - Config selector: **right-aligned** (matches gear button position)
 ///
 /// ## Usage
@@ -127,14 +127,14 @@ public struct AdaptiveDockContainer<Content: View>: View {
     
     @ViewBuilder
     private var expandedMenus: some View {
-        // Binaural selector — left-aligned (matches left binaural button)
-        if adapter.expandedSelector == .binaural {
+        // Music selector — left-aligned (matches left music button)
+        if adapter.expandedSelector == .music {
             HStack {
-                BinauralSelectorExpanded(
-                    selectedPreset: adapter.binauralPreset
-                ) { preset in
+                MusicSelectorExpanded(
+                    selectedCategory: adapter.musicCategory
+                ) { category in
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                        adapter.selectBinaural(preset)
+                        adapter.selectMusic(category)
                     }
                 }
                 Spacer(minLength: 0)

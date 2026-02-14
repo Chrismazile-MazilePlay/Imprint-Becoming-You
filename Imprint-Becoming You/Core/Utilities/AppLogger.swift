@@ -66,7 +66,7 @@ enum LogCategory: String, Sendable {
     /// App lifecycle, initialization, configuration
     case app = "App"
     
-    /// Audio playback, binaural beats, audio session
+    /// Audio playback, background music, audio session
     case audio = "Audio"
     
     /// Speech recognition and analysis

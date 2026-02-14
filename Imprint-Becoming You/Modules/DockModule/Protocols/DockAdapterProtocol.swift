@@ -68,7 +68,7 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
     /// The current dock configuration determining layout.
     ///
     /// This drives which slots are visible:
-    /// - `.home`: Mode + Binaural selectors only (compact)
+    /// - `.home`: Mode + Music selectors only (compact)
     /// - `.session`: Full expanded dock with progress, navigation, center content
     /// - `.configuration`: Mode + Loop + Shuffle + Play (compact)
     var configuration: DockConfiguration { get }
@@ -90,14 +90,14 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
     /// Setting to `nil` closes all selector menus.
     ///
     /// - `.mode`: Mode selector panel visible above dock
-    /// - `.binaural`: Binaural selector panel visible above dock
+    /// - `.music`: Music category selector panel visible above dock
     /// - `.config`: Config/settings panel visible above dock
     var expandedSelector: DockExpandedSelector? { get set }
 
-    // MARK: - Binaural State
+    // MARK: - Music State
 
-    /// The currently selected binaural preset.
-    var binauralPreset: DockBinauralPreset { get }
+    /// The currently selected background music category.
+    var musicCategory: DockMusicCategory { get }
 
     /// Whether the shuffle option appears in the config menu.
     ///
@@ -206,14 +206,14 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
     /// - Parameter mode: The newly selected mode
     func selectMode(_ mode: DockMode)
     
-    // MARK: - Binaural Actions
-    
-    /// Called when the user selects a binaural preset from the selector.
+    // MARK: - Music Actions
+
+    /// Called when the user selects a background music category from the selector.
     ///
     /// The adapter should update its internal state and close the selector.
     ///
-    /// - Parameter preset: The newly selected preset
-    func selectBinaural(_ preset: DockBinauralPreset)
+    /// - Parameter category: The newly selected music category
+    func selectMusic(_ category: DockMusicCategory)
     
     // MARK: - Navigation Actions
     
@@ -317,8 +317,8 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
     
     /// Shows an error message in the dock error bar with auto-dismiss.
     ///
-    /// The error bar collapses mode/binaural selectors before appearing,
-    /// then auto-dismisses after 3 seconds. Tapping mode or binaural buttons
+    /// The error bar collapses mode/music selectors before appearing,
+    /// then auto-dismisses after 3 seconds. Tapping mode or music buttons
     /// immediately dismisses it.
     ///
     /// - Parameter message: The user-facing error message to display

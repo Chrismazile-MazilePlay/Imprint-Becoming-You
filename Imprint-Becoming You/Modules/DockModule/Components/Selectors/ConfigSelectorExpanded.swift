@@ -12,7 +12,7 @@ import SwiftUI
 /// An expanded panel showing loop count, reinforce, and shuffle options.
 ///
 /// The config menu uses the same visual shell as `ModeSelectorExpanded` and
-/// `BinauralSelectorExpanded`: rounded rectangle with secondary background,
+/// `MusicSelectorExpanded`: rounded rectangle with secondary background,
 /// subtle border, and spring transitions.
 ///
 /// ## Layout
@@ -35,7 +35,7 @@ import SwiftUI
 ///
 /// ## Behavior
 ///
-/// Unlike mode and binaural selectors, this menu does NOT auto-dismiss on
+/// Unlike mode and music selectors, this menu does NOT auto-dismiss on
 /// selection. It only closes via:
 /// 1. Tap outside the view (host view's tap-to-dismiss)
 /// 2. Second tap on gear button (toggle logic)

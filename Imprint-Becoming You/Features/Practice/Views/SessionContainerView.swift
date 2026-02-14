@@ -260,6 +260,7 @@ struct SessionContainerView: View {
             isPlayingSavedSession: store.isPlayingSavedSession,
             isFavoritesSession: store.isFavoritesSession,
             isSessionSaved: store.hasSessionBeenSaved,
+            currentMusicCategory: Self.mapMusicCategory(store.backgroundMusicCategory),
             onClose: {
                 store.send(.dismissSummary)
             },
@@ -272,6 +273,10 @@ struct SessionContainerView: View {
             },
             onToggleFavorite: { affirmationId in
                 store.send(.toggleFavoriteInSummary(affirmationId))
+            },
+            onMusicSelect: { dockCategory in
+                let musicCategory = Self.mapDockMusicToCategory(dockCategory)
+                store.send(.selectBackgroundMusic(musicCategory))
             }
         )
         .navigationBarBackButtonHidden(true)
@@ -350,6 +355,20 @@ struct SessionContainerView: View {
             AppLogger.warning("Failed to get saved session count: \(error)", category: .practice)
             #endif
         }
+    }
+
+    // MARK: - Music Category Mapping
+
+    /// Maps `MusicCategory?` (domain) to `DockMusicCategory` (dock module).
+    static func mapMusicCategory(_ category: MusicCategory?) -> DockMusicCategory {
+        guard let category = category else { return .off }
+        return DockMusicCategory(rawValue: category.rawValue) ?? .off
+    }
+
+    /// Maps `DockMusicCategory` (dock module) back to `MusicCategory?` (domain).
+    static func mapDockMusicToCategory(_ dockCategory: DockMusicCategory) -> MusicCategory? {
+        guard dockCategory != .off else { return nil }
+        return MusicCategory(rawValue: dockCategory.rawValue)
     }
 }
 

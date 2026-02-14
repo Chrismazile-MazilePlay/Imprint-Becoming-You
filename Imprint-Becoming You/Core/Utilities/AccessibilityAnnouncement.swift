@@ -216,11 +216,11 @@ public extension AccessibilityAnnouncement {
         announce(enabled ? "Shuffle enabled" : "Shuffle disabled")
     }
     
-    /// Announces binaural beat preset change.
+    /// Announces background music category change.
     ///
     /// - Parameter preset: The new preset name
-    static func announceBinauralChanged(to preset: String) {
-        announce("Binaural preset: \(preset)")
+    static func announceMusicChanged(to preset: String) {
+        announce("Background music: \(preset)")
     }
     
     /// Announces an error condition.

@@ -606,27 +606,44 @@ final class TTSService: TTSServiceProtocol {
         #if DEBUG
         AppLogger.debug("Pre-configuring audio session on background queue...", category: .tts)
         #endif
-        
+
         // Configure on background queue to avoid main thread blocking
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             DispatchQueue.global(qos: .userInitiated).async {
+                let session = AVAudioSession.sharedInstance()
+                // Fast path: skip setCategory() when already in .playback.
+                // Background music may have already configured the session —
+                // calling setCategory() redundantly triggers a 50-200ms HAL
+                // reconfiguration that causes UI stutter during session start.
+                guard session.category != .playback else {
+                    Task { @MainActor in
+                        self.isAudioSessionConfigured = true
+                        self.lastConfiguredCategory = .playback
+
+                        #if DEBUG
+                        AppLogger.debug("Audio session already in .playback — skipping pre-config", category: .tts)
+                        #endif
+
+                        continuation.resume()
+                    }
+                    return
+                }
                 do {
-                    let session = AVAudioSession.sharedInstance()
                     try session.setCategory(
                         .playback,
                         mode: .default,
                         options: [.duckOthers]
                     )
-                    
+
                     // Update state on main actor
                     Task { @MainActor in
                         self.isAudioSessionConfigured = true
                         self.lastConfiguredCategory = .playback
-                        
+
                         #if DEBUG
                         AppLogger.debug("Audio session pre-configured successfully", category: .tts)
                         #endif
-                        
+
                         continuation.resume()
                     }
                 } catch {
@@ -635,7 +652,7 @@ final class TTSService: TTSServiceProtocol {
                         #if DEBUG
                         AppLogger.debug("Audio session pre-config failed", category: .tts, context: ["error": error])
                         #endif
-                        
+
                         // Don't mark as configured - will try again during playback
                         continuation.resume()
                     }

@@ -687,7 +687,7 @@ extension PracticeStore {
 
         // 10. Close any open menus
         isModeSelectorExpanded = false
-        isBinauralSelectorExpanded = false
+        isMusicSelectorExpanded = false
     }
 
     /// Handles repeat session with current loop/shuffle configuration.

@@ -105,7 +105,7 @@ enum PracticeTiming {
     /// Duration for auto-advance animation
     static let autoAdvanceDuration: TimeInterval = 0.4
     
-    /// Duration for mode/binaural selector expansion
+    /// Duration for mode/music selector expansion
     static let selectorExpansionDuration: TimeInterval = 0.3
     
     /// Duration for dock height changes

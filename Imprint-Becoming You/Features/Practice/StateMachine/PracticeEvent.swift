@@ -39,14 +39,14 @@ enum PracticeEvent: Equatable, @unchecked Sendable {
     /// User selected a practice mode
     case selectMode(SessionMode)
     
-    /// User selected a binaural preset
-    case selectBinaural(BinauralPreset)
-    
+    /// User selected a background music category (nil = Off)
+    case selectBackgroundMusic(MusicCategory?)
+
     /// User toggled the mode selector expansion
     case toggleModeSelector
-    
-    /// User toggled the binaural selector expansion
-    case toggleBinauralSelector
+
+    /// User toggled the music selector expansion
+    case toggleMusicSelector
     
     /// Close all selectors (tapped outside)
     case closeSelectors
@@ -439,12 +439,12 @@ extension PracticeEvent: CustomStringConvertible {
         switch self {
         case .selectMode(let mode):
             return "selectMode(\(mode.rawValue))"
-        case .selectBinaural(let preset):
-            return "selectBinaural(\(preset.rawValue))"
+        case .selectBackgroundMusic(let category):
+            return "selectBackgroundMusic(\(category?.rawValue ?? "off"))"
         case .toggleModeSelector:
             return "toggleModeSelector"
-        case .toggleBinauralSelector:
-            return "toggleBinauralSelector"
+        case .toggleMusicSelector:
+            return "toggleMusicSelector"
         case .closeSelectors:
             return "closeSelectors"
         case .userNavigated(let dir):

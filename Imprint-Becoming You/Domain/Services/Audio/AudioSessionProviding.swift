@@ -20,7 +20,7 @@ protocol AudioSessionProviding: Sendable {
     
     // MARK: - Session Configuration
     
-    /// Configures audio session for playback only (TTS, binaural)
+    /// Configures audio session for playback only (TTS, background music)
     func configureForPlayback() throws
     
     /// Configures audio session for playback and recording (speech recognition)

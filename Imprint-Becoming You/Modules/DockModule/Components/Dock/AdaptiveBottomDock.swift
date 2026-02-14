@@ -18,16 +18,16 @@ import SwiftUI
 ///
 /// All configurations share a unified bottom row:
 /// ```
-/// (Binaural)    [Mode ▼]    (⚙)
+/// (Music)    [Mode ▼]    (⚙)
 /// ```
 ///
-/// Binaural and Gear are circular icon-only buttons (`DockCircularButton`).
+/// Music and Gear are circular icon-only buttons (`DockCircularButton`).
 /// Mode is a chip with icon + label + chevron (`DockMenuSelectorButton`).
 /// Both circular buttons share the same fixed width, keeping Mode centered.
 ///
 /// | Configuration   | Layout                                          |
 /// |-----------------|------------------------------------------------|
-/// | `.home`         | Binaural + Mode + Settings (unified row)        |
+/// | `.home`         | Music + Mode + Settings (unified row)           |
 /// | `.session`      | Progress + Nav + Center + unified row            |
 /// | `.configuration`| Routes to `.home` layout (deprecated)            |
 ///
@@ -128,9 +128,9 @@ private extension AdaptiveBottomDock {
         adapter.loopCount > 1 || adapter.isShuffleEnabled || adapter.isSpacedRepetitionEnabled
     }
 
-    /// The unified 3-button row: (Binaural) — [Mode ▼] — (⚙).
+    /// The unified 3-button row: (Music) — [Mode ▼] — (⚙).
     ///
-    /// Binaural and Gear are circular icon-only buttons. Mode is a chip with
+    /// Music and Gear are circular icon-only buttons. Mode is a chip with
     /// icon + label + chevron. Since both circular buttons share the same fixed
     /// width (`chipHeight` = 44pt), the Spacers distribute equally, keeping the
     /// Mode chip perfectly centered.
@@ -138,14 +138,14 @@ private extension AdaptiveBottomDock {
     /// Used in both `.home` and `.session` configurations.
     var unifiedButtonRow: some View {
         HStack(spacing: tokens.spacingMD) {
-            // Binaural (left) — circular icon-only
+            // Music (left) — circular icon-only
             DockCircularButton(
-                icon: adapter.binauralPreset.iconName,
-                isExpanded: adapter.expandedSelector == .binaural,
-                isActive: adapter.binauralPreset.isActive,
-                accessibilityLabel: adapter.binauralPreset.accessibilityLabel
+                icon: adapter.musicCategory.iconName,
+                isExpanded: adapter.expandedSelector == .music,
+                isActive: adapter.musicCategory.isActive,
+                accessibilityLabel: adapter.musicCategory.accessibilityLabel
             ) {
-                toggleSelector(.binaural)
+                toggleSelector(.music)
             }
 
             Spacer(minLength: 0)
@@ -199,7 +199,7 @@ private extension AdaptiveBottomDock {
 
             // Center row: Nav + Content + Nav
             // Horizontal inset matches button row so nav buttons align
-            // vertically with binaural (left) and gear (right) buttons.
+            // vertically with music (left) and gear (right) buttons.
             HStack(spacing: 0) {
                 DockNavigationButton(
                     direction: .previous,
@@ -238,7 +238,7 @@ private extension AdaptiveBottomDock {
 
     /// Toggles the specified selector menu.
     ///
-    /// Handles all selector types (mode, binaural, config) through a single
+    /// Handles all selector types (mode, music, config) through a single
     /// function. Since `expandedSelector` is a single optional enum, opening
     /// one selector automatically closes any other — no manual close-before-open
     /// logic needed.

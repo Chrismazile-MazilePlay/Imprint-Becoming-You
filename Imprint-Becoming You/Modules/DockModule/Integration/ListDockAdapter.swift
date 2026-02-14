@@ -25,7 +25,7 @@ import AVFoundation
 /// ## Key Differences from ConfigurationDockAdapter
 ///
 /// 1. Always returns `.home` configuration (unified 3-button layout)
-/// 2. Full binaural support (was `.off`/disabled in ConfigurationDockAdapter)
+/// 2. Full background music support
 /// 3. Has `expandedSelector` and `showsShuffleOption`
 /// 4. Created once, properties mutated directly (no replacement pattern)
 /// 5. `onPlayHandler` is mutable for late binding
@@ -82,10 +82,14 @@ final class ListDockAdapter: DockAdapterProtocol {
     /// Which selector menu is currently expanded, if any.
     var expandedSelector: DockExpandedSelector?
 
-    // MARK: - Binaural State
+    // MARK: - Music State
 
-    /// The currently selected binaural preset.
-    var binauralPreset: DockBinauralPreset = .off
+    /// The currently selected background music category.
+    ///
+    /// When `musicCategoryBinding` is provided, this property stays in sync with
+    /// the external source (e.g., `PracticeStore.backgroundMusicCategory`), ensuring
+    /// the music button stays highlighted across all dock contexts.
+    var musicCategory: DockMusicCategory = .off
 
     /// Whether the shuffle option appears in the config menu.
     ///
@@ -175,6 +179,13 @@ final class ListDockAdapter: DockAdapterProtocol {
     /// When `nil`, tapping the disabled play button does nothing.
     var onDisabledPlayHandler: (() -> Void)?
 
+    /// Called when the user selects a music category from the dock.
+    ///
+    /// Routes music selection back to the `PracticeStore` so background music
+    /// playback is controlled centrally and persists across dock contexts.
+    /// When `nil`, music selection only updates the local `musicCategory` property.
+    var onMusicSelectHandler: ((DockMusicCategory) -> Void)?
+
     // MARK: - Initialization
 
     /// Creates a list dock adapter.
@@ -184,6 +195,7 @@ final class ListDockAdapter: DockAdapterProtocol {
     ///   - initialLoopCount: Starting loop count (default: `1`)
     ///   - initialShuffle: Starting shuffle state (default: `false`)
     ///   - initialSpacedRepetition: Starting spaced repetition state (default: `false`)
+    ///   - initialMusic: Starting music category (default: `.off`)
     ///   - baseAffirmationCount: Number of unique base affirmations available (default: `0`)
     ///   - showsShuffleOption: Whether shuffle appears in config menu (default: `true`)
     ///   - labelText: Text for floating play button (default: `""`)
@@ -193,6 +205,7 @@ final class ListDockAdapter: DockAdapterProtocol {
         initialLoopCount: Int = 1,
         initialShuffle: Bool = false,
         initialSpacedRepetition: Bool = false,
+        initialMusic: DockMusicCategory = .off,
         baseAffirmationCount: Int = 0,
         showsShuffleOption: Bool = true,
         labelText: String = "",
@@ -202,6 +215,7 @@ final class ListDockAdapter: DockAdapterProtocol {
         self.loopCount = initialLoopCount
         self.isShuffleEnabled = initialShuffle
         self.isSpacedRepetitionEnabled = initialSpacedRepetition
+        self.musicCategory = initialMusic
         self.baseAffirmationCount = baseAffirmationCount
         self.showsShuffleOption = showsShuffleOption
         self.labelText = labelText
@@ -222,11 +236,15 @@ final class ListDockAdapter: DockAdapterProtocol {
         expandedSelector = nil
     }
 
-    // MARK: - Binaural Actions
+    // MARK: - Music Actions
 
-    func selectBinaural(_ preset: DockBinauralPreset) {
-        binauralPreset = preset
+    func selectMusic(_ category: DockMusicCategory) {
+        musicCategory = category
         expandedSelector = nil
+
+        // Route to PracticeStore if handler is set, so background music
+        // playback is controlled centrally and persists across contexts.
+        onMusicSelectHandler?(category)
     }
 
     // MARK: - Navigation Actions (No-op)

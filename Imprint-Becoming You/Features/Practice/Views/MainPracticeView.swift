@@ -49,7 +49,7 @@ enum AppPage: Int, CaseIterable {
 /// In browse mode, standard pager gestures work normally.
 ///
 /// ## Dock Menu Behavior
-/// When dock selector menus (Mode or Binaural) are expanded on the Practice
+/// When dock selector menus (Mode or Music) are expanded on the Practice
 /// page, horizontal paging is disabled. This prevents accidental page
 /// navigation while interacting with dock controls.
 ///
@@ -100,7 +100,7 @@ struct MainPracticeView: View {
     /// Communicated to child pages to disable their ScrollViews.
     @State private var isHorizontallyDragging: Bool = false
 
-    /// Whether a dock selector menu (Mode or Binaural) is expanded.
+    /// Whether a dock selector menu (Mode or Music) is expanded.
     /// Relayed from PracticePageView via binding. When true, horizontal
     /// paging is disabled to prevent page navigation during menu interaction.
     @State private var isDockMenuExpanded: Bool = false

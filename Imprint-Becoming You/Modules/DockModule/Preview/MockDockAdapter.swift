@@ -83,10 +83,10 @@ public final class MockDockAdapter: DockAdapterProtocol {
     /// Which selector menu is currently expanded, if any.
     public var expandedSelector: DockExpandedSelector?
 
-    // MARK: - Binaural State
+    // MARK: - Music State
 
-    /// The currently selected binaural preset.
-    public var binauralPreset: DockBinauralPreset = .off
+    /// The currently selected background music category.
+    public var musicCategory: DockMusicCategory = .off
 
     /// Whether the shuffle option appears in the config menu.
     public var showsShuffleOption: Bool = false
@@ -149,14 +149,14 @@ public final class MockDockAdapter: DockAdapterProtocol {
         #endif
     }
     
-    // MARK: - Binaural Actions
-    
-    /// Handles binaural preset selection.
-    public func selectBinaural(_ preset: DockBinauralPreset) {
-        binauralPreset = preset
+    // MARK: - Music Actions
+
+    /// Handles background music category selection.
+    public func selectMusic(_ category: DockMusicCategory) {
+        musicCategory = category
         expandedSelector = nil
         #if DEBUG
-        print("[MockDockAdapter] Selected binaural: \(preset.displayName)")
+        print("[MockDockAdapter] Selected music: \(category.displayName)")
         #endif
     }
     
@@ -315,13 +315,13 @@ public extension MockDockAdapter {
     /// Creates a mock adapter for home/browse mode.
     ///
     /// - Configuration: `.home`
-    /// - Shows: Mode selector + Binaural selector
+    /// - Shows: Mode selector + Music selector
     /// - Use case: PracticePageView when not in session
     static var home: MockDockAdapter {
         let adapter = MockDockAdapter()
         adapter.configuration = .home
         adapter.currentMode = .readAndSpeak
-        adapter.binauralPreset = .off
+        adapter.musicCategory = .off
         return adapter
     }
     
@@ -336,7 +336,7 @@ public extension MockDockAdapter {
         let adapter = MockDockAdapter()
         adapter.configuration = .session
         adapter.currentMode = .readAndSpeak
-        adapter.binauralPreset = .focus
+        adapter.musicCategory = .focus
         adapter.centerContentState = .idle
         adapter.sessionSegments = DockSessionSegments(
             configs: Array(repeating: .default, count: 5),
@@ -358,7 +358,7 @@ public extension MockDockAdapter {
         let adapter = MockDockAdapter()
         adapter.configuration = .session
         adapter.currentMode = .readAloud
-        adapter.binauralPreset = .relax
+        adapter.musicCategory = .nature
         adapter.centerContentState = .playing(audioLevel: 0.7)
         adapter.sessionSegments = DockSessionSegments(
             configs: Array(repeating: .default, count: 8),
@@ -380,7 +380,7 @@ public extension MockDockAdapter {
         let adapter = MockDockAdapter()
         adapter.configuration = .session
         adapter.currentMode = .readAndSpeak
-        adapter.binauralPreset = .focus
+        adapter.musicCategory = .focus
         adapter.centerContentState = .preparing
         adapter.sessionSegments = DockSessionSegments(
             configs: Array(repeating: .default, count: 5),
@@ -402,7 +402,7 @@ public extension MockDockAdapter {
         let adapter = MockDockAdapter()
         adapter.configuration = .session
         adapter.currentMode = .speakOnly
-        adapter.binauralPreset = .off
+        adapter.musicCategory = .off
         adapter.centerContentState = .listening(audioLevel: 0.6)
         adapter.sessionSegments = DockSessionSegments(
             configs: Array(repeating: .default, count: 10),
@@ -424,7 +424,7 @@ public extension MockDockAdapter {
         let adapter = MockDockAdapter()
         adapter.configuration = .session
         adapter.currentMode = .readAndSpeak
-        adapter.binauralPreset = .focus
+        adapter.musicCategory = .focus
         adapter.centerContentState = .idle
         adapter.sessionSegments = DockSessionSegments(
             configs: Array(repeating: .default, count: 5),

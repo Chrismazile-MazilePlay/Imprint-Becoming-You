@@ -44,7 +44,7 @@ import SwiftData
 /// Uses `AdaptiveDockContainer` with `PracticeDockAdapter` which handles:
 /// - Mapping PracticeStore state to dock protocol
 /// - Dismiss overlay (tap anywhere to close expanded menus)
-/// - Mode and Binaural selector expansion
+/// - Mode and Music selector expansion
 /// - Dock positioning (anchored to bottom, grows upward)
 ///
 /// ## Auto-Advance Integration
@@ -58,7 +58,7 @@ import SwiftData
 /// are handled by `HorizontalPager` (parent) via `.simultaneousGesture()`.
 /// Direction locking in each pager routes events to the correct axis.
 ///
-/// When dock menus (mode/binaural selectors) are expanded, this view relays
+/// When dock menus (mode/music selectors) are expanded, this view relays
 /// that state to the parent via `isDockMenuExpanded` binding, which disables
 /// `HorizontalPager`'s gesture entirely. The `DockMenuDismissModifier` handles
 /// closing the menus on touch.

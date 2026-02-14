@@ -45,11 +45,18 @@ struct FavoritesFullListView: View {
         self.store = store
         self.dependencies = dependencies
 
-        self._dockAdapter = State(initialValue: ListDockAdapter(
+        let initialMusic = Self.mapMusicCategory(store.backgroundMusicCategory)
+        let adapter = ListDockAdapter(
+            initialMusic: initialMusic,
             showsShuffleOption: true,
             labelText: "Loading...",
             isPlayEnabled: false
-        ))
+        )
+        adapter.onMusicSelectHandler = { dockCategory in
+            let musicCategory = Self.mapDockMusicToCategory(dockCategory)
+            store.send(.selectBackgroundMusic(musicCategory))
+        }
+        self._dockAdapter = State(initialValue: adapter)
     }
 
     // MARK: - Body
@@ -207,6 +214,20 @@ struct FavoritesFullListView: View {
         HapticFeedback.impact(.light)
         updateDockState()
         store.invalidateProfileStats()
+    }
+
+    // MARK: - Music Category Mapping
+
+    /// Maps `MusicCategory?` (domain) to `DockMusicCategory` (dock module).
+    static func mapMusicCategory(_ category: MusicCategory?) -> DockMusicCategory {
+        guard let category = category else { return .off }
+        return DockMusicCategory(rawValue: category.rawValue) ?? .off
+    }
+
+    /// Maps `DockMusicCategory` (dock module) back to `MusicCategory?` (domain).
+    static func mapDockMusicToCategory(_ dockCategory: DockMusicCategory) -> MusicCategory? {
+        guard dockCategory != .off else { return nil }
+        return MusicCategory(rawValue: dockCategory.rawValue)
     }
 }
 

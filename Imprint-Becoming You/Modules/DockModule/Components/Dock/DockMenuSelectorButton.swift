@@ -9,11 +9,11 @@ import SwiftUI
 
 // MARK: - DockMenuSelectorButton
 
-/// A reusable chip-style button for menu selection (mode, binaural, settings).
+/// A reusable chip-style button for menu selection (mode, music, settings).
 ///
 /// Displays icon + optional label + chevron. When `label` is empty, shows only
 /// icon + chevron (used for the gear/settings button). Supports active state
-/// highlighting for options like binaural presets.
+/// highlighting for options like music categories.
 ///
 /// ## Accessibility
 ///
@@ -34,13 +34,13 @@ import SwiftUI
 ///     action: { toggleModeSelector() }
 /// )
 ///
-/// // Binaural selector (with active highlighting)
+/// // Music selector (with active highlighting)
 /// DockMenuSelectorButton(
-///     icon: adapter.binauralPreset.iconName,
-///     label: adapter.binauralPreset.displayName,
-///     isExpanded: adapter.isBinauralSelectorExpanded,
-///     isActive: adapter.binauralPreset.isActive,
-///     action: { toggleBinauralSelector() }
+///     icon: adapter.musicCategory.iconName,
+///     label: adapter.musicCategory.displayName,
+///     isExpanded: adapter.isMusicSelectorExpanded,
+///     isActive: adapter.musicCategory.isActive,
+///     action: { toggleMusicSelector() }
 /// )
 /// ```
 public struct DockMenuSelectorButton: View {
@@ -152,7 +152,7 @@ public struct DockMenuSelectorButton: View {
     }
 }
 
-#Preview("Menu Selector - Binaural (Active)") {
+#Preview("Menu Selector - Music (Active)") {
     ZStack {
         Color.black.ignoresSafeArea()
         VStack(spacing: 12) {

@@ -153,7 +153,7 @@ final class DependencyContainer: Sendable {
     
     // MARK: - Services (Lazy Initialization with Safe Unwrapping)
     
-    /// Audio playback and binaural beat service
+    /// Audio playback and background music service
     private var _audioService: (any AudioServiceProtocol)?
     var audioService: any AudioServiceProtocol {
         if let existing = _audioService {
@@ -167,7 +167,7 @@ final class DependencyContainer: Sendable {
     /// Audio player service for TTS playback
     ///
     /// Separate from `audioService` - this handles TTS audio playback
-    /// while `audioService` handles binaural beats and ambient audio.
+    /// while `audioService` handles background music and ambient audio.
     private var _audioPlayerService: (any AudioPlayerServiceProtocol)?
     var audioPlayerService: any AudioPlayerServiceProtocol {
         if let existing = _audioPlayerService {

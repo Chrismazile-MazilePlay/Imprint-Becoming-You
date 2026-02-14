@@ -17,7 +17,7 @@ import SwiftData
 ///
 /// ## Related Types
 /// - `SessionMode` - Defined in Domain/Models/SessionMode.swift
-/// - `BinauralPreset` - Defined in Domain/Models/BinauralPreset.swift
+/// - `MusicCategory` - Defined in Domain/Models/MusicCategory.swift
 /// - `CalibrationData` - Voice calibration data (defined below)
 @Model
 final class UserProfile {
@@ -49,8 +49,8 @@ final class UserProfile {
     /// User's preferred session mode
     var preferredMode: SessionMode
     
-    /// User's preferred binaural beat preset
-    var binauralPreset: BinauralPreset
+    /// User's preferred background music category (nil = Off)
+    var backgroundMusicCategory: String?
     
     /// User's preferred waveform visualization style.
     ///
@@ -116,7 +116,7 @@ final class UserProfile {
         hasUsedFreeVoiceClone: Bool = false,
         calibrationData: CalibrationData? = nil,
         preferredMode: SessionMode = .readOnly,
-        binauralPreset: BinauralPreset = .off,
+        backgroundMusicCategory: String? = nil,
         preferredWaveformType: String = "layeredWaves",
         isPremium: Bool = false,
         premiumExpiresAt: Date? = nil,
@@ -136,7 +136,7 @@ final class UserProfile {
         self.hasUsedFreeVoiceClone = hasUsedFreeVoiceClone
         self.calibrationData = calibrationData
         self.preferredMode = preferredMode
-        self.binauralPreset = binauralPreset
+        self.backgroundMusicCategory = backgroundMusicCategory
         self.preferredWaveformType = preferredWaveformType
         self.isPremium = isPremium
         self.premiumExpiresAt = premiumExpiresAt
@@ -382,9 +382,8 @@ struct CalibrationData: Codable, Equatable, Sendable {
     }
 }
 
-// NOTE: SessionMode and BinauralPreset enums have been moved to their own files:
+// NOTE: SessionMode enum has been moved to its own file:
 // - Domain/Models/SessionMode.swift
-// - Domain/Models/BinauralPreset.swift
 
 // NOTE: DockWaveformType is defined in DockModule:
 // - DockModule/Models/DockWaveformType.swift

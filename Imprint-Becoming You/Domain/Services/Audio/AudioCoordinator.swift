@@ -25,7 +25,7 @@ private let audioLog = Logger(subsystem: "com.imprint.audio", category: "AudioCo
 /// This class is the single source of truth for audio state and handles:
 /// - AVAudioSession configuration and lifecycle
 /// - System notifications (interruptions, route changes, media reset)
-/// - Coordination between TTS, speech recognition, and binaural beats
+/// - Coordination between TTS, speech recognition, and background music
 /// - Graceful recovery from interruptions
 ///
 /// ## SOLID Compliance
@@ -76,7 +76,7 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
     
     // MARK: - Audio Engines
     
-    /// Main audio engine for playback (TTS, binaural)
+    /// Main audio engine for playback (TTS, background music)
     private var playbackEngine: AVAudioEngine?
     
     /// Audio engine for recording (speech recognition)
@@ -119,13 +119,7 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
     /// Latest transcription text
     private(set) var currentTranscription: String = ""
     
-    // MARK: - Binaural
-    
-    /// Binaural beat generator
-    private var binauralGenerator: StereoBinauralGenerator?
-    
-    /// Current binaural preset
-    private(set) var currentBinauralPreset: BinauralPreset = .off
+    // MARK: - Audio State
     
     // MARK: - State
     
@@ -283,7 +277,7 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
     
     // MARK: - Session Configuration (AudioSessionProviding)
     
-    /// Configures audio session for playback (TTS, binaural).
+    /// Configures audio session for playback (TTS, background music).
     ///
     /// ## Issue 2.4 Optimization
     /// Skips reconfiguration if already set to `.playback` category,
@@ -675,46 +669,6 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
         }
     }
     
-    // MARK: - Binaural Operations
-    
-    /// Starts binaural beats with the given preset
-    /// - Parameter preset: Binaural preset to use
-    func startBinaural(preset: BinauralPreset) {
-        audioLog.info("🎵 Starting binaural: \(preset.rawValue)")
-        
-        guard preset != .off else {
-            stopBinaural()
-            return
-        }
-        
-        // Initialize generator if needed
-        if binauralGenerator == nil {
-            binauralGenerator = StereoBinauralGenerator()
-        }
-        
-        binauralGenerator?.start(preset: preset)
-        currentBinauralPreset = preset
-    }
-    
-    /// Stops binaural beats
-    func stopBinaural() {
-        audioLog.info("🔇 Stopping binaural")
-        binauralGenerator?.stop()
-        currentBinauralPreset = .off
-    }
-    
-    /// Changes binaural preset
-    func changeBinauralPreset(_ preset: BinauralPreset) {
-        audioLog.info("🎵 Changing binaural to: \(preset.rawValue)")
-        
-        if preset == .off {
-            stopBinaural()
-        } else {
-            binauralGenerator?.changePreset(preset)
-            currentBinauralPreset = preset
-        }
-    }
-    
     // MARK: - Current Route Info (AudioRouteProviding)
     
     /// Current audio output route description
@@ -943,7 +897,6 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
         recognitionTask = nil
         currentUtterance = nil
         ttsCompletion = nil
-        binauralGenerator = nil
         
         // Reset session state
         isSessionActive = false
@@ -1065,7 +1018,6 @@ final class AudioCoordinator: NSObject, Sendable, FullAudioSessionProviding {
         - Has Speech Permission: \(hasSpeechRecognitionPermission)
         - Current Route: \(currentRoute)
         - Headphones Connected: \(headphonesConnected)
-        - Binaural Preset: \(currentBinauralPreset.rawValue)
         """
     }
 }

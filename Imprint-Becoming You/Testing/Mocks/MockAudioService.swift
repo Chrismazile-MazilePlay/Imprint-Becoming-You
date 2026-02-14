@@ -15,88 +15,97 @@ import Foundation
 /// Uses `@MainActor` isolation consistent with the protocol.
 @MainActor
 final class MockAudioService: AudioServiceProtocol {
-    
+
     // MARK: - State
-    
+
     var isRunning: Bool = false
-    var currentBinauralPreset: BinauralPreset?
     var playbackVolume: Float = 1.0
-    var binauralVolume: Float = Constants.Audio.binauralVolume
-    
+
+    // MARK: - Background Music State
+
+    private(set) var isBackgroundMusicPlaying: Bool = false
+    private(set) var currentMusicCategory: MusicCategory?
+
     // MARK: - Configuration
-    
+
     /// Simulated playback delay
     var playbackDelay: Duration = .seconds(1)
-    
+
     /// Whether to simulate errors
     var shouldSimulateError: Bool = false
-    
+
     // MARK: - AudioServiceProtocol - Engine Control
-    
+
     func start() async throws {
         if shouldSimulateError {
             throw AppError.audioEngineInitializationFailed(reason: "Simulated error")
         }
         isRunning = true
     }
-    
+
     func stop() async {
         isRunning = false
-        currentBinauralPreset = nil
+        currentMusicCategory = nil
+        isBackgroundMusicPlaying = false
     }
-    
-    // MARK: - AudioServiceProtocol - Binaural Beats
-    
-    func startBinauralBeats(preset: BinauralPreset) async throws {
-        if shouldSimulateError {
-            throw AppError.binauralGenerationFailed(reason: "Simulated error")
+
+    // MARK: - AudioServiceProtocol - Background Music
+
+    func playBackgroundMusic(category: MusicCategory) async {
+        currentMusicCategory = category
+        isBackgroundMusicPlaying = true
+    }
+
+    func stopBackgroundMusic() {
+        currentMusicCategory = nil
+        isBackgroundMusicPlaying = false
+    }
+
+    func pauseBackgroundMusic() {
+        isBackgroundMusicPlaying = false
+    }
+
+    func resumeBackgroundMusic() {
+        if currentMusicCategory != nil {
+            isBackgroundMusicPlaying = true
         }
-        currentBinauralPreset = preset
     }
-    
-    func stopBinauralBeats() async {
-        currentBinauralPreset = nil
+
+    func setBackgroundMusicVolume(_ volume: Float) {
+        // No-op for mock
     }
-    
-    func changeBinauralPreset(_ preset: BinauralPreset) async {
-        currentBinauralPreset = preset
-    }
-    
+
     // MARK: - AudioServiceProtocol - Playback
-    
+
     func playAudioFile(named fileName: String) async throws {
         if shouldSimulateError {
             throw AppError.audioPlaybackFailed(reason: "Simulated error")
         }
         try await Task.sleep(for: playbackDelay)
     }
-    
+
     func playAudioData(_ data: Data) async throws {
         if shouldSimulateError {
             throw AppError.audioPlaybackFailed(reason: "Simulated error")
         }
         try await Task.sleep(for: playbackDelay)
     }
-    
+
     func stopPlayback() async {
         // No-op for mock
     }
-    
+
     func pausePlayback() async {
         // No-op for mock
     }
-    
+
     func resumePlayback() async {
         // No-op for mock
     }
-    
+
     // MARK: - AudioServiceProtocol - Volume
-    
+
     func setPlaybackVolume(_ volume: Float) async {
         playbackVolume = max(0, min(1, volume))
-    }
-    
-    func setBinauralVolume(_ volume: Float) async {
-        binauralVolume = max(0, min(1, volume))
     }
 }

@@ -18,7 +18,7 @@ extension PracticeStore {
         
         withAnimation(AppTheme.Animation.standard) {
             isModeSelectorExpanded = false
-            isBinauralSelectorExpanded = false
+            isMusicSelectorExpanded = false
         }
         
         if mode == .readOnly {
@@ -133,25 +133,20 @@ extension PracticeStore {
         }
     }
     
-    func handleSelectBinaural(_ preset: BinauralPreset) {
+    func handleSelectBackgroundMusic(_ category: MusicCategory?) {
         withAnimation(AppTheme.Animation.standard) {
-            setBinauralPreset(preset)
+            setBackgroundMusicCategory(category)
             isModeSelectorExpanded = false
-            isBinauralSelectorExpanded = false
+            isMusicSelectorExpanded = false
         }
-        
-        // Fire-and-forget: instant operation, no tracking needed
-        Task { [weak self] in
-            guard let self = self else { return }
-            do {
-                if preset == .off {
-                    await self.dependencies.audioService.stopBinauralBeats()
-                } else {
-                    try await self.dependencies.audioService.startBinauralBeats(preset: preset)
-                }
-            } catch {
-                self.setError(.audioSessionError(error.localizedDescription))
+
+        // Fire-and-forget: engine start is async, playback follows immediately
+        if let category = category {
+            Task { [weak self] in
+                await self?.dependencies.audioService.playBackgroundMusic(category: category)
             }
+        } else {
+            dependencies.audioService.stopBackgroundMusic()
         }
     }
 }
@@ -345,7 +340,7 @@ extension PracticeStore {
             sessionMode = .readOnly
             setFlow(.home)
             isModeSelectorExpanded = false
-            isBinauralSelectorExpanded = false
+            isMusicSelectorExpanded = false
         }
     }
 }

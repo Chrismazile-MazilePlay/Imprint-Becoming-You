@@ -172,10 +172,16 @@ final class SessionPlaybackCoordinator {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let session = AVAudioSession.sharedInstance()
+                // Skip entirely when already in .playback — the session is active
+                // and correctly configured (e.g., background music started the engine).
+                // Calling setActive(true) redundantly is cheap (~1ms) but unnecessary,
+                // and skipping the entire dispatch avoids contention with the audio thread.
+                guard session.category != .playback else {
+                    continuation.resume()
+                    return
+                }
                 do {
-                    if session.category != .playback {
-                        try session.setCategory(.playback, mode: .default, options: [.duckOthers])
-                    }
+                    try session.setCategory(.playback, mode: .default, options: [.duckOthers])
                     try session.setActive(true)
                 } catch {
                     #if DEBUG

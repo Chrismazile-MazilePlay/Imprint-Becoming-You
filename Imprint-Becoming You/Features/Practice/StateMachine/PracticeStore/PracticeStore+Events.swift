@@ -26,21 +26,21 @@ extension PracticeStore {
         case .selectMode(let mode):
             handleSelectMode(mode)
             
-        case .selectBinaural(let preset):
-            handleSelectBinaural(preset)
+        case .selectBackgroundMusic(let category):
+            handleSelectBackgroundMusic(category)
             
         case .toggleModeSelector:
             withAnimation(AppTheme.Animation.standard) {
                 isModeSelectorExpanded.toggle()
                 if isModeSelectorExpanded {
-                    isBinauralSelectorExpanded = false
+                    isMusicSelectorExpanded = false
                 }
             }
-            
-        case .toggleBinauralSelector:
+
+        case .toggleMusicSelector:
             withAnimation(AppTheme.Animation.standard) {
-                isBinauralSelectorExpanded.toggle()
-                if isBinauralSelectorExpanded {
+                isMusicSelectorExpanded.toggle()
+                if isMusicSelectorExpanded {
                     isModeSelectorExpanded = false
                 }
             }
@@ -48,7 +48,7 @@ extension PracticeStore {
         case .closeSelectors:
             withAnimation(AppTheme.Animation.standard) {
                 isModeSelectorExpanded = false
-                isBinauralSelectorExpanded = false
+                isMusicSelectorExpanded = false
             }
             
         // MARK: Navigation

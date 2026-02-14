@@ -74,11 +74,18 @@ struct SavedSessionsFullListView: View {
     ) {
         self.store = store
 
-        self._dockAdapter = State(initialValue: ListDockAdapter(
+        let initialMusic = Self.mapMusicCategory(store.backgroundMusicCategory)
+        let adapter = ListDockAdapter(
+            initialMusic: initialMusic,
             showsShuffleOption: true,
             labelText: "",
             isPlayEnabled: false
-        ))
+        )
+        adapter.onMusicSelectHandler = { dockCategory in
+            let musicCategory = Self.mapDockMusicToCategory(dockCategory)
+            store.send(.selectBackgroundMusic(musicCategory))
+        }
+        self._dockAdapter = State(initialValue: adapter)
     }
     
     // MARK: - Body
@@ -372,11 +379,11 @@ struct SavedSessionsFullListView: View {
     
     private func deleteSession(_ session: SavedSession) {
         let repo = dependencies.makeSavedSessionRepository(modelContext: modelContext)
-        
+
         if selectedSessionId == session.id {
             selectedSessionId = nil
         }
-        
+
         do {
             try repo.delete(session)
             HapticFeedback.notification(.success)
@@ -386,6 +393,20 @@ struct SavedSessionsFullListView: View {
             AppLogger.error("Failed to delete session: \(error)", category: .practice)
             #endif
         }
+    }
+
+    // MARK: - Music Category Mapping
+
+    /// Maps `MusicCategory?` (domain) to `DockMusicCategory` (dock module).
+    static func mapMusicCategory(_ category: MusicCategory?) -> DockMusicCategory {
+        guard let category = category else { return .off }
+        return DockMusicCategory(rawValue: category.rawValue) ?? .off
+    }
+
+    /// Maps `DockMusicCategory` (dock module) back to `MusicCategory?` (domain).
+    static func mapDockMusicToCategory(_ dockCategory: DockMusicCategory) -> MusicCategory? {
+        guard dockCategory != .off else { return nil }
+        return MusicCategory(rawValue: dockCategory.rawValue)
     }
 }
 

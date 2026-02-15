@@ -252,8 +252,8 @@ enum Constants {
         /// Buffer size for audio processing
         static let bufferSize: UInt32 = 1024
         
-        /// Default volume for background music (0.0–1.0). Plays quietly behind TTS.
-        static let backgroundMusicVolume: Float = 0.15
+        /// Default volume for background music (0.0–1.0). User-adjustable starting point.
+        static let backgroundMusicVolume: Float = 0.50
     }
     
     // MARK: - Cache Configuration

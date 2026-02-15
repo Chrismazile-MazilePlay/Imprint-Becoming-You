@@ -120,11 +120,12 @@ protocol SpeechCaptureServiceProtocol: AnyObject {
 
     // MARK: - Audio Service
 
-    /// The shared audio service for engine and session access.
+    /// The shared audio service for session controller access.
     ///
     /// Must be set before calling ``startCapture()``. The capture service
-    /// uses the shared engine's `inputNode` for microphone capture and
-    /// the session controller for audio category transitions.
+    /// uses the session controller for audio category transitions. Mic
+    /// capture uses a standalone `AVAudioEngine` — the shared engine is
+    /// NOT used for input taps.
     ///
     /// Injected by `PracticeStore` at creation time.
     var audioService: (any AudioServiceProtocol)? { get set }

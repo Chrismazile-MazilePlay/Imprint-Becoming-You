@@ -19,14 +19,11 @@ import os.signpost
 /// coordination issues between separate components. Uses Apple's recommended
 /// pattern of feeding AVAudioEngine buffers directly to SFSpeechRecognizer.
 ///
-/// ## Shared Engine
-/// Uses the shared `AVAudioEngine` from `AudioService` via the `audioService`
-/// property. The service installs an input tap on the engine's `inputNode`
-/// for microphone capture — no separate engine is created. This eliminates
-/// dual-render-client HAL contention.
-///
-/// If `audioService` is not set (defensive fallback), a standalone engine
-/// is created for backward compatibility.
+/// ## Standalone Capture Engine
+/// Creates a fresh `AVAudioEngine` per capture session for mic input. This
+/// keeps capture fully isolated from the shared engine (background music / TTS)
+/// and avoids HAL format propagation races. The `audioService` property is used
+/// only for `AudioSessionController` access (centralized `setCategory()` calls).
 ///
 /// ## Session Management
 /// Audio session transitions are routed through `AudioSessionController`:
@@ -78,17 +75,17 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
 
     /// The shared audio service for engine and session access.
     ///
-    /// When set, `startCapture()` installs an input tap on the shared engine's
-    /// `inputNode` and transitions the session via `sessionController`.
-    /// When `nil`, falls back to a standalone engine (defensive).
+    /// When set, `startCapture()` uses the session controller for audio
+    /// category transitions. Mic capture always uses a standalone engine.
+    /// When `nil`, falls back to direct session configuration.
     weak var audioService: (any AudioServiceProtocol)?
 
-    /// Fallback audio engine for when `audioService` is not available.
-    /// Only created if `audioService` is nil at capture start time.
-    nonisolated(unsafe) private var fallbackAudioEngine: AVAudioEngine?
-
-    /// Whether we are using the shared engine (true) or fallback (false).
-    private var usesSharedEngine: Bool = false
+    /// Standalone audio engine created per capture session.
+    ///
+    /// Each `startCapture()` call creates a fresh `AVAudioEngine` with
+    /// `prepare()` + `start()` for reliable HAL initialization. The engine
+    /// is stopped and released in `stopCapture()` / `cancelCapture()`.
+    nonisolated(unsafe) private var captureEngine: AVAudioEngine?
 
     /// Speech recognizer
     private let speechRecognizer: SFSpeechRecognizer?
@@ -164,11 +161,10 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         silenceTimer?.cancel()
         recognitionTask?.cancel()
 
-        // Only clean up the fallback engine in deinit. When using the shared
-        // engine, tap removal is handled by stopCapture()/cancelCapture() which
-        // must be called before releasing this service. We cannot access
-        // @MainActor-isolated `audioService.sharedEngine` from nonisolated deinit.
-        if let engine = fallbackAudioEngine {
+        // Clean up the standalone capture engine if still active.
+        // Normally stopCapture()/cancelCapture() handles this, but
+        // deinit serves as a safety net.
+        if let engine = captureEngine {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
         }
@@ -305,26 +301,17 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
             throw CaptureError.speechRecognizerUnavailable
         }
 
-        // Configure audio session via session controller (shared engine path)
-        // or fall back to direct configuration (standalone engine path)
+        // Configure audio session for .playAndRecord via session controller
+        // (preferred) or direct fallback. engineAction: .none — the shared
+        // engine is NOT stopped because mic capture uses its own standalone
+        // engine. This keeps background music playing uninterrupted.
         if let audioService = audioService {
             try await configureAudioSessionViaController(audioService: audioService)
-            usesSharedEngine = true
         } else {
             #if DEBUG
-            AppLogger.debug("⚠️ audioService not set — falling back to standalone engine", category: .speech)
+            AppLogger.debug("⚠️ audioService not set — falling back to direct session config", category: .speech)
             #endif
             try await configureAudioSessionFallback()
-            usesSharedEngine = false
-        }
-
-        // Verify the shared engine is running before installing a tap.
-        // If the engine isn't running, the input node won't produce buffers
-        // and recognition will silently fail.
-        if usesSharedEngine, let audioService = audioService {
-            guard audioService.sharedEngine.isRunning else {
-                throw CaptureError.audioEngineFailure("Shared audio engine is not running")
-            }
         }
 
         // Setup observers
@@ -363,14 +350,12 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         // End recognition request
         recognitionRequest?.endAudio()
 
-        // Remove input tap from the engine we used
-        if usesSharedEngine, let audioService = audioService {
-            audioService.sharedEngine.inputNode.removeTap(onBus: 0)
-        } else if let engine = fallbackAudioEngine {
+        // Clean up the standalone capture engine
+        if let engine = captureEngine {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
-            fallbackAudioEngine = nil
         }
+        captureEngine = nil
 
         // Cancel recognition task
         recognitionTask?.cancel()
@@ -386,15 +371,14 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         emit(.stopped)
 
         // Restore audio session to .playback via session controller.
-        // This is the definitive restoration — fixes the SpeakOnly bug where
-        // the session was never restored after mic use.
-        if usesSharedEngine, let audioService = audioService {
+        // engineAction: .none — don't touch the shared engine (still playing music).
+        if let audioService = audioService {
             Task { @MainActor in
                 try? await audioService.sessionController.transition(
                     to: .playback,
                     mode: .spokenAudio,
                     options: [.mixWithOthers],
-                    engineAction: .pauseAndResume
+                    engineAction: .none
                 )
             }
         }
@@ -421,14 +405,12 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         recognitionTask = nil
         recognitionRequest = nil
 
-        // Remove input tap from the engine we used
-        if usesSharedEngine, let audioService = audioService {
-            audioService.sharedEngine.inputNode.removeTap(onBus: 0)
-        } else if let engine = fallbackAudioEngine {
+        // Clean up the standalone capture engine
+        if let engine = captureEngine {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
-            fallbackAudioEngine = nil
         }
+        captureEngine = nil
 
         isCapturing = false
         currentTranscription = ""
@@ -440,13 +422,14 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         emit(.stopped)
 
         // Restore audio session to .playback via session controller.
-        if usesSharedEngine, let audioService = audioService {
+        // engineAction: .none — don't touch the shared engine (still playing music).
+        if let audioService = audioService {
             Task { @MainActor in
                 try? await audioService.sessionController.transition(
                     to: .playback,
                     mode: .spokenAudio,
                     options: [.mixWithOthers],
-                    engineAction: .pauseAndResume
+                    engineAction: .none
                 )
             }
         }
@@ -465,15 +448,15 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
     /// Configures the audio session for recording via the shared AudioSessionController.
     ///
     /// Uses `.default` mode instead of `.measurement` to avoid iOS-imposed volume
-    /// reduction. The session controller handles the engine stop/restart cycle
-    /// required for `.playback` → `.playAndRecord` transitions.
+    /// reduction. `engineAction: .none` — the shared engine is left untouched
+    /// because mic capture uses its own standalone engine.
     private func configureAudioSessionViaController(audioService: any AudioServiceProtocol) async throws {
         do {
             try await audioService.sessionController.transition(
                 to: .playAndRecord,
                 mode: .default,
                 options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers],
-                engineAction: .pauseAndResume
+                engineAction: .none
             )
 
             #if DEBUG
@@ -551,12 +534,13 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         throw CaptureError.audioEngineFailure("Failed to configure audio session: \(errorDesc)")
     }
 
-    /// Starts the recognition pipeline using the appropriate engine.
+    /// Starts the recognition pipeline with a standalone capture engine.
     ///
-    /// When `audioService` is available, installs an input tap on the shared
-    /// engine's `inputNode` — no new engine is created.
-    ///
-    /// When `audioService` is nil (fallback), creates a standalone engine.
+    /// Creates a fresh `AVAudioEngine` per capture session, installs an
+    /// input tap using the native hardware format, and calls `prepare()` +
+    /// `start()` for reliable HAL initialization. This matches the proven
+    /// main-branch pattern and keeps mic capture fully isolated from the
+    /// shared audio engine (background music / TTS).
     ///
     /// ## Performance
     /// Heavy work is dispatched to a background queue to keep MainActor
@@ -574,25 +558,23 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                 }
 
                 do {
-                    // Determine which engine to use for the input node
-                    let inputNode: AVAudioInputNode
-                    if self.usesSharedEngine, let audioService = self.audioService {
-                        // Use the shared engine's input node — no new engine needed
-                        inputNode = audioService.sharedEngine.inputNode
-                    } else {
-                        // Fallback: create a standalone engine
-                        let engine = AVAudioEngine()
-                        inputNode = engine.inputNode
-                        self.fallbackAudioEngine = engine
-                    }
+                    // Create a fresh engine for this capture session.
+                    // After rapid navigation, a previous cancelCapture() may still be
+                    // restoring the audio session to .playback on a background queue.
+                    // If that fire-and-forget dispatch hasn't completed (or races after
+                    // configureAudioSession()), the input node's native format may
+                    // report sampleRate = 0. Retry with a short delay to let the audio
+                    // session stabilize before failing.
+                    let engine = AVAudioEngine()
+                    let inputNode = engine.inputNode
 
                     // CRITICAL: Use the input node's native format, not a custom format.
                     // This prevents format mismatch crashes when audio route changes.
                     var recordingFormat = inputNode.outputFormat(forBus: 0)
 
                     if recordingFormat.sampleRate == 0 {
-                        // Audio session likely in a transient state.
-                        // Wait briefly and retry once.
+                        // Audio session likely in a transient state from a prior
+                        // cancelCapture() teardown. Wait briefly and retry once.
                         Thread.sleep(forTimeInterval: 0.1)
                         recordingFormat = inputNode.outputFormat(forBus: 0)
                     }
@@ -609,6 +591,10 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                     let request = SFSpeechAudioBufferRecognitionRequest()
                     request.shouldReportPartialResults = true
 
+                    // Prefer on-device for low-latency partial results (~50–150ms
+                    // vs 400–800ms cloud). On-device accuracy is sufficient because:
+                    // 1. contextualStrings boost recognition of expected affirmation words
+                    // 2. SequentialWordMatcher handles fuzzy sequential matching
                     if recognizer.supportsOnDeviceRecognition {
                         request.requiresOnDeviceRecognition = true
                         #if DEBUG
@@ -621,10 +607,15 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                         #endif
                     }
 
+                    // Disable punctuation — SequentialWordMatcher strips it anyway,
+                    // and disabling reduces recognizer overhead for partial results.
                     if #available(iOS 17.0, *) {
                         request.addsPunctuation = false
                     }
 
+                    // Apply contextual string hints for improved recognition accuracy.
+                    // Set by PracticeStore before startCapture() with the expected
+                    // affirmation words. Limited to 100 entries per Apple docs.
                     if let hints = self.contextualStrings, !hints.isEmpty {
                         request.contextualStrings = Array(hints.prefix(100))
                         #if DEBUG
@@ -650,20 +641,22 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                         }
                     }
 
-                    // If using fallback engine, prepare and start it
-                    if let fallbackEngine = self.fallbackAudioEngine, !self.usesSharedEngine {
-                        fallbackEngine.prepare()
-                        do {
-                            try fallbackEngine.start()
-                        } catch {
-                            inputNode.removeTap(onBus: 0)
-                            task.cancel()
-                            throw CaptureError.audioEngineFailure("Failed to start audio engine: \(error.localizedDescription)")
-                        }
-                    }
-                    // Shared engine is already running — no start needed
+                    // Prepare and start engine — the key to reliable HAL initialization
+                    engine.prepare()
 
-                    // Store pipeline components
+                    do {
+                        try engine.start()
+                    } catch {
+                        // Clean up tap and recognition task on engine start failure
+                        inputNode.removeTap(onBus: 0)
+                        task.cancel()
+                        throw CaptureError.audioEngineFailure("Failed to start audio engine: \(error.localizedDescription)")
+                    }
+
+                    // Store pipeline components on nonisolated(unsafe) properties.
+                    // Safe: sequential flow — continuation resumes only after these writes,
+                    // and no other code accesses these properties during setup.
+                    self.captureEngine = engine
                     self.recognitionRequest = request
                     self.recognitionTask = task
 
@@ -872,13 +865,8 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
 
                     guard self.isCapturing else { return }
 
-                    // Check if engine stopped after route change
-                    let engineRunning: Bool
-                    if self.usesSharedEngine, let audioService = self.audioService {
-                        engineRunning = audioService.sharedEngine.isRunning
-                    } else {
-                        engineRunning = self.fallbackAudioEngine?.isRunning ?? false
-                    }
+                    // Check if capture engine stopped after route change
+                    let engineRunning = self.captureEngine?.isRunning ?? false
 
                     if !engineRunning {
                         AppLogger.warning("Engine stopped after device disconnect", category: .speech)

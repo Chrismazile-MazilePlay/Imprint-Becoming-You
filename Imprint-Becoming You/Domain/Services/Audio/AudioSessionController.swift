@@ -87,6 +87,16 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
     /// Whether the audio session is currently active.
     private(set) var isSessionActive: Bool = false
 
+    /// Guard against self-triggered `.categoryChange` route notifications.
+    ///
+    /// `setCategory()` fires `.routeChangeNotification` with reason
+    /// `.categoryChange`. Without this flag, `handleRouteChange()` calls
+    /// `resetTracking()` mid-transition, clearing `currentCategory`. This
+    /// causes downstream `transition(.playback)` calls to misidentify the
+    /// transition as playback-only, skip the full engine stop/restart, and
+    /// leave the audio graph in an inconsistent state.
+    private var isTransitioning: Bool = false
+
     // MARK: - Engine Reference
 
     /// Weak reference to the shared `AVAudioEngine` managed by `AudioService`.
@@ -309,6 +319,11 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
         let involvesRecording = category == .playAndRecord || currentCategory == .playAndRecord
         let needsFullStop = involvesRecording
 
+        // Prevent self-triggered .categoryChange notifications from
+        // resetting tracked state while this transition is in flight.
+        isTransitioning = true
+        defer { isTransitioning = false }
+
         // Phase 1: Manage engine before HAL reconfiguration
         let engineWasRunning: Bool
         if engineAction == .pauseAndResume, let engine = sharedEngine, engine.isRunning {
@@ -356,6 +371,7 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
             }
 
             do {
+                engine.prepare()
                 try engine.start()
                 sessionLog.debug("▶️ Engine restarted after category transition")
             } catch {
@@ -363,6 +379,7 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
                 sessionLog.warning("⚠️ Engine restart failed, retrying in 200ms: \(error.localizedDescription)")
                 try? await Task.sleep(for: .milliseconds(200))
                 do {
+                    engine.prepare()
                     try engine.start()
                     sessionLog.info("▶️ Engine restarted on retry")
                 } catch {
@@ -505,10 +522,15 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
             sessionLog.info("🎧 Device connected: \(output)")
 
         case .categoryChange:
-            sessionLog.info("📂 Category changed externally")
-            // iOS changed the category externally — reset tracking so next
-            // transition() performs a full reconfiguration
-            resetTracking()
+            if isTransitioning {
+                // Our own setCategory() triggered this notification — ignore.
+                sessionLog.debug("📂 Ignoring self-triggered category change")
+            } else {
+                // iOS or another app changed the category externally — reset
+                // tracking so next transition() performs a full reconfiguration.
+                sessionLog.info("📂 Category changed externally")
+                resetTracking()
+            }
 
         case .override, .routeConfigurationChange:
             sessionLog.debug("Route configuration changed")

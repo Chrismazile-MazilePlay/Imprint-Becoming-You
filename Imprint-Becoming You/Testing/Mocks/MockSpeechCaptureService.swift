@@ -26,6 +26,11 @@ import Foundation
 @MainActor
 final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked Sendable {
 
+    // MARK: - Audio Service
+
+    /// Stub audio service (not used by mock, but required by protocol).
+    weak var audioService: (any AudioServiceProtocol)?
+
     // MARK: - Call Tracking
 
     /// Number of times `startCapture()` was called

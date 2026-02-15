@@ -5,7 +5,7 @@
 //  Created by Christopher Mazile on 12/24/25.
 //
 
-import Foundation
+import AVFoundation
 
 // MARK: - Audio Service Protocol
 
@@ -20,14 +20,13 @@ import Foundation
 /// - AVAudioEngine management
 /// - Background music playback
 /// - Audio file playback
-/// - Audio session interruption handling
+/// - Audio session management via `AudioSessionController`
 ///
 /// ## Unified Engine Architecture
-/// All audio (background music AND TTS) routes through a single `AVAudioEngine`.
-/// The `audioPlayerService` property exposes the engine-attached player so that
-/// consumers (SessionPlaybackCoordinator, VoiceSettingsView, etc.) play TTS
-/// through the same render client as background music — eliminating the
-/// dual-render-client HAL contention that causes static/glitch.
+/// All audio (background music, TTS, and microphone capture) routes through
+/// a single `AVAudioEngine`. The `audioPlayerService` property exposes the
+/// engine-attached player, and `sharedEngine` provides access for components
+/// (like `SpeechCaptureService`) that need the engine's `inputNode`.
 ///
 /// ## Usage
 /// ```swift
@@ -40,9 +39,11 @@ import Foundation
 /// // Play TTS through the unified engine
 /// try await audio.audioPlayerService.playRawPCMData(data, sampleRate: 24000)
 ///
-/// // Adjust volumes
-/// audio.setBackgroundMusicVolume(0.2)
-/// await audio.setPlaybackVolume(0.8)
+/// // Access session controller for category transitions
+/// try await audio.sessionController.transition(
+///     to: .playAndRecord, mode: .default,
+///     options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers]
+/// )
 /// ```
 @MainActor
 protocol AudioServiceProtocol: AnyObject {
@@ -58,6 +59,21 @@ protocol AudioServiceProtocol: AnyObject {
     /// `AVAudioEngine`. Consumers must use this instance (not create
     /// standalone players) to ensure all audio routes through one engine.
     var audioPlayerService: any AudioPlayerServiceProtocol { get }
+
+    /// The centralized audio session controller.
+    ///
+    /// All audio session category transitions **must** go through this
+    /// controller — no component may call `AVAudioSession.setCategory()`
+    /// directly. The controller coordinates engine lifecycle (pause/stop/restart)
+    /// around HAL reconfigurations.
+    var sessionController: any AudioSessionControllerProtocol { get }
+
+    /// The shared `AVAudioEngine` instance.
+    ///
+    /// Exposed for `SpeechCaptureService` to install an input tap on the
+    /// engine's `inputNode` for microphone capture. All audio components
+    /// share this single engine instance.
+    var sharedEngine: AVAudioEngine { get }
 
     // MARK: - Engine Control
 
@@ -124,38 +140,4 @@ protocol AudioServiceProtocol: AnyObject {
     /// Sets the playback volume
     /// - Parameter volume: Volume level (0.0 - 1.0)
     func setPlaybackVolume(_ volume: Float) async
-}
-
-// MARK: - Audio Playback Delegate
-
-/// Delegate for receiving audio playback events.
-///
-/// All methods are `@MainActor` isolated since playback events
-/// typically trigger UI updates.
-///
-/// Implement this protocol to receive callbacks about playback state changes,
-/// interruptions, and errors.
-@MainActor
-protocol AudioPlaybackDelegate: AnyObject {
-    /// Called when playback completes successfully
-    func audioPlaybackDidComplete()
-
-    /// Called when playback is interrupted (e.g., phone call, alarm)
-    func audioPlaybackWasInterrupted()
-
-    /// Called when playback can resume after interruption
-    func audioPlaybackCanResume()
-
-    /// Called when an error occurs during playback
-    /// - Parameter error: The error that occurred
-    func audioPlaybackDidFail(with error: AppError)
-}
-
-// MARK: - Default Delegate Implementation
-
-extension AudioPlaybackDelegate {
-    func audioPlaybackDidComplete() {}
-    func audioPlaybackWasInterrupted() {}
-    func audioPlaybackCanResume() {}
-    func audioPlaybackDidFail(with error: AppError) {}
 }

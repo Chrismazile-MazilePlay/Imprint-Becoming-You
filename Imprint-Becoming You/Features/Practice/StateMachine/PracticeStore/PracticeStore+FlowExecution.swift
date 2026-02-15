@@ -371,7 +371,7 @@ extension PracticeStore {
 
         // Hint the recognizer with expected affirmation words for better accuracy.
         // Uses Set to deduplicate (affirmations often repeat words).
-        // Mirrors the AudioCoordinator contextualStrings pattern.
+        // Provides contextual hints for improved speech recognition accuracy.
         captureService.contextualStrings = Array(Set(
             affirmationText.lowercased()
                 .components(separatedBy: .whitespaces)

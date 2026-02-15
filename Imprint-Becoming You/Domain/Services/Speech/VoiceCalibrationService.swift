@@ -76,7 +76,7 @@ final class VoiceCalibrationService: VoiceCalibrationServiceProtocol {
     // MARK: - Initialization
     
     /// Creates a new calibration service
-    /// - Parameter audioInputManager: Audio input manager (defaults to new instance using AudioCoordinator)
+    /// - Parameter audioInputManager: Audio input manager (defaults to new instance using AudioSessionController)
     init(audioInputManager: AudioInputManager? = nil) {
         self.audioInputManager = audioInputManager ?? AudioInputManager()
         calibrationLog.info("✅ VoiceCalibrationService initialized")

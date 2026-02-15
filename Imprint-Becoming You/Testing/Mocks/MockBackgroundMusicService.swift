@@ -54,4 +54,8 @@ final class MockBackgroundMusicService: BackgroundMusicServiceProtocol {
     func setVolume(_ newVolume: Float) {
         volume = max(0, min(1, newVolume))
     }
+
+    func rescheduleCurrentTrack() {
+        // No-op for mock
+    }
 }

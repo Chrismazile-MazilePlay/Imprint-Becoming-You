@@ -482,16 +482,12 @@ extension PracticeStore {
 
         // Pre-configure the audio session to eliminate the 50-200ms HAL
         // reconfiguration delay in ensurePlaybackCategory().
-        // After cancelCurrentActivity() above, the category may be .playAndRecord
-        // (from speech capture in Read & Speak / Speak Only modes). Pre-configuring
-        // switches to .playback on a background queue so playRawPCMData() finds it
-        // already set (~1-5ms instead of 50-200ms).
+        // Session category is managed centrally by AudioSessionController.
+        // SpeechCaptureService.stopCapture() restores .playback after mic use,
+        // so no pre-configuration is needed here.
         let loopGeneration = flowGeneration
         Task { [weak self] in
             guard let self = self else { return }
-
-            // Pre-configure audio session BEFORE starting flow
-            await self.playbackCoordinator.preConfigureAudioSession()
             guard self.flowGeneration == loopGeneration else { return }
 
             self.incrementSegmentGeneration()

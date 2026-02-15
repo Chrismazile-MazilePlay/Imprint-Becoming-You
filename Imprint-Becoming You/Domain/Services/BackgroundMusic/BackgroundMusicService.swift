@@ -183,6 +183,39 @@ final class BackgroundMusicService: BackgroundMusicServiceProtocol {
         musicPlayerNode.volume = volume
     }
 
+    // MARK: - Reschedule
+
+    /// Reschedules the current track from the beginning.
+    ///
+    /// Called after an engine full-stop/restart (e.g., recording category
+    /// transition) which discards all scheduled audio buffers. Re-reads the
+    /// current audio file URL and schedules it for looping playback.
+    ///
+    /// At 15% volume with baked-in fade edges, the brief silence during
+    /// engine restart is inaudible.
+    func rescheduleCurrentTrack() {
+        guard shouldLoop, let audioFile = currentAudioFile else { return }
+
+        // Re-read the file to reset the read position
+        guard let freshFile = try? AVAudioFile(forReading: audioFile.url) else {
+            musicLog.error("❌ Failed to re-read audio file for reschedule")
+            return
+        }
+
+        currentAudioFile = freshFile
+
+        // Reconnect with correct format
+        if let engine = attachedEngine {
+            engine.disconnectNodeOutput(musicPlayerNode)
+            engine.connect(musicPlayerNode, to: engine.mainMixerNode, format: freshFile.processingFormat)
+        }
+
+        musicPlayerNode.volume = volume
+        scheduleAndPlay()
+
+        musicLog.info("🔄 Rescheduled current track after engine restart")
+    }
+
     // MARK: - Private
 
     /// Schedules the current audio file for playback with loop-on-completion.

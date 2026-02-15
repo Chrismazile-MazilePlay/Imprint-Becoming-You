@@ -62,4 +62,13 @@ protocol BackgroundMusicServiceProtocol: AnyObject {
     ///
     /// - Parameter newVolume: Volume level (0.0–1.0). Clamped to valid range.
     func setVolume(_ newVolume: Float)
+
+    /// Reschedules the current track from the beginning.
+    ///
+    /// Called after an engine full-stop/restart (e.g., recording category
+    /// transition) which discards all scheduled audio buffers. Re-reads the
+    /// current audio file and schedules it for looping playback.
+    ///
+    /// Does nothing if no track is currently loaded.
+    func rescheduleCurrentTrack()
 }

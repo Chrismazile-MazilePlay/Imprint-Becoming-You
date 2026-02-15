@@ -22,12 +22,12 @@ private let audioInputLog = Logger(subsystem: "com.imprint.audio", category: "Au
 ///
 /// ## SOLID Compliance
 /// - **SRP**: Only handles audio input capture
-/// - **OCP**: Works with any AudioSessionProviding implementation
+/// - **OCP**: Works with any `AudioSessionControllerProtocol` implementation
 /// - **DIP**: Depends on protocols, not concrete implementations
 ///
 /// ## Usage
 /// ```swift
-/// let manager = AudioInputManager(sessionProvider: AudioCoordinator.shared)
+/// let manager = AudioInputManager(sessionController: AudioSessionController())
 /// try await manager.startCapture()
 /// for await buffer in manager.audioBufferStream {
 ///     // Process buffer
@@ -35,29 +35,29 @@ private let audioInputLog = Logger(subsystem: "com.imprint.audio", category: "Au
 /// ```
 @MainActor
 final class AudioInputManager {
-    
+
     // MARK: - Properties
-    
+
     /// The audio engine for input capture
     private let audioEngine: AVAudioEngine
-    
+
     /// Input node for microphone
     private var inputNode: AVAudioInputNode {
         audioEngine.inputNode
     }
-    
+
     /// Whether capture is currently active
     private(set) var isCapturing: Bool = false
-    
+
     /// Audio format for input
     private var inputFormat: AVAudioFormat?
-    
+
     /// Continuation for audio buffer stream
     private var bufferContinuation: AsyncStream<AudioAnalysisBuffer>.Continuation?
-    
-    /// Session provider (protocol-based dependency)
-    private let sessionProvider: any AudioSessionProviding & AudioPermissionProviding
-    
+
+    /// Session controller for audio session management
+    private let sessionController: any AudioSessionControllerProtocol
+
     /// Buffer size for analysis
     private let analysisBufferSize: AVAudioFrameCount
     
@@ -75,12 +75,12 @@ final class AudioInputManager {
     // MARK: - Initialization
     
     /// Creates a new audio input manager
-    /// - Parameter sessionProvider: Provider for audio session operations (defaults to AudioCoordinator.shared)
-    init(sessionProvider: (any AudioSessionProviding & AudioPermissionProviding)? = nil) {
+    /// - Parameter sessionController: Controller for audio session operations (defaults to a new `AudioSessionController` instance)
+    init(sessionController: (any AudioSessionControllerProtocol)? = nil) {
         self.audioEngine = AVAudioEngine()
-        self.sessionProvider = sessionProvider ?? AudioCoordinator.shared
+        self.sessionController = sessionController ?? AudioSessionController()
         self.analysisBufferSize = Constants.Audio.bufferSize
-        
+
         audioInputLog.info("✅ AudioInputManager initialized")
     }
     
@@ -97,15 +97,19 @@ final class AudioInputManager {
         audioInputLog.info("🎤 Starting audio capture...")
         
         // Check permission
-        guard sessionProvider.hasMicrophonePermission else {
+        guard sessionController.hasMicrophonePermission else {
             audioInputLog.error("❌ Microphone permission denied")
             throw AppError.microphoneAccessDenied
         }
-        
-        // Configure session for recording
+
+        // Configure session for recording via session controller
         do {
-            try sessionProvider.configureForPlaybackAndRecording()
-            try sessionProvider.activateSession()
+            try await sessionController.transition(
+                to: .playAndRecord,
+                mode: .default,
+                options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers],
+                engineAction: .none
+            )
         } catch {
             audioInputLog.error("❌ Failed to configure session: \(error.localizedDescription)")
             throw AppError.audioRecordingFailed(reason: "Session configuration failed: \(error.localizedDescription)")
@@ -161,12 +165,12 @@ final class AudioInputManager {
     /// - Returns: Whether permission was granted
     func requestPermission() async -> Bool {
         audioInputLog.info("🎤 Requesting microphone permission")
-        return await sessionProvider.requestMicrophonePermission()
+        return await sessionController.requestMicrophonePermission()
     }
-    
+
     /// Whether microphone permission is granted
     var hasPermission: Bool {
-        sessionProvider.hasMicrophonePermission
+        sessionController.hasMicrophonePermission
     }
     
     // MARK: - Private Methods

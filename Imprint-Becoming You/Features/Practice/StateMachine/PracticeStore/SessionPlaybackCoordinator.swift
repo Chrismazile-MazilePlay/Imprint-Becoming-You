@@ -159,37 +159,4 @@ final class SessionPlaybackCoordinator {
         }
     }
 
-    // MARK: - Audio Session Management
-
-    /// Pre-configures the audio session to `.playback` category.
-    ///
-    /// Call during loop transitions to eliminate the 50-200ms HAL
-    /// reconfiguration delay that would otherwise occur in `playRawPCMData()`.
-    ///
-    /// When `playRawPCMData()` → `ensurePlaybackCategory()` runs after this,
-    /// the category is already `.playback` → only `setActive(true)` (~1-5ms).
-    func preConfigureAudioSession() async {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let session = AVAudioSession.sharedInstance()
-                // Skip entirely when already in .playback — the session is active
-                // and correctly configured (e.g., background music started the engine).
-                // Calling setActive(true) redundantly is cheap (~1ms) but unnecessary,
-                // and skipping the entire dispatch avoids contention with the audio thread.
-                guard session.category != .playback else {
-                    continuation.resume()
-                    return
-                }
-                do {
-                    try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-                    try session.setActive(true)
-                } catch {
-                    #if DEBUG
-                    AppLogger.debug("Audio session pre-config failed: \(error.localizedDescription)", category: .audio)
-                    #endif
-                }
-                continuation.resume()
-            }
-        }
-    }
 }

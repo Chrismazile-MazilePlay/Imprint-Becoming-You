@@ -399,27 +399,14 @@ final class ListDockAdapter: DockAdapterProtocol {
 
     /// Checks whether the microphone is currently accessible.
     ///
-    /// Attempts to configure `AVAudioSession` for `.playAndRecord` — if another app
-    /// (Zoom, FaceTime, phone call) holds the audio session with priority, the
-    /// configuration will fail. Restores the previous session category after checking.
+    /// Uses the permission check rather than probing the audio session with
+    /// `setCategory()`. Permission is sufficient — if the user has granted mic
+    /// access, iOS will allow `.playAndRecord` when `startCapture()` runs.
+    /// The old approach of calling `setCategory(.playAndRecord)` here was a
+    /// rogue call site that bypassed `AudioSessionController`.
     ///
-    /// - Returns: `true` if the mic is accessible, `false` if blocked by another app.
+    /// - Returns: `true` if the mic is accessible, `false` if permission denied.
     static func isMicrophoneAccessible() -> Bool {
-        let session = AVAudioSession.sharedInstance()
-        let previousCategory = session.category
-        let previousMode = session.mode
-        let previousOptions = session.categoryOptions
-
-        do {
-            try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers])
-            try session.setActive(true, options: .notifyOthersOnDeactivation)
-            // Restore previous session state
-            try? session.setCategory(previousCategory, mode: previousMode, options: previousOptions)
-            return true
-        } catch {
-            // Restore previous session state on failure
-            try? session.setCategory(previousCategory, mode: previousMode, options: previousOptions)
-            return false
-        }
+        AVAudioApplication.shared.recordPermission == .granted
     }
 }

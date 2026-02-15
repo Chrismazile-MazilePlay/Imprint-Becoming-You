@@ -5,7 +5,7 @@
 //  Created by Christopher Mazile on 12/24/25.
 //
 
-import Foundation
+import AVFoundation
 
 // MARK: - Mock Audio Service
 
@@ -23,6 +23,13 @@ final class MockAudioService: AudioServiceProtocol {
 
     /// Mock audio player service for testing
     var audioPlayerService: any AudioPlayerServiceProtocol = MockAudioPlayerService()
+
+    /// Mock session controller for testing
+    let sessionController: any AudioSessionControllerProtocol = MockAudioSessionController()
+
+    /// Shared engine stub (creates a fresh engine per instance).
+    private let _sharedEngine = AVAudioEngine()
+    var sharedEngine: AVAudioEngine { _sharedEngine }
 
     // MARK: - Background Music State
 

@@ -103,7 +103,7 @@ final class TTSService: TTSServiceProtocol {
     /// cleared by `resumeSynthesisIdleTimer()`.
     private var _isIdleTimerSuppressed: Bool = false
     
-    // (Audio session state removed — AudioService/AudioCoordinator now owns session config)
+    // (Audio session state removed — AudioService/AudioSessionController now owns session config)
     
     // MARK: - Synthesis Idle Timer
     
@@ -185,7 +185,7 @@ final class TTSService: TTSServiceProtocol {
 
         // Audio session pre-configuration and AVAudioPlayer pre-warming are no longer
         // needed — all audio routes through the unified AVAudioEngine via AudioPlayerService.
-        // The engine is configured by AudioService.start() through AudioCoordinator.
+        // The engine is configured by AudioService.start() through AudioSessionController.
 
         do {
             try await kokoroEngine.warmUp()
@@ -535,9 +535,10 @@ final class TTSService: TTSServiceProtocol {
         preSynthesisTask?.cancel()
         
         // Synthesize in background (result is cached automatically by the engine/cache manager)
-        preSynthesisTask = Task {
+        preSynthesisTask = Task { [weak self] in
+            guard let self else { return }
             do {
-                _ = try await synthesize(
+                _ = try await self.synthesize(
                     text: text,
                     voiceId: voiceId,
                     speed: speed,
@@ -562,7 +563,7 @@ final class TTSService: TTSServiceProtocol {
     
     // (Audio session pre-configuration, AVAudioPlayer pre-warming, and ensureAudioSessionActive
     // have been removed — all audio now routes through the unified AVAudioEngine via
-    // AudioPlayerService. Session configuration is handled by AudioService/AudioCoordinator.)
+    // AudioPlayerService. Session configuration is handled by AudioService/AudioSessionController.)
     
     // MARK: - Kokoro Synthesis
     

@@ -224,17 +224,9 @@ extension PracticeStore {
                 guard !Task.isCancelled else { return }
                 guard self.flowGeneration == repeatGeneration else { return }
 
-                // Pre-configure audio session to .playback ONLY for TTS modes.
-                // Speak Only uses microphone capture (.playAndRecord), not TTS
-                // playback. Setting .playback here would force an immediate
-                // category switch back to .playAndRecord in startCapture(),
-                // which can cause AVAudioEngine's input node to report
-                // sampleRate = 0 during HAL driver reconfiguration — breaking
-                // speech capture and word highlighting.
-                if mode != .speakOnly {
-                    await self.playbackCoordinator.preConfigureAudioSession()
-                    guard self.flowGeneration == repeatGeneration else { return }
-                }
+                // Session category is managed centrally by AudioSessionController.
+                // No pre-configuration needed — .playback is guaranteed by
+                // SpeechCaptureService.stopCapture() after mic use.
 
                 // Signal dock to start segment timer in sync with flow start
                 self.incrementSegmentGeneration()

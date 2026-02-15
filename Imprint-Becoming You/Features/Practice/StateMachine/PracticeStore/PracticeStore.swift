@@ -332,12 +332,18 @@ final class PracticeStore {
     @ObservationIgnored
     private var _speechCaptureService: (any SpeechCaptureServiceProtocol)?
 
-    /// Speech capture service for recognition (lazily created)
+    /// Speech capture service for recognition (lazily created).
+    ///
+    /// Injects `audioService` so the capture service uses the shared
+    /// `AVAudioEngine` and `AudioSessionController` instead of creating
+    /// its own engine. This eliminates dual-render-client HAL contention
+    /// and ensures session category is always restored after mic use.
     var speechCaptureService: any SpeechCaptureServiceProtocol {
         if let existing = _speechCaptureService {
             return existing
         }
         let service = SpeechCaptureService()
+        service.audioService = dependencies.audioService
         _speechCaptureService = service
         return service
     }

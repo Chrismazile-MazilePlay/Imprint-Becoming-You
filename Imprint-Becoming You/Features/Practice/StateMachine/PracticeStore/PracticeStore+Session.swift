@@ -757,10 +757,8 @@ extension PracticeStore {
             guard !Task.isCancelled else { return }
             guard self.flowGeneration == repeatGeneration else { return }
 
-            // Pre-configure audio session to .playback to eliminate
-            // the 50-200ms HAL reconfiguration delay on first playback.
-            await self.playbackCoordinator.preConfigureAudioSession()
-            guard self.flowGeneration == repeatGeneration else { return }
+            // Session category is managed centrally by AudioSessionController.
+            // No pre-configuration needed — .playback is guaranteed.
 
             // Signal dock to start segment timer in sync with flow start
             self.incrementSegmentGeneration()

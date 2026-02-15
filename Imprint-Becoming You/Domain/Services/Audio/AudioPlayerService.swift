@@ -178,9 +178,16 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
         isPlaying = true
         isPaused = false
 
-        // Wait for completion
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            playbackContinuation = continuation
+        // Wait for completion, with cancellation support.
+        // withTaskCancellationHandler ensures that if the calling Task is
+        // cancelled while awaiting, we immediately stop playback and resume
+        // the continuation — preventing indefinite retention.
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                playbackContinuation = continuation
+            }
+        } onCancel: { [weak self] in
+            Task { await self?.cancelAndStop() }
         }
     }
 
@@ -274,19 +281,23 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
         _immediateNodeRef.withLock { $0.isActive = true }
         isPlaying = true
 
-        // Ensure the audio session is in .playback category.
-        // SpeechCaptureService may have changed it to .playAndRecord.
-        // This is non-blocking when already in .playback (fast path).
-        try await ensurePlaybackCategory()
+        // Session is guaranteed to be .playback by:
+        // - AudioService.start() configures .playback at engine startup
+        // - SpeechCaptureService.stopCapture() restores .playback after mic use
+        // No independent setCategory() call needed here.
 
         #if DEBUG
         let durationSec = Double(pcmBuffer.frameLength) / pcmBuffer.format.sampleRate
         AppLogger.debug("PCM buffer scheduled (duration: \(String(format: "%.2f", durationSec))s, frames: \(pcmBuffer.frameLength))", category: .audio)
         #endif
 
-        // Wait for completion using continuation
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            self.dataPlaybackContinuation = continuation
+        // Wait for completion, with cancellation support.
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                self.dataPlaybackContinuation = continuation
+            }
+        } onCancel: { [weak self] in
+            Task { await self?.cancelAndStop() }
         }
     }
 
@@ -403,51 +414,6 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
     func setVolume(_ newVolume: Float) {
         volume = max(0, min(1, newVolume))
         playerNode.volume = volume
-    }
-
-    // MARK: - Audio Session
-
-    /// Ensures the audio session is in `.playback` category before playback.
-    ///
-    /// `SpeechCaptureService` sets the category to `.playAndRecord` during
-    /// listening phases. If a rapid skip or loop transition interrupts
-    /// listening, the category may still be `.playAndRecord` when the next
-    /// segment needs to play TTS. `.playAndRecord` with `.measurement` mode
-    /// doesn't route output correctly for non-recording playback, causing
-    /// silent audio.
-    ///
-    /// The `setCategory()` call blocks for 50-200ms (HAL driver reconfiguration).
-    /// By dispatching to a background queue and awaiting via continuation,
-    /// the actor remains free during the reconfiguration. When the category
-    /// is already `.playback`, the fast path returns immediately (~0ms).
-    private func ensurePlaybackCategory() async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let session = AVAudioSession.sharedInstance()
-                // Fast path: when already in .playback (e.g., background music
-                // activated the session), skip entirely to avoid redundant HAL work.
-                guard session.category != .playback else {
-                    continuation.resume()
-                    return
-                }
-                do {
-                    #if DEBUG
-                    AppLogger.debug("Restoring category from \(session.category.rawValue) to .playback (background)", category: .audio)
-                    #endif
-                    try session.setCategory(
-                        .playback,
-                        mode: .default,
-                        options: [.mixWithOthers]
-                    )
-                    try session.setActive(true)
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: AppError.audioPlaybackFailed(
-                        reason: "Failed to configure audio session: \(error.localizedDescription)"
-                    ))
-                }
-            }
-        }
     }
 
     // MARK: - Playback Info

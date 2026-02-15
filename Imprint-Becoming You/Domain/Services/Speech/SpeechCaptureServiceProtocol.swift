@@ -118,6 +118,17 @@ extension SpeechCaptureUpdate {
 @MainActor
 protocol SpeechCaptureServiceProtocol: AnyObject {
 
+    // MARK: - Audio Service
+
+    /// The shared audio service for engine and session access.
+    ///
+    /// Must be set before calling ``startCapture()``. The capture service
+    /// uses the shared engine's `inputNode` for microphone capture and
+    /// the session controller for audio category transitions.
+    ///
+    /// Injected by `PracticeStore` at creation time.
+    var audioService: (any AudioServiceProtocol)? { get set }
+
     // MARK: - Stream Access
 
     /// Stream of capture updates (transcription, audio levels, errors).

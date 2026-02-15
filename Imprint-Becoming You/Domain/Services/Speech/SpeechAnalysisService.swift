@@ -20,7 +20,7 @@ private let speechLog = Logger(subsystem: "com.imprint.audio", category: "Speech
 ///
 /// ## SOLID Compliance
 /// - **SRP**: Coordinates speech analysis components
-/// - **OCP**: Works with any AudioPermissionProviding implementation
+/// - **OCP**: Works with any AudioSessionControllerProtocol implementation
 /// - **DIP**: Depends on protocols, not concrete implementations
 ///
 /// ## Performance Profiling
@@ -46,8 +46,8 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol {
     /// Voice calibration service
     private let calibrationService: VoiceCalibrationService
     
-    /// Permission provider (protocol-based dependency)
-    private let permissionProvider: any AudioPermissionProviding
+    /// Session controller for permissions and session management.
+    private let sessionController: any AudioSessionControllerProtocol
     
     /// Current resonance score calculator
     private var scoreCalculator: ResonanceScoreCalculator?
@@ -102,61 +102,54 @@ final class SpeechAnalysisService: SpeechAnalysisServiceProtocol {
     // MARK: - Initialization
     
     /// Creates a new speech analysis service
-    /// - Parameter permissionProvider: Provider for audio permissions (defaults to AudioCoordinator.shared)
-    init(permissionProvider: (any AudioPermissionProviding)? = nil) {
-        let provider = permissionProvider ?? AudioCoordinator.shared
-        self.permissionProvider = provider
-        
-        // Create AudioInputManager with the same provider if it conforms to session protocols
-        if let fullProvider = provider as? (any AudioSessionProviding & AudioPermissionProviding) {
-            self.audioInputManager = AudioInputManager(sessionProvider: fullProvider)
-        } else {
-            self.audioInputManager = AudioInputManager()
-        }
-        
+    /// - Parameter sessionController: Controller for audio session and permissions (defaults to a new `AudioSessionController`)
+    init(sessionController: (any AudioSessionControllerProtocol)? = nil) {
+        let controller = sessionController ?? AudioSessionController()
+        self.sessionController = controller
+        self.audioInputManager = AudioInputManager(sessionController: controller)
         self.speechRecognitionService = SpeechRecognitionService()
         self.calibrationService = VoiceCalibrationService(audioInputManager: audioInputManager)
-        
+
         speechLog.info("✅ SpeechAnalysisService initialized")
     }
-    
+
     /// Creates a speech analysis service with injected dependencies (for testing)
     init(
         audioInputManager: AudioInputManager,
         speechRecognitionService: SpeechRecognitionService,
         calibrationService: VoiceCalibrationService,
-        permissionProvider: any AudioPermissionProviding
+        sessionController: any AudioSessionControllerProtocol
     ) {
         self.audioInputManager = audioInputManager
         self.speechRecognitionService = speechRecognitionService
         self.calibrationService = calibrationService
-        self.permissionProvider = permissionProvider
+        self.sessionController = sessionController
     }
     
     // MARK: - Permissions
     
     /// Whether microphone permission has been granted
     var hasMicrophonePermission: Bool {
-        permissionProvider.hasMicrophonePermission
+        sessionController.hasMicrophonePermission
     }
     
     /// Whether speech recognition permission has been granted
     var hasSpeechRecognitionPermission: Bool {
-        permissionProvider.hasSpeechRecognitionPermission
+        sessionController.hasSpeechRecognitionPermission
     }
     
     /// Requests microphone permission
     @discardableResult
     func requestMicrophonePermission() async -> Bool {
         speechLog.info("🎤 Requesting microphone permission")
-        return await permissionProvider.requestMicrophonePermission()
+        return await sessionController.requestMicrophonePermission()
     }
     
     /// Requests speech recognition permission
     @discardableResult
     func requestSpeechRecognitionPermission() async -> Bool {
         speechLog.info("🗣️ Requesting speech recognition permission")
-        return await permissionProvider.requestSpeechRecognitionPermission()
+        return await sessionController.requestSpeechRecognitionPermission()
     }
     
     // MARK: - Analysis Control

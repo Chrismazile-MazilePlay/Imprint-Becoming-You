@@ -125,10 +125,32 @@ actor KokoroTTSEngine {
         
         // Validate and cache all resource paths (one-time)
         try validateAndCacheResources()
-        
+
         // Eagerly load the preferred language pipeline
-        _ = try await ensurePipeline(for: preferredLanguage)
-        
+        let pipeline = try await ensurePipeline(for: preferredLanguage)
+
+        // Prime CoreML compute paths with a dummy inference.
+        // On cold start, CoreML lazily allocates GPU/ANE compute buffers on the
+        // first pipeline.generate() call. If this happens while the AVAudioEngine
+        // is running with background music, ANE DMA contention causes audible static.
+        // Running a short inference here — BEFORE the audio engine starts — forces
+        // CoreML to fully initialize its hardware compute paths. The generated audio
+        // is discarded. On subsequent launches, CoreML reuses cached compute paths
+        // and this is a no-op (~50ms vs first cold inference ~500ms+).
+        do {
+            let options = GenerationOptions(style: .afHeart, speed: 1.0)
+            _ = try await pipeline.generate(text: ".", options: options)
+            #if DEBUG
+            AppLogger.debug("CoreML compute prime completed", category: .tts)
+            #endif
+        } catch {
+            // Non-fatal: if the prime fails, first real synthesis may still cause
+            // brief static, but the system continues to work correctly.
+            #if DEBUG
+            AppLogger.debug("CoreML compute prime failed (non-fatal): \(error)", category: .tts)
+            #endif
+        }
+
         #if DEBUG
         AppLogger.debug("Warm-up complete", category: .tts, context: ["pipeline": preferredLanguage.displayName])
         #endif

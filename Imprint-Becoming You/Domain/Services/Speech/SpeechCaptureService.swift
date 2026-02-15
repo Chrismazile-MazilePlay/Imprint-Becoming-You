@@ -370,18 +370,10 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
 
         emit(.stopped)
 
-        // Restore audio session to .playback via session controller.
-        // engineAction: .none — don't touch the shared engine (still playing music).
-        if let audioService = audioService {
-            Task { @MainActor in
-                try? await audioService.sessionController.transition(
-                    to: .playback,
-                    mode: .spokenAudio,
-                    options: [.mixWithOthers],
-                    engineAction: .none
-                )
-            }
-        }
+        // NOTE: Session stays in .playAndRecord between affirmations.
+        // Mic hardware is already OFF after removeTap() + engine.stop().
+        // Restoration to .playback happens at session boundaries
+        // (handleSessionCoverDismissed, restartSessionWithMode).
 
         #if DEBUG
         AppLogger.debug("Capture stopped. Final: \"\(currentTranscription)\"", category: .speech)
@@ -421,18 +413,8 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
 
         emit(.stopped)
 
-        // Restore audio session to .playback via session controller.
-        // engineAction: .none — don't touch the shared engine (still playing music).
-        if let audioService = audioService {
-            Task { @MainActor in
-                try? await audioService.sessionController.transition(
-                    to: .playback,
-                    mode: .spokenAudio,
-                    options: [.mixWithOthers],
-                    engineAction: .none
-                )
-            }
-        }
+        // NOTE: Session stays in .playAndRecord between affirmations.
+        // Restoration to .playback happens at session boundaries.
     }
 
     // MARK: - Private Methods

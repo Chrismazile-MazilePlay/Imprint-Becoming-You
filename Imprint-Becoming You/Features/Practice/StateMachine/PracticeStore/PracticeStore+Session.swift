@@ -645,6 +645,19 @@ extension PracticeStore {
         cancelAllManagedTasks()
         flowGeneration += 1
 
+        // 2b. Restore audio session from .playAndRecord → .playback.
+        // Mic-based flows stay in .playAndRecord for the entire session to
+        // avoid per-affirmation HAL reconfiguration. Restore now that the
+        // session is over. The fast-path skip is a no-op if already .playback.
+        Task { [weak self] in
+            try? await self?.dependencies.audioService.sessionController.transition(
+                to: .playback,
+                mode: .spokenAudio,
+                options: [.mixWithOthers],
+                engineAction: .none
+            )
+        }
+
         // 3. Signal MemoryManager that session lifecycle is complete
         MemoryManager.shared.sessionDidEnd()
 

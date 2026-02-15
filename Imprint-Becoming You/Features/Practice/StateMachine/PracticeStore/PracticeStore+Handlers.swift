@@ -70,6 +70,16 @@ extension PracticeStore {
         // Note: Do NOT release for readThenSpeak — it uses listening after TTS playback.
         if mode == .readAloud {
             releaseSpeechCaptureService()
+            // Restore .playback — readAloud doesn't need .playAndRecord.
+            // Mic-based flows leave the session in .playAndRecord for efficiency.
+            Task { [weak self] in
+                try? await self?.dependencies.audioService.sessionController.transition(
+                    to: .playback,
+                    mode: .spokenAudio,
+                    options: [.mixWithOthers],
+                    engineAction: .none
+                )
+            }
         }
 
         // Reset position and progress, but keep same affirmations

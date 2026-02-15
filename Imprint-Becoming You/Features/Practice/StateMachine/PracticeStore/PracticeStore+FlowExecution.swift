@@ -369,14 +369,18 @@ extension PracticeStore {
         // Get speech capture service from store's property
         let captureService = speechCaptureService
 
-        // Hint the recognizer with expected affirmation words for better accuracy.
-        // Uses Set to deduplicate (affirmations often repeat words).
-        // Provides contextual hints for improved speech recognition accuracy.
-        captureService.contextualStrings = Array(Set(
-            affirmationText.lowercased()
-                .components(separatedBy: .whitespaces)
-                .filter { !$0.isEmpty }
-        )).prefix(100).map { $0 }
+        // SESSION-LEVEL CONTEXTUAL STRINGS: On the first listening segment,
+        // merge words from ALL session affirmations into one hint set. Applied
+        // once to the session-long recognition request. Subsequent segments
+        // reuse the same task — no per-affirmation hint setup needed.
+        if !captureService.hasSessionRecognitionTask {
+            let allWords = sessionAffirmations.flatMap { affirmation in
+                affirmation.text.strippingTrailingCitation.lowercased()
+                    .components(separatedBy: .whitespaces)
+                    .filter { !$0.isEmpty }
+            }
+            captureService.sessionContextualStrings = Array(Set(allWords)).prefix(100).map { $0 }
+        }
 
         // Use centralized task management for listening task
         listeningTask = Task { [weak self] in

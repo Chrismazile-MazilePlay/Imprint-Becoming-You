@@ -83,6 +83,13 @@ final class AudioService: AudioServiceProtocol {
         audioEngine
     }
 
+    /// Coordinator for smooth music volume ducking during speech capture.
+    ///
+    /// Smoothly fades background music down before recognition task creation
+    /// and restores it afterward, masking the ~20-80ms audio disruption
+    /// caused by `SFSpeechRecognizer.recognitionTask(with:)`.
+    let duckingCoordinator: AudioDuckingCoordinator
+
     /// Main mixer volume.
     private var mainVolume: Float = 1.0
 
@@ -98,8 +105,13 @@ final class AudioService: AudioServiceProtocol {
     init(sessionController: (any AudioSessionControllerProtocol)? = nil) {
         self.audioEngine = AVAudioEngine()
         self.sessionController = sessionController ?? AudioSessionController()
-        self.backgroundMusicService = BackgroundMusicService()
+        let music = BackgroundMusicService()
+        self.backgroundMusicService = music
         self.audioPlayer = AudioPlayerService()
+        self.duckingCoordinator = AudioDuckingCoordinator(
+            musicService: music,
+            initialVolume: Constants.Audio.backgroundMusicVolume
+        )
 
         audioServiceLog.info("✅ AudioService initialized")
     }
@@ -114,6 +126,10 @@ final class AudioService: AudioServiceProtocol {
         self.sessionController = sessionController
         self.backgroundMusicService = backgroundMusicService
         self.audioPlayer = audioPlayer
+        self.duckingCoordinator = AudioDuckingCoordinator(
+            musicService: backgroundMusicService,
+            initialVolume: backgroundMusicService.volume
+        )
     }
 
     // MARK: - Engine Lifecycle
@@ -133,12 +149,17 @@ final class AudioService: AudioServiceProtocol {
 
         audioServiceLog.info("🚀 Starting audio engine...")
 
-        // Configure audio session via controller (no engine management — engine isn't started yet)
+        // Configure audio session via controller (no engine management — engine isn't started yet).
+        // Uses .playAndRecord permanently to eliminate HAL reconfiguration breaks.
+        // Mic hardware only activates when installTap() is called — zero battery impact.
+        // .default mode with .defaultToSpeaker routes to the main loudspeaker (not earpiece).
+        // This matches SpeechCaptureService's configuration, so all subsequent transition()
+        // calls fast-path skip (~0ms, no setCategory() call).
         do {
             try await sessionController.transition(
-                to: .playback,
-                mode: .spokenAudio,
-                options: [.mixWithOthers],
+                to: .playAndRecord,
+                mode: .default,
+                options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers],
                 engineAction: .none
             )
         } catch {
@@ -256,9 +277,13 @@ final class AudioService: AudioServiceProtocol {
     }
 
     /// Sets the background music volume.
+    ///
+    /// Also updates the ducking coordinator's target so that ``AudioDuckingCoordinator/restoreUp()``
+    /// restores to the user's latest chosen level.
     /// - Parameter volume: Volume level (0.0–1.0)
     func setBackgroundMusicVolume(_ volume: Float) {
         backgroundMusicService.setVolume(volume)
+        duckingCoordinator.setTargetVolume(volume)
     }
 
     // MARK: - Audio Playback

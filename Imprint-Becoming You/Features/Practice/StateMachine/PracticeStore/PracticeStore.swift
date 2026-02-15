@@ -351,10 +351,12 @@ final class PracticeStore {
     /// Releases the speech capture service to free SFSpeechRecognizer
     /// and AVAudioEngine memory (~7-15MB).
     ///
+    /// Explicitly calls ``SpeechCaptureServiceProtocol/releaseEngine()``
+    /// before dropping the reference to ensure the mic hardware is
+    /// deactivated immediately (not deferred to non-deterministic `deinit`).
     /// The lazy getter recreates the service on next use.
-    /// `SpeechCaptureService.deinit` handles cleanup of the engine,
-    /// recognition task, and notification observers.
     func releaseSpeechCaptureService() {
+        _speechCaptureService?.releaseEngine()
         _speechCaptureService = nil
     }
     

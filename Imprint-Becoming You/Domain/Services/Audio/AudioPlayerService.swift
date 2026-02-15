@@ -281,10 +281,9 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
         _immediateNodeRef.withLock { $0.isActive = true }
         isPlaying = true
 
-        // Session is guaranteed to be .playback by:
-        // - AudioService.start() configures .playback at engine startup
-        // - SpeechCaptureService.stopCapture() restores .playback after mic use
-        // No independent setCategory() call needed here.
+        // Session is permanently .playAndRecord (configured once at engine startup).
+        // This category supports both TTS playback and mic capture — no
+        // independent setCategory() call needed here.
 
         #if DEBUG
         let durationSec = Double(pcmBuffer.frameLength) / pcmBuffer.format.sampleRate

@@ -42,6 +42,9 @@ final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked S
     /// Number of times `cancelCapture()` was called
     private(set) var cancelCaptureCallCount: Int = 0
 
+    /// Number of times `releaseEngine()` was called
+    private(set) var releaseEngineCallCount: Int = 0
+
     // MARK: - Stubs
 
     /// Stub value for `hasMicrophonePermission`
@@ -67,6 +70,12 @@ final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked S
 
     /// Stub value for `currentTranscription`
     var stubCurrentTranscription: String = ""
+
+    /// Merged session-level contextual strings (mirrors protocol requirement).
+    var sessionContextualStrings: [String]?
+
+    /// Whether a session-long recognition task is active (mirrors protocol requirement).
+    var hasSessionRecognitionTask: Bool = false
 
     /// Words to hint the speech recognizer (mirrors protocol requirement).
     var contextualStrings: [String]?
@@ -110,6 +119,7 @@ final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked S
         startCaptureCallCount += 1
         if let error = stubStartCaptureError { throw error }
         stubIsCapturing = true
+        hasSessionRecognitionTask = true
     }
 
     @discardableResult
@@ -125,6 +135,13 @@ final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked S
         stubCurrentTranscription = ""
     }
 
+    func releaseEngine() {
+        releaseEngineCallCount += 1
+        stubIsCapturing = false
+        hasSessionRecognitionTask = false
+        sessionContextualStrings = nil
+    }
+
     var isCapturing: Bool { stubIsCapturing }
     var currentTranscription: String { stubCurrentTranscription }
 
@@ -135,6 +152,7 @@ final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked S
         startCaptureCallCount = 0
         stopCaptureCallCount = 0
         cancelCaptureCallCount = 0
+        releaseEngineCallCount = 0
         stubHasMicrophonePermission = true
         stubHasSpeechRecognitionPermission = true
         stubRequestMicPermissionResult = true
@@ -144,6 +162,8 @@ final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked S
         stubIsCapturing = false
         stubCurrentTranscription = ""
         contextualStrings = nil
+        sessionContextualStrings = nil
+        hasSessionRecognitionTask = false
         streamContinuation?.finish()
         streamContinuation = nil
     }

@@ -645,36 +645,28 @@ extension PracticeStore {
         cancelAllManagedTasks()
         flowGeneration += 1
 
-        // 2b. Restore audio session from .playAndRecord → .playback.
-        // Mic-based flows stay in .playAndRecord for the entire session to
-        // avoid per-affirmation HAL reconfiguration. Restore now that the
-        // session is over. The fast-path skip is a no-op if already .playback.
-        Task { [weak self] in
-            try? await self?.dependencies.audioService.sessionController.transition(
-                to: .playback,
-                mode: .spokenAudio,
-                options: [.mixWithOthers],
-                engineAction: .none
-            )
-        }
+        // 3. Release speech capture service — deactivates mic hardware
+        // immediately via releaseEngine(), then nils the reference.
+        // Audio session stays in .playAndRecord permanently (zero HAL breaks).
+        releaseSpeechCaptureService()
 
-        // 3. Signal MemoryManager that session lifecycle is complete
+        // 4. Signal MemoryManager that session lifecycle is complete
         MemoryManager.shared.sessionDidEnd()
 
-        // 4. Cancel TTS queue and clear preparation state.
+        // 5. Cancel TTS queue and clear preparation state.
         // cancelAll() internally resumes the synthesis idle timer.
         dependencies.sessionTTSQueueService.cancelAll()
         clearSessionPreparation()
 
-        // 5. Reset session-scoped flags
+        // 6. Reset session-scoped flags
         forceSystemTTSForSession = false
 
-        // 6. Dismiss any alerts
+        // 7. Dismiss any alerts
         setShowingTimeoutAlert(false)
         timedOutAffirmationId = nil
         setPermissionAlert(showing: false)
 
-        // 7. CRITICAL: Reset mode and flow to home BEFORE clearing data.
+        // 8. CRITICAL: Reset mode and flow to home BEFORE clearing data.
         //    setFlow(.home) makes isSessionActive = false immediately.
         //    If we cleared data first, VerticalPager could see empty array mid-render.
         //    NOTE: These are intentionally idempotent — the early dismiss handlers
@@ -687,18 +679,18 @@ extension PracticeStore {
         setFlow(.home)
         setSegmentProgress(0)
 
-        // 8. Clear all session state
+        // 9. Clear all session state
         resetLoopConfiguration()
         clearSavedSessionContext()
         clearOriginalSessionAffirmationIds()
         setSessionState(affirmations: [], index: 0)
         setSessionResults([])
 
-        // 9. Reset summary (invisible — cover is already gone)
+        // 10. Reset summary (invisible — cover is already gone)
         setShowingSummary(false)
         setHasSessionBeenSaved(false)
 
-        // 10. Close any open menus
+        // 11. Close any open menus
         isModeSelectorExpanded = false
         isMusicSelectorExpanded = false
     }
@@ -771,7 +763,7 @@ extension PracticeStore {
             guard self.flowGeneration == repeatGeneration else { return }
 
             // Session category is managed centrally by AudioSessionController.
-            // No pre-configuration needed — .playback is guaranteed.
+            // No pre-configuration needed — .playAndRecord is permanent.
 
             // Signal dock to start segment timer in sync with flow start
             self.incrementSegmentGeneration()

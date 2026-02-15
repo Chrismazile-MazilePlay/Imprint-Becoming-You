@@ -19,18 +19,27 @@ import os.signpost
 /// coordination issues between separate components. Uses Apple's recommended
 /// pattern of feeding AVAudioEngine buffers directly to SFSpeechRecognizer.
 ///
-/// ## Standalone Capture Engine
-/// Creates a fresh `AVAudioEngine` per capture session for mic input. This
-/// keeps capture fully isolated from the shared engine (background music / TTS)
-/// and avoids HAL format propagation races. The `audioService` property is used
-/// only for `AudioSessionController` access (centralized `setCategory()` calls).
+/// ## Session-Long Recognition Task
+/// Maintains a **single recognition task for the entire practice session**.
+/// The engine, input tap, and recognition request are all created once on the
+/// first ``startCapture()`` call. Subsequent calls only begin a new **segment**
+/// (zero audio disruption). Between segments, buffers continue flowing to the
+/// request to keep the task alive, but transcription events are suppressed.
+///
+/// Per-segment transcription is derived via **delta extraction**: each segment
+/// records a baseline word count at its start, and only the words recognized
+/// after that baseline are exposed to consumers via ``currentTranscription``
+/// and the ``captureStream``.
 ///
 /// ## Session Management
 /// Audio session transitions are routed through `AudioSessionController`:
-/// - **Start capture:** Transitions to `.playAndRecord` / `.default` mode
-///   (NOT `.measurement` — avoids iOS volume reduction)
-/// - **Stop/cancel capture:** Restores `.playback` / `.spokenAudio` mode
-///   (fixes SpeakOnly volume bug where session was never restored)
+/// - **First startCapture:** Transitions to `.playAndRecord` / `.default` mode,
+///   creates engine + tap + session-long task (one-time cost).
+/// - **Subsequent startCapture:** Begins a new segment — zero task creation.
+/// - **stopCapture / cancelCapture:** Ends the active segment but keeps the
+///   session-long task alive. Buffers flow silently.
+/// - **releaseEngine:** Full teardown — task cancelled, tap removed, engine
+///   stopped, all session state reset. Called at session end.
 ///
 /// ## Key Features
 /// - **Route Change Handling**: Automatically restarts capture when audio route changes
@@ -80,40 +89,81 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
     /// When `nil`, falls back to direct session configuration.
     weak var audioService: (any AudioServiceProtocol)?
 
-    /// Standalone audio engine created per capture session.
+    /// Persistent capture engine kept alive across the entire session.
     ///
-    /// Each `startCapture()` call creates a fresh `AVAudioEngine` with
-    /// `prepare()` + `start()` for reliable HAL initialization. The engine
-    /// is stopped and released in `stopCapture()` / `cancelCapture()`.
+    /// Created on the first `startCapture()` call with `prepare()` + `start()`.
+    /// Reused across all segments until ``releaseEngine()`` is called.
     nonisolated(unsafe) private var captureEngine: AVAudioEngine?
+
+    /// Whether an input tap is currently installed on the capture engine.
+    ///
+    /// Tracks tap state independently of `isCapturing` because the tap
+    /// persists between segments to avoid audio graph modifications that
+    /// disrupt background music. Reset to `false` in ``releaseEngine()``.
+    nonisolated(unsafe) private var tapInstalled: Bool = false
 
     /// Speech recognizer
     private let speechRecognizer: SFSpeechRecognizer?
 
-    /// Current recognition request
+    /// Session-long recognition request. Stays alive across segments.
     nonisolated(unsafe) private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
 
-    /// Current recognition task
+    /// Session-long recognition task. Stays alive across segments.
     nonisolated(unsafe) private var recognitionTask: SFSpeechRecognitionTask?
 
-    /// Whether capture is active
+    /// Whether a listening segment is currently active.
     private(set) var isCapturing: Bool = false
 
-    /// Current transcription text
+    /// The current segment's transcription text (delta from segment baseline).
     private(set) var currentTranscription: String = ""
+
+    /// Whether a session-long recognition task has been prepared.
+    ///
+    /// Set to `true` after ``startCapturePipeline()`` succeeds.
+    /// Reset to `false` in ``releaseEngine()``.
+    private(set) var hasSessionRecognitionTask: Bool = false
+
+    // MARK: - Session-Long Transcription State
+
+    /// Full accumulated transcription from the session-long recognition task.
+    ///
+    /// Updated on every recognition result regardless of segment state.
+    /// Used to compute segment deltas via ``segmentBaseWordCount``.
+    private var fullSessionTranscription: String = ""
+
+    /// All segments from the session-long recognition task (running total).
+    ///
+    /// Updated on every recognition result. Used to compute segment delta segments.
+    private var fullSessionSegments: [RecognizedSegment] = []
+
+    /// Number of recognized segments (words) at the start of the current segment.
+    ///
+    /// Set in ``beginSegment()``. Delta = ``fullSessionSegments``[baseCount...].
+    private var segmentBaseSegmentCount: Int = 0
+
+    /// Whether a segment is actively receiving transcription events.
+    ///
+    /// When `false`, `handleRecognitionResult()` still updates
+    /// ``fullSessionTranscription`` but does NOT emit `.transcription` events.
+    private var isSegmentActive: Bool = false
+
+    // MARK: - Contextual Strings
+
+    /// Merged affirmation words for the entire session.
+    ///
+    /// Set once before the first ``startCapture()`` call with ALL session
+    /// affirmation words (capped at 100). Applied to the single session-long
+    /// recognition request. Takes priority over ``contextualStrings``.
+    nonisolated(unsafe) var sessionContextualStrings: [String]?
 
     /// Words to hint the speech recognizer for improved accuracy.
     ///
-    /// Set before calling ``startCapture()`` to boost recognition of
-    /// known expected words. Applied as `contextualStrings` on the recognition
-    /// request. Limited to 100 entries per Apple documentation.
-    /// Cleared automatically when capture stops.
-    ///
-    /// `nonisolated(unsafe)` matches the pattern for other properties accessed
-    /// from the background queue in `startCapturePipeline()`. Safe because:
-    /// the property is set on MainActor before `startCapture()` is called,
-    /// and the `async` await boundary guarantees happens-before ordering.
+    /// **Deprecated in favor of ``sessionContextualStrings``.**
+    /// Kept for backward compatibility. If ``sessionContextualStrings``
+    /// is set, it takes priority.
     nonisolated(unsafe) var contextualStrings: [String]?
+
+    // MARK: - Stream & Observers
 
     /// Stream continuation for emitting updates
     nonisolated(unsafe) private var streamContinuation: AsyncStream<CaptureUpdate>.Continuation?
@@ -132,6 +182,8 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
 
     /// Interruption observer
     nonisolated(unsafe) private var interruptionObserver: NSObjectProtocol?
+
+    // MARK: - Silence & Audio Level
 
     /// Silence tracking
     private var lastSpeechTime: Date?
@@ -162,8 +214,7 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         recognitionTask?.cancel()
 
         // Clean up the standalone capture engine if still active.
-        // Normally stopCapture()/cancelCapture() handles this, but
-        // deinit serves as a safety net.
+        // Normally releaseEngine() handles this, but deinit serves as a safety net.
         if let engine = captureEngine {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
@@ -263,7 +314,11 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
 
     // MARK: - Capture Control
 
-    /// Starts audio capture and speech recognition
+    /// Starts audio capture and speech recognition for one segment.
+    ///
+    /// On the first call per session, creates the recognition engine, tap,
+    /// and a session-long recognition task. Subsequent calls reuse the
+    /// existing task and only begin a new segment — zero audio disruption.
     func startCapture() async throws {
         guard !isCapturing else {
             #if DEBUG
@@ -301,25 +356,136 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
             throw CaptureError.speechRecognizerUnavailable
         }
 
-        // Configure audio session for .playAndRecord via session controller
-        // (preferred) or direct fallback. engineAction: .none — the shared
-        // engine is NOT stopped because mic capture uses its own standalone
-        // engine. This keeps background music playing uninterrupted.
-        if let audioService = audioService {
-            try await configureAudioSessionViaController(audioService: audioService)
+        // SESSION-LONG TASK: Only create the recognition pipeline once.
+        // First call per session creates engine + tap + task (one-time cost).
+        // Subsequent calls skip straight to beginSegment() — zero disruption.
+        if !hasSessionRecognitionTask {
+            // Configure audio session for .playAndRecord via session controller
+            // (preferred) or direct fallback. engineAction: .none — the shared
+            // engine is NOT stopped because mic capture uses its own standalone
+            // engine. This keeps background music playing uninterrupted.
+            if let audioService = audioService {
+                try await configureAudioSessionViaController(audioService: audioService)
+            } else {
+                #if DEBUG
+                AppLogger.debug("⚠️ audioService not set — falling back to direct session config", category: .speech)
+                #endif
+                try await configureAudioSessionFallback()
+            }
+
+            // Setup observers
+            setupObservers()
+
+            // Duck background music BEFORE creating the recognition task.
+            // This is the ONE-TIME cost per session. recognitionTask(with:)
+            // causes a brief (~20-80ms) audio disruption as the Speech
+            // framework initializes its pipeline.
+            await audioService?.duckingCoordinator.duckDown()
+
+            // Start the capture pipeline (creates engine + tap + task)
+            try await startCapturePipeline()
+
+            // Restore background music AFTER the task is ready.
+            // Fire-and-forget to avoid blocking the caller.
+            Task { await audioService?.duckingCoordinator.restoreUp() }
         } else {
             #if DEBUG
-            AppLogger.debug("⚠️ audioService not set — falling back to direct session config", category: .speech)
+            AppLogger.debug("Reusing session recognition task (zero audio disruption)", category: .speech)
             #endif
-            try await configureAudioSessionFallback()
         }
 
-        // Setup observers
-        setupObservers()
+        // Begin the listening segment
+        beginSegment()
 
-        // Start the capture pipeline
-        try await startCapturePipeline()
+        #if DEBUG
+        AppLogger.debug("Capture started successfully", category: .speech)
+        #endif
+    }
 
+    /// Stops the current segment and returns the segment's transcription.
+    ///
+    /// Ends the active segment but keeps the session-long recognition task
+    /// alive. Buffers continue flowing to keep the task warm.
+    @discardableResult
+    func stopCapture() -> String {
+        guard isCapturing else { return currentTranscription }
+
+        #if DEBUG
+        AppLogger.debug("Stopping capture...", category: .speech)
+        #endif
+
+        let result = endSegment()
+
+        #if DEBUG
+        AppLogger.debug("Capture stopped. Final: \"\(result)\"", category: .speech)
+        #endif
+
+        return result
+    }
+
+    /// Cancels the current segment without waiting for a final result.
+    ///
+    /// Ends the active segment and clears the transcription, but keeps
+    /// the session-long recognition task alive for the next segment.
+    func cancelCapture() {
+        guard isCapturing else { return }
+
+        #if DEBUG
+        AppLogger.debug("Cancelling capture...", category: .speech)
+        #endif
+
+        endSegment()
+        currentTranscription = ""
+    }
+
+    /// Releases the persistent capture engine, deactivating mic hardware.
+    ///
+    /// Cancels the session-long recognition task, removes the input tap,
+    /// stops the engine, and resets all session state. Call at session end
+    /// or when the service is no longer needed.
+    func releaseEngine() {
+        if isCapturing { cancelCapture() }
+
+        // Cancel the session-long recognition task
+        recognitionRequest?.endAudio()
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest = nil
+        hasSessionRecognitionTask = false
+
+        // Reset session-long transcription state
+        fullSessionTranscription = ""
+        fullSessionSegments = []
+        segmentBaseSegmentCount = 0
+        isSegmentActive = false
+        sessionContextualStrings = nil
+        contextualStrings = nil
+
+        // Tear down engine and tap
+        if let engine = captureEngine {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+        }
+        captureEngine = nil
+        tapInstalled = false
+
+        #if DEBUG
+        AppLogger.debug("Capture engine released — mic hardware deactivated", category: .speech)
+        #endif
+    }
+
+    // MARK: - Segment Lifecycle
+
+    /// Begins a new listening segment within the session-long recognition task.
+    ///
+    /// Records the current transcription baseline so delta text can be
+    /// extracted when the segment ends. Starts silence monitoring and
+    /// emits `.started`.
+    private func beginSegment() {
+        // Record baseline: current position in the session-long transcription
+        segmentBaseSegmentCount = fullSessionSegments.count
+
+        isSegmentActive = true
         isCapturing = true
         currentTranscription = ""
         lastSpeechTime = Date()
@@ -330,91 +496,45 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         emit(.started)
 
         #if DEBUG
-        AppLogger.debug("Capture started successfully", category: .speech)
+        AppLogger.debug("Segment started (baseline: \(segmentBaseSegmentCount) segments)", category: .speech)
         #endif
     }
 
-    /// Stops capture and returns final transcription
+    /// Ends the current listening segment and returns the segment's delta text.
+    ///
+    /// Stops silence monitoring and suppresses transcription events until the
+    /// next ``beginSegment()`` call. The session-long task stays alive.
     @discardableResult
-    func stopCapture() -> String {
-        guard isCapturing else { return currentTranscription }
-
-        #if DEBUG
-        AppLogger.debug("Stopping capture...", category: .speech)
-        #endif
-
+    private func endSegment() -> String {
         // Stop silence monitoring
         silenceTimer?.cancel()
         silenceTimer = nil
 
-        // End recognition request
-        recognitionRequest?.endAudio()
-
-        // Clean up the standalone capture engine
-        if let engine = captureEngine {
-            engine.inputNode.removeTap(onBus: 0)
-            engine.stop()
-        }
-        captureEngine = nil
-
-        // Cancel recognition task
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest = nil
-
+        isSegmentActive = false
         isCapturing = false
-        contextualStrings = nil
+
+        // Extract delta transcription for this segment
+        let deltaSegments = Array(fullSessionSegments.suffix(from: min(segmentBaseSegmentCount, fullSessionSegments.count)))
+        let deltaText = deltaSegments.map(\.substring).joined(separator: " ")
+
+        if !deltaText.isEmpty {
+            currentTranscription = deltaText
+        }
 
         // End signpost interval
         endCaptureSignpost()
 
         emit(.stopped)
 
-        // NOTE: Session stays in .playAndRecord between affirmations.
-        // Mic hardware is already OFF after removeTap() + engine.stop().
-        // Restoration to .playback happens at session boundaries
-        // (handleSessionCoverDismissed, restartSessionWithMode).
-
         #if DEBUG
-        AppLogger.debug("Capture stopped. Final: \"\(currentTranscription)\"", category: .speech)
+        AppLogger.debug("Segment ended. Delta: \"\(currentTranscription)\" (\(deltaSegments.count) words)", category: .speech)
         #endif
+
+        // NOTE: Session stays in .playAndRecord permanently.
+        // No category restoration needed — eliminates HAL reconfiguration breaks.
+        // Recognition task stays alive — NO task cancellation.
 
         return currentTranscription
-    }
-
-    /// Cancels capture without waiting for final result
-    func cancelCapture() {
-        guard isCapturing else { return }
-
-        #if DEBUG
-        AppLogger.debug("Cancelling capture...", category: .speech)
-        #endif
-
-        silenceTimer?.cancel()
-        silenceTimer = nil
-
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest = nil
-
-        // Clean up the standalone capture engine
-        if let engine = captureEngine {
-            engine.inputNode.removeTap(onBus: 0)
-            engine.stop()
-        }
-        captureEngine = nil
-
-        isCapturing = false
-        currentTranscription = ""
-        contextualStrings = nil
-
-        // End signpost interval
-        endCaptureSignpost()
-
-        emit(.stopped)
-
-        // NOTE: Session stays in .playAndRecord between affirmations.
-        // Restoration to .playback happens at session boundaries.
     }
 
     // MARK: - Private Methods
@@ -516,13 +636,12 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         throw CaptureError.audioEngineFailure("Failed to configure audio session: \(errorDesc)")
     }
 
-    /// Starts the recognition pipeline with a standalone capture engine.
+    /// Creates the session-long recognition pipeline.
     ///
-    /// Creates a fresh `AVAudioEngine` per capture session, installs an
-    /// input tap using the native hardware format, and calls `prepare()` +
-    /// `start()` for reliable HAL initialization. This matches the proven
-    /// main-branch pattern and keeps mic capture fully isolated from the
-    /// shared audio engine (background music / TTS).
+    /// Creates a standalone `AVAudioEngine`, installs a persistent input tap,
+    /// and creates ONE `SFSpeechAudioBufferRecognitionRequest` + task that
+    /// stays alive for the entire session. This is a one-time cost — subsequent
+    /// ``startCapture()`` calls only begin new segments.
     ///
     /// ## Performance
     /// Heavy work is dispatched to a background queue to keep MainActor
@@ -540,14 +659,24 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                 }
 
                 do {
-                    // Create a fresh engine for this capture session.
-                    // After rapid navigation, a previous cancelCapture() may still be
-                    // restoring the audio session to .playback on a background queue.
-                    // If that fire-and-forget dispatch hasn't completed (or races after
-                    // configureAudioSession()), the input node's native format may
-                    // report sampleRate = 0. Retry with a short delay to let the audio
-                    // session stabilize before failing.
-                    let engine = AVAudioEngine()
+                    // PERSISTENT ENGINE: Reuse existing engine if already running.
+                    let engine: AVAudioEngine
+                    let needsStart: Bool
+
+                    if let existing = self.captureEngine, existing.isRunning {
+                        engine = existing
+                        needsStart = false
+                        #if DEBUG
+                        AppLogger.debug("Reusing persistent capture engine (no hardware reconfiguration)", category: .speech)
+                        #endif
+                    } else {
+                        engine = AVAudioEngine()
+                        needsStart = true
+                        #if DEBUG
+                        AppLogger.debug("Creating new capture engine", category: .speech)
+                        #endif
+                    }
+
                     let inputNode = engine.inputNode
 
                     // CRITICAL: Use the input node's native format, not a custom format.
@@ -555,8 +684,8 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                     var recordingFormat = inputNode.outputFormat(forBus: 0)
 
                     if recordingFormat.sampleRate == 0 {
-                        // Audio session likely in a transient state from a prior
-                        // cancelCapture() teardown. Wait briefly and retry once.
+                        // Audio session likely in a transient state. Wait briefly
+                        // and retry once to let the hardware stabilize.
                         Thread.sleep(forTimeInterval: 0.1)
                         recordingFormat = inputNode.outputFormat(forBus: 0)
                     }
@@ -569,7 +698,7 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                     AppLogger.debug("Recording format - \(Int(recordingFormat.sampleRate)) Hz, \(recordingFormat.channelCount) ch", category: .speech)
                     #endif
 
-                    // Create recognition request
+                    // Create the SESSION-LONG recognition request
                     let request = SFSpeechAudioBufferRecognitionRequest()
                     request.shouldReportPartialResults = true
 
@@ -595,52 +724,75 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                         request.addsPunctuation = false
                     }
 
-                    // Apply contextual string hints for improved recognition accuracy.
-                    // Set by PracticeStore before startCapture() with the expected
-                    // affirmation words. Limited to 100 entries per Apple docs.
-                    if let hints = self.contextualStrings, !hints.isEmpty {
+                    // Apply contextual string hints. Session-level hints (merged from
+                    // ALL affirmations) take priority over per-affirmation hints.
+                    let hints = self.sessionContextualStrings ?? self.contextualStrings
+                    if let hints, !hints.isEmpty {
                         request.contextualStrings = Array(hints.prefix(100))
                         #if DEBUG
-                        AppLogger.debug("Added \(min(hints.count, 100)) contextual strings", category: .speech)
+                        AppLogger.debug("Added \(min(hints.count, 100)) contextual strings (session-level)", category: .speech)
                         #endif
                     }
 
-                    // Start recognition task
+                    // Create the SESSION-LONG recognition task.
+                    // This is the one-time heavyweight call. All subsequent segments
+                    // reuse this task — zero audio disruption between affirmations.
                     let task = recognizer.recognitionTask(with: request) { [weak self] result, error in
                         Task { @MainActor in
                             self?.handleRecognitionResult(result, error: error)
                         }
                     }
 
-                    // Install tap with the NATIVE format
-                    inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
-                        // Append buffer to recognition request
-                        request.append(buffer)
-
-                        // Calculate audio level on MainActor
-                        Task { @MainActor in
-                            self?.processAudioLevel(buffer: buffer)
-                        }
-                    }
-
-                    // Prepare and start engine — the key to reliable HAL initialization
-                    engine.prepare()
-
-                    do {
-                        try engine.start()
-                    } catch {
-                        // Clean up tap and recognition task on engine start failure
-                        inputNode.removeTap(onBus: 0)
-                        task.cancel()
-                        throw CaptureError.audioEngineFailure("Failed to start audio engine: \(error.localizedDescription)")
-                    }
-
-                    // Store pipeline components on nonisolated(unsafe) properties.
-                    // Safe: sequential flow — continuation resumes only after these writes,
-                    // and no other code accesses these properties during setup.
-                    self.captureEngine = engine
+                    // Store request and task for the session's lifetime
                     self.recognitionRequest = request
                     self.recognitionTask = task
+
+                    // PERSISTENT TAP: Install tap ONCE per session. The closure
+                    // always forwards buffers to the session-long request — between
+                    // segments, the task stays alive and accumulates transcription
+                    // but events are suppressed by isSegmentActive.
+                    if !self.tapInstalled {
+                        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
+                            guard let self else { return }
+
+                            // Always forward buffers to keep the session-long task alive.
+                            self.recognitionRequest?.append(buffer)
+
+                            // Only dispatch audio level updates during active segments.
+                            // Saves ~43 MainActor dispatches/sec during idle periods.
+                            if self.isSegmentActive {
+                                Task { @MainActor in
+                                    self.processAudioLevel(buffer: buffer)
+                                }
+                            }
+                        }
+                        self.tapInstalled = true
+
+                        #if DEBUG
+                        AppLogger.debug("Input tap installed (persistent for session)", category: .speech)
+                        #endif
+                    }
+
+                    // Only prepare/start if this is a new engine.
+                    if needsStart {
+                        engine.prepare()
+
+                        do {
+                            try engine.start()
+                        } catch {
+                            // Clean up tap and recognition task on engine start failure
+                            inputNode.removeTap(onBus: 0)
+                            self.tapInstalled = false
+                            task.cancel()
+                            self.recognitionRequest = nil
+                            self.recognitionTask = nil
+                            throw CaptureError.audioEngineFailure("Failed to start audio engine: \(error.localizedDescription)")
+                        }
+
+                        self.captureEngine = engine
+                    }
+
+                    self.hasSessionRecognitionTask = true
 
                     continuation.resume()
                 } catch {
@@ -650,7 +802,11 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         }
     }
 
-    /// Handles recognition results from SFSpeechRecognizer
+    /// Handles recognition results from the session-long SFSpeechRecognizer task.
+    ///
+    /// Always updates ``fullSessionTranscription`` with the complete session text.
+    /// Only emits `.transcription` events when ``isSegmentActive`` is true, using
+    /// delta extraction to provide per-segment text to consumers.
     private func handleRecognitionResult(_ result: SFSpeechRecognitionResult?, error: Error?) {
         // Handle errors
         if let error = error {
@@ -658,6 +814,23 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
 
             // Ignore cancellation errors (code 216)
             if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
+                // If the task was cancelled unexpectedly (not by us via releaseEngine),
+                // mark the session task as expired so it gets recreated.
+                if hasSessionRecognitionTask && recognitionTask != nil {
+                    #if DEBUG
+                    AppLogger.debug("Session recognition task expired (216) — will recreate on next segment", category: .speech)
+                    #endif
+                    hasSessionRecognitionTask = false
+                    recognitionTask = nil
+                    recognitionRequest = nil
+
+                    // If mid-segment, recreate task transparently
+                    if isSegmentActive {
+                        Task { @MainActor in
+                            await self.recreateSessionTask()
+                        }
+                    }
+                }
                 return
             }
 
@@ -666,6 +839,18 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                 #if DEBUG
                 AppLogger.debug("No speech detected (expected)", category: .speech)
                 #endif
+                // Task may have expired — check and mark for recreation
+                if hasSessionRecognitionTask {
+                    hasSessionRecognitionTask = false
+                    recognitionTask = nil
+                    recognitionRequest = nil
+
+                    if isSegmentActive {
+                        Task { @MainActor in
+                            await self.recreateSessionTask()
+                        }
+                    }
+                }
                 return
             }
 
@@ -679,15 +864,21 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
 
             AppLogger.error("Recognition error - \(error.localizedDescription)", category: .speech, error: error)
 
-            emit(.error(.recognitionFailure(error.localizedDescription)))
+            // Only emit errors to consumers during active segments
+            if isSegmentActive {
+                emit(.error(.recognitionFailure(error.localizedDescription)))
+            }
             return
         }
 
         guard let result = result else { return }
 
-        // Get transcription and per-word segment data
+        // Always update full session transcription (regardless of segment state)
         let transcription = result.bestTranscription.formattedString
-        let segments = result.bestTranscription.segments.map { segment in
+        fullSessionTranscription = transcription
+
+        // Update full session segments
+        fullSessionSegments = result.bestTranscription.segments.map { segment in
             RecognizedSegment(
                 substring: segment.substring,
                 timestamp: segment.timestamp,
@@ -696,21 +887,58 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                 alternatives: segment.alternativeSubstrings
             )
         }
-        currentTranscription = transcription
+
+        // Only emit transcription events during active segments
+        guard isSegmentActive else { return }
+
+        // Extract delta: segments recognized since this segment's baseline
+        let deltaSegments = Array(fullSessionSegments.suffix(from: min(segmentBaseSegmentCount, fullSessionSegments.count)))
+        let deltaText = deltaSegments.map(\.substring).joined(separator: " ")
+
+        currentTranscription = deltaText
 
         // Update last speech time
-        lastSpeechTime = Date()
+        if !deltaText.isEmpty {
+            lastSpeechTime = Date()
+        }
 
-        // Emit transcription update with segment data
-        emit(.transcription(text: transcription, isFinal: result.isFinal, segments: segments))
+        // Emit delta transcription update with segment data
+        emit(.transcription(text: deltaText, isFinal: result.isFinal, segments: deltaSegments))
 
         #if DEBUG
         if result.isFinal {
-            AppLogger.debug("Final transcription - \"\(transcription)\"", category: .speech)
-        } else if !transcription.isEmpty {
-            AppLogger.debug("Partial - \"\(transcription)\"", category: .speech)
+            AppLogger.debug("Final transcription (delta) - \"\(deltaText)\"", category: .speech)
+        } else if !deltaText.isEmpty {
+            AppLogger.debug("Partial (delta) - \"\(deltaText)\"", category: .speech)
         }
         #endif
+    }
+
+    /// Recreates the session-long recognition task after expiration.
+    ///
+    /// Called when the Speech framework terminates the task (e.g., 60-second
+    /// limit). Uses ducking to mask the brief audio disruption from the
+    /// new `recognitionTask(with:)` call. This is a rare event — at most
+    /// once per session.
+    private func recreateSessionTask() async {
+        #if DEBUG
+        AppLogger.debug("Recreating expired session recognition task...", category: .speech)
+        #endif
+
+        // Duck music for the recreation
+        await audioService?.duckingCoordinator.duckDown()
+
+        do {
+            try await startCapturePipeline()
+            // Update baseline to current position so the new task starts fresh
+            segmentBaseSegmentCount = fullSessionSegments.count
+        } catch {
+            AppLogger.error("Failed to recreate session task: \(error.localizedDescription)", category: .speech, error: error)
+            emit(.error(.audioEngineFailure("Recognition task expired and could not be recreated")))
+        }
+
+        // Restore music
+        Task { await audioService?.duckingCoordinator.restoreUp() }
     }
 
     /// Processes audio buffer for level metering
@@ -854,11 +1082,22 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                         AppLogger.warning("Engine stopped after device disconnect", category: .speech)
                         self.streamContinuation?.yield(.error(.audioEngineFailure("Audio device disconnected")))
                         self.cancelCapture()
+                        // Full release since engine is dead — session task will be recreated
+                        self.releaseEngine()
                     } else {
                         #if DEBUG
                         AppLogger.debug("Engine still running after device change", category: .speech)
                         #endif
                     }
+                }
+            } else {
+                // Not capturing, but persistent engine may have stopped after route change.
+                // Full release — engine and task will be recreated on next startCapture().
+                if !(captureEngine?.isRunning ?? true) {
+                    releaseEngine()
+                    #if DEBUG
+                    AppLogger.debug("Idle capture engine stopped after device change — released", category: .speech)
+                    #endif
                 }
             }
 
@@ -889,8 +1128,11 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
 
         switch type {
         case .began:
-            // Pause capture
+            // Cancel capture and release engine — iOS may forcibly stop the
+            // engine during an interruption, leaving it in a dead state.
+            // A fresh engine + task will be created on the next startCapture() call.
             cancelCapture()
+            releaseEngine()
 
         case .ended:
             // Check if we should resume
@@ -928,7 +1170,7 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
 
     /// Cleans up all resources
     private func cleanup() {
-        cancelCapture()
+        releaseEngine()
         removeObservers()
         streamContinuation?.finish()
         streamContinuation = nil

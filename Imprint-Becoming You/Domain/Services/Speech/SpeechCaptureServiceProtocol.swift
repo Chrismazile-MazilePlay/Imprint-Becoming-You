@@ -155,44 +155,76 @@ protocol SpeechCaptureServiceProtocol: AnyObject {
     /// Whether speech recognition permission is currently granted.
     var hasSpeechRecognitionPermission: Bool { get }
 
+    // MARK: - Session-Level Recognition
+
+    /// Merged affirmation words for the entire session.
+    ///
+    /// Set once before calling ``startCapture()`` for the first segment.
+    /// All session affirmation words are collected into one hint set
+    /// (capped at 100) and applied to the single session-long recognition
+    /// request. This avoids recreating recognition tasks per affirmation.
+    var sessionContextualStrings: [String]? { get set }
+
+    /// Whether a session-long recognition task is currently active.
+    ///
+    /// When `true`, ``startCapture()`` reuses the existing task and only
+    /// begins a new segment (zero audio disruption). When `false`, the
+    /// next ``startCapture()`` call creates the engine, tap, and task.
+    var hasSessionRecognitionTask: Bool { get }
+
     // MARK: - Capture Control
 
     /// Words to hint the speech recognizer for improved accuracy.
     ///
-    /// Set before calling ``startCapture()`` to boost recognition of
-    /// known expected words. Applied as `contextualStrings` on the recognition request.
-    /// Limited to 100 entries per Apple documentation.
-    /// Cleared automatically when capture stops.
+    /// **Deprecated in favor of ``sessionContextualStrings``.**
+    /// Kept for backward compatibility. If ``sessionContextualStrings``
+    /// is set, it takes priority. If neither is set, no hints are applied.
     var contextualStrings: [String]? { get set }
 
-    /// Starts audio capture and speech recognition.
+    /// Starts audio capture and speech recognition for one segment.
     ///
-    /// Configures the audio session, starts the AVAudioEngine pipeline,
-    /// and begins emitting updates on `captureStream`.
+    /// On the first call per session, creates the recognition engine, tap,
+    /// and a session-long recognition task. Subsequent calls reuse the
+    /// existing task and only begin a new segment — zero audio disruption.
+    ///
+    /// Emits updates on `captureStream` including transcription deltas
+    /// relative to this segment's start (not the full session accumulation).
     ///
     /// - Throws: `SpeechCaptureError` if permissions are missing or
     ///   the audio pipeline fails to start
     func startCapture() async throws
 
-    /// Stops capture and returns the final transcription.
+    /// Stops the current segment and returns the segment's transcription.
     ///
-    /// Tears down the audio engine, cancels recognition, and restores
-    /// the audio session to `.playback` category.
+    /// Ends the active segment but keeps the session-long recognition task
+    /// alive. Buffers continue flowing to keep the task warm; transcription
+    /// events are suppressed until the next ``startCapture()`` call.
+    /// Call ``releaseEngine()`` at session end to fully tear down.
     ///
-    /// - Returns: The accumulated transcription text
+    /// - Returns: The segment's accumulated transcription text (delta)
     @discardableResult
     func stopCapture() -> String
 
-    /// Cancels capture without waiting for a final result.
+    /// Cancels the current segment without waiting for a final result.
     ///
-    /// Clears the transcription and tears down the pipeline.
+    /// Ends the active segment and clears the transcription, but keeps
+    /// the session-long recognition task alive for the next segment.
     func cancelCapture()
+
+    /// Releases the persistent capture engine, deactivating mic hardware.
+    ///
+    /// Cancels the session-long recognition task, removes the input tap,
+    /// stops the engine, and resets all session state. Call at session end
+    /// or when the service is no longer needed. The engine and task are
+    /// automatically recreated on the next ``startCapture()`` call.
+    /// Safe to call multiple times — no-op if no engine exists.
+    func releaseEngine()
 
     // MARK: - State
 
-    /// Whether audio capture is currently active.
+    /// Whether a listening segment is currently active.
     var isCapturing: Bool { get }
 
-    /// The current accumulated transcription text.
+    /// The current segment's accumulated transcription text (delta).
     var currentTranscription: String { get }
 }

@@ -225,8 +225,7 @@ extension PracticeStore {
                 guard self.flowGeneration == repeatGeneration else { return }
 
                 // Session category is managed centrally by AudioSessionController.
-                // No pre-configuration needed — .playback is guaranteed by
-                // SpeechCaptureService.stopCapture() after mic use.
+                // No pre-configuration needed — .playAndRecord is permanent.
 
                 // Signal dock to start segment timer in sync with flow start
                 self.incrementSegmentGeneration()

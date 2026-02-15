@@ -75,6 +75,14 @@ protocol AudioServiceProtocol: AnyObject {
     /// share this single engine instance.
     var sharedEngine: AVAudioEngine { get }
 
+    /// Coordinator for smooth music volume ducking during speech capture.
+    ///
+    /// Used by `SpeechCaptureService` to fade background music down before
+    /// creating a recognition task (masking the brief audio disruption) and
+    /// restore it afterward. Access this property to call ``AudioDuckingCoordinator/duckDown()``
+    /// and ``AudioDuckingCoordinator/restoreUp()``.
+    var duckingCoordinator: AudioDuckingCoordinator { get }
+
     // MARK: - Engine Control
 
     /// Starts the audio engine

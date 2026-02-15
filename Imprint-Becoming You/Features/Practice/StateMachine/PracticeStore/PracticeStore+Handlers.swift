@@ -70,16 +70,10 @@ extension PracticeStore {
         // Note: Do NOT release for readThenSpeak — it uses listening after TTS playback.
         if mode == .readAloud {
             releaseSpeechCaptureService()
-            // Restore .playback — readAloud doesn't need .playAndRecord.
-            // Mic-based flows leave the session in .playAndRecord for efficiency.
-            Task { [weak self] in
-                try? await self?.dependencies.audioService.sessionController.transition(
-                    to: .playback,
-                    mode: .spokenAudio,
-                    options: [.mixWithOthers],
-                    engineAction: .none
-                )
-            }
+            // NOTE: Audio session stays in .playAndRecord permanently.
+            // Read Aloud uses TTS playback only — no mic needed (~7-15MB freed
+            // by releasing SpeechCaptureService). Session category is unchanged
+            // to avoid HAL reconfiguration breaks.
         }
 
         // Reset position and progress, but keep same affirmations
@@ -331,9 +325,12 @@ extension PracticeStore {
         } else {
             // FULL INLINE CLEANUP: No cover is showing, so handleSessionCoverDismissed()
             // will NOT be called. We must perform all cleanup that it would have done.
-            // This mirrors handleSessionCoverDismissed()'s steps 1–10 for completeness.
+            // This mirrors handleSessionCoverDismissed()'s steps 1–11 for completeness.
             cancelAllManagedTasks()
             cancelCurrentActivity()
+
+            // Release speech capture service — deactivates mic hardware immediately.
+            releaseSpeechCaptureService()
 
             MemoryManager.shared.sessionDidEnd()
 
@@ -493,8 +490,7 @@ extension PracticeStore {
         // Pre-configure the audio session to eliminate the 50-200ms HAL
         // reconfiguration delay in ensurePlaybackCategory().
         // Session category is managed centrally by AudioSessionController.
-        // SpeechCaptureService.stopCapture() restores .playback after mic use,
-        // so no pre-configuration is needed here.
+        // Audio session is permanently .playAndRecord — no pre-configuration needed.
         let loopGeneration = flowGeneration
         Task { [weak self] in
             guard let self = self else { return }

@@ -31,6 +31,12 @@ final class MockAudioService: AudioServiceProtocol {
     private let _sharedEngine = AVAudioEngine()
     var sharedEngine: AVAudioEngine { _sharedEngine }
 
+    /// Mock ducking coordinator (no-ops because `BackgroundMusicService.isPlaying` is false).
+    let duckingCoordinator: AudioDuckingCoordinator = AudioDuckingCoordinator(
+        musicService: BackgroundMusicService(),
+        initialVolume: 0.5
+    )
+
     // MARK: - Background Music State
 
     private(set) var isBackgroundMusicPlaying: Bool = false

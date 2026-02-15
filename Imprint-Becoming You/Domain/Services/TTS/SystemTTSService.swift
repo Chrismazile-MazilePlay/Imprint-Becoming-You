@@ -124,8 +124,9 @@ final class SystemTTSService: NSObject, @unchecked Sendable {
         stopSpeaking()
 
         // Audio session is managed centrally by AudioSessionController.
-        // The session is guaranteed to be in .playback category (which
-        // ignores the silent switch) before TTS playback begins.
+        // The session is permanently in .playAndRecord category (which
+        // ignores the silent switch). TTS playback works identically
+        // under .playAndRecord with .defaultToSpeaker.
 
         // Capture Sendable configuration values BEFORE the closure
         let voice = selectedVoice

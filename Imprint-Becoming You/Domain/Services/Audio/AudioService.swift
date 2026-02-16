@@ -169,8 +169,9 @@ final class AudioService: AudioServiceProtocol {
         backgroundMusicService.stop()
         await audioPlayer.stop()
 
-        // Detach background music from engine
+        // Detach sub-services from engine
         backgroundMusicService.detachFrom(engine: audioEngine)
+        await audioPlayer.detachFrom(engine: audioEngine)
 
         // Stop engine
         audioEngine.stop()

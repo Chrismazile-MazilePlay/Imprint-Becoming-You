@@ -630,10 +630,12 @@ extension PracticeStore {
     /// ## Ordering Invariants
     /// 1. `immediateStop()` first — prevent audio bleed
     /// 2. `cancelCurrentActivity()` + `cancelAllManagedTasks()` — stop async work
-    /// 3. `sessionDidEnd()` — signal memory manager
-    /// 4. `sessionTTSQueueService.cancelAll()` — clear TTS cache, resume idle timer
-    /// 5. `setFlow(.home)` BEFORE `setSessionState(affirmations: [])` — prevent empty-array crash
-    /// 6. `setShowingSummary(false)` — reset NavigationStack path (invisible, cover gone)
+    /// 3. `releaseSpeechCaptureService()` — deactivate mic hardware
+    /// 4. `sessionDidEnd()` — signal memory manager
+    /// 5. `audioService.stop()` — stop engine, deactivate session (saves battery)
+    /// 6. `sessionTTSQueueService.cancelAll()` — clear TTS cache, resume idle timer
+    /// 7. `setFlow(.home)` BEFORE `setSessionState(affirmations: [])` — prevent empty-array crash
+    /// 8. `setShowingSummary(false)` — reset NavigationStack path (invisible, cover gone)
     func handleSessionCoverDismissed() {
         AppLogger.debug("handleSessionCoverDismissed: full cleanup", category: .practice)
 
@@ -653,20 +655,28 @@ extension PracticeStore {
         // 4. Signal MemoryManager that session lifecycle is complete
         MemoryManager.shared.sessionDidEnd()
 
-        // 5. Cancel TTS queue and clear preparation state.
+        // 5. Stop audio engine — releases playback AVAudioEngine and
+        // deactivates the audio session, saving ~2-5mW of idle battery drain.
+        // Launched in a Task because stop() is async (detaches sub-services).
+        // The engine restarts automatically on the next session's start() call.
+        Task { @MainActor [dependencies] in
+            await dependencies.audioService.stop()
+        }
+
+        // 6. Cancel TTS queue and clear preparation state.
         // cancelAll() internally resumes the synthesis idle timer.
         dependencies.sessionTTSQueueService.cancelAll()
         clearSessionPreparation()
 
-        // 6. Reset session-scoped flags
+        // 7. Reset session-scoped flags
         forceSystemTTSForSession = false
 
-        // 7. Dismiss any alerts
+        // 8. Dismiss any alerts
         setShowingTimeoutAlert(false)
         timedOutAffirmationId = nil
         setPermissionAlert(showing: false)
 
-        // 8. CRITICAL: Reset mode and flow to home BEFORE clearing data.
+        // 9. CRITICAL: Reset mode and flow to home BEFORE clearing data.
         //    setFlow(.home) makes isSessionActive = false immediately.
         //    If we cleared data first, VerticalPager could see empty array mid-render.
         //    NOTE: These are intentionally idempotent — the early dismiss handlers
@@ -679,18 +689,18 @@ extension PracticeStore {
         setFlow(.home)
         setSegmentProgress(0)
 
-        // 9. Clear all session state
+        // 10. Clear all session state
         resetLoopConfiguration()
         clearSavedSessionContext()
         clearOriginalSessionAffirmationIds()
         setSessionState(affirmations: [], index: 0)
         setSessionResults([])
 
-        // 10. Reset summary (invisible — cover is already gone)
+        // 11. Reset summary (invisible — cover is already gone)
         setShowingSummary(false)
         setHasSessionBeenSaved(false)
 
-        // 11. Close any open menus
+        // 12. Close any open menus
         isModeSelectorExpanded = false
         isMusicSelectorExpanded = false
     }

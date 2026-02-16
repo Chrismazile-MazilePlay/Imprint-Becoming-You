@@ -220,9 +220,11 @@ final class BackgroundMusicService: BackgroundMusicServiceProtocol {
 
     /// Schedules the current audio file for playback with loop-on-completion.
     ///
-    /// When the track finishes, the completion callback re-reads the file
-    /// from disk and reschedules it. This creates seamless looping since
-    /// all tracks have 2-second fade-in/out edges baked in.
+    /// When the track finishes, the completion callback resets the file's
+    /// frame position to 0 and reschedules. This avoids re-reading the file
+    /// from disk on every loop (~2-3 minutes), eliminating storage controller
+    /// wakeups. All tracks have 2-second fade-in/out edges baked in for
+    /// seamless looping.
     private func scheduleAndPlay() {
         guard let audioFile = currentAudioFile, shouldLoop else { return }
 
@@ -232,9 +234,10 @@ final class BackgroundMusicService: BackgroundMusicServiceProtocol {
             completionCallbackType: .dataPlayedBack
         ) { [weak self] _ in
             Task { @MainActor in
-                guard let self = self, self.shouldLoop else { return }
-                // Re-read the file to reset the read position for the next loop
-                self.currentAudioFile = try? AVAudioFile(forReading: audioFile.url)
+                guard let self = self, self.shouldLoop,
+                      let file = self.currentAudioFile else { return }
+                // Reset read position instead of re-reading from disk
+                file.framePosition = 0
                 self.scheduleAndPlay()
             }
         }

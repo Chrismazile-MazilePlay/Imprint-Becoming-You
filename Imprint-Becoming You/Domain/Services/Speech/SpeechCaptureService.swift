@@ -5,7 +5,7 @@
 //  Created by Christopher Mazile on 1/9/26.
 //
 
-import AVFoundation
+@preconcurrency import AVFoundation
 @preconcurrency import Speech
 import os.signpost
 
@@ -490,6 +490,19 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         }
     }
 
+    // MARK: - Pipeline Result
+
+    /// Holds objects created on the background queue during pipeline setup.
+    ///
+    /// Returned via the continuation so that property assignments happen
+    /// on `@MainActor`, satisfying Swift 6 strict concurrency.
+    private struct PipelineResult: @unchecked Sendable {
+        let engine: AVAudioEngine
+        let request: SFSpeechAudioBufferRecognitionRequest
+        let task: SFSpeechRecognitionTask
+        let isNewEngine: Bool
+    }
+
     /// Creates the session-long recognition pipeline.
     ///
     /// Creates a standalone `AVAudioEngine` and ONE
@@ -498,25 +511,25 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
     /// ``startCapture()`` calls only install the input tap.
     ///
     /// Heavy work is dispatched to a background queue to keep MainActor
-    /// free for animations.
+    /// free for animations. The created objects are returned via the
+    /// continuation and assigned to `self` on `@MainActor`.
     private func startCapturePipeline() async throws {
         guard let recognizer = speechRecognizer else {
             throw CaptureError.speechRecognizerUnavailable
         }
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                guard let self else {
-                    continuation.resume(throwing: CaptureError.audioEngineFailure("Service deallocated during setup"))
-                    return
-                }
+        // Capture current engine reference for background queue access
+        let existingEngine = self.captureEngine
+        let hints = self.sessionContextualStrings
 
+        let result: PipelineResult = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<PipelineResult, Error>) in
+            DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     // Reuse existing engine if already running
                     let engine: AVAudioEngine
                     let needsStart: Bool
 
-                    if let existing = self.captureEngine, existing.isRunning {
+                    if let existing = existingEngine, existing.isRunning {
                         engine = existing
                         needsStart = false
                         #if DEBUG
@@ -572,7 +585,7 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                     }
 
                     // Apply contextual string hints
-                    if let hints = self.sessionContextualStrings, !hints.isEmpty {
+                    if let hints, !hints.isEmpty {
                         request.contextualStrings = Array(hints.prefix(500))
                         #if DEBUG
                         AppLogger.debug("Added \(min(hints.count, 500)) contextual strings", category: .speech)
@@ -586,10 +599,6 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                         }
                     }
 
-                    // Store request and task for the session's lifetime
-                    self.recognitionRequest = request
-                    self.recognitionTask = task
-
                     // Only prepare/start if this is a new engine
                     if needsStart {
                         engine.prepare()
@@ -598,22 +607,31 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                             try engine.start()
                         } catch {
                             task.cancel()
-                            self.recognitionRequest = nil
-                            self.recognitionTask = nil
                             throw CaptureError.audioEngineFailure("Failed to start audio engine: \(error.localizedDescription)")
                         }
-
-                        self.captureEngine = engine
                     }
 
-                    self.hasSessionRecognitionTask = true
-
-                    continuation.resume()
+                    continuation.resume(returning: PipelineResult(
+                        engine: engine,
+                        request: request,
+                        task: task,
+                        isNewEngine: needsStart
+                    ))
                 } catch {
                     continuation.resume(throwing: error)
                 }
             }
         }
+
+        // Back on @MainActor — safe to assign properties
+        self.recognitionRequest = result.request
+        self.recognitionTask = result.task
+
+        if result.isNewEngine {
+            self.captureEngine = result.engine
+        }
+
+        self.hasSessionRecognitionTask = true
     }
 
     /// Handles recognition results from the session-long task.

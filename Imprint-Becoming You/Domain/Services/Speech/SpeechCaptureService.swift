@@ -142,14 +142,6 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
     nonisolated(unsafe) private var silenceTimer: Task<Void, Never>?
     private let silenceThreshold: TimeInterval = 1.5
 
-    /// Monotonic generation counter for silence timer lifecycle.
-    ///
-    /// Prevents overlapping timers: each new `startSilenceMonitoring()` call
-    /// increments the generation. The polling loop exits if the generation
-    /// no longer matches, ensuring stale timers self-terminate even if
-    /// cooperative cancellation hasn't been observed yet.
-    private var silenceTimerGeneration: Int = 0
-
     /// Audio level smoothing.
     private var smoothedLevel: Float = 0
     private let smoothingFactor: Float = 0.3
@@ -208,11 +200,6 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
             let service = self
 
             Task { @MainActor in
-                // Finish any previous continuation to prevent leaks.
-                // This ensures abandoned subscriptions are properly terminated
-                // before a new subscriber takes over.
-                service.streamContinuation?.finish()
-
                 service.streamGeneration += 1
                 let currentGeneration = service.streamGeneration
                 service.streamContinuation = continuation
@@ -434,25 +421,14 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
                 return
             }
 
-            // Capture request reference at tap installation time to avoid
-            // data races — the audio thread reads this pointer on every buffer
-            // while MainActor may nil it during releaseEngine().
-            let request = self.recognitionRequest
-
-            // Throttle audio level dispatches: only dispatch every 4th buffer
-            // (~10 Hz instead of ~43 Hz). Reduces Task allocation overhead by 75%.
-            var bufferCounter: Int = 0
-
             inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
                 guard let self else { return }
 
-                // Forward buffers to the session-long recognition request.
-                // Uses captured reference — thread-safe (append is safe on the request).
-                request?.append(buffer)
+                // Forward buffers to the session-long recognition request
+                self.recognitionRequest?.append(buffer)
 
-                // Dispatch audio level updates ~10x/sec instead of ~43x/sec
-                bufferCounter += 1
-                if bufferCounter % 4 == 0, self.isCapturing {
+                // Only dispatch audio level updates during active capture
+                if self.isCapturing {
                     Task { @MainActor in
                         self.processAudioLevel(buffer: buffer)
                     }
@@ -710,6 +686,17 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         // Only emit transcription events during active capture (mic ON)
         guard isCapturing else { return }
 
+        // Build segments from the recognizer result
+        let segments = result.bestTranscription.segments.map { segment in
+            RecognizedSegment(
+                substring: segment.substring,
+                timestamp: segment.timestamp,
+                duration: segment.duration,
+                confidence: segment.confidence,
+                alternatives: segment.alternativeSubstrings
+            )
+        }
+
         // Full cumulative text from the session-long task
         let fullText = result.bestTranscription.formattedString
 
@@ -718,24 +705,6 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
         // Update last speech time
         if !fullText.isEmpty {
             lastSpeechTime = Date()
-        }
-
-        // Only build per-word segments on final results to avoid allocating
-        // thousands of RecognizedSegment structs on every partial (~30ms intervals).
-        // Consumers currently only use the text, not segments.
-        let segments: [RecognizedSegment]
-        if result.isFinal {
-            segments = result.bestTranscription.segments.map { segment in
-                RecognizedSegment(
-                    substring: segment.substring,
-                    timestamp: segment.timestamp,
-                    duration: segment.duration,
-                    confidence: segment.confidence,
-                    alternatives: segment.alternativeSubstrings
-                )
-            }
-        } else {
-            segments = []
         }
 
         // Emit full cumulative transcription
@@ -793,23 +762,14 @@ final class SpeechCaptureService: NSObject, SpeechCaptureServiceProtocol, @unche
     }
 
     /// Starts monitoring for silence.
-    ///
-    /// Uses a generation counter to prevent overlapping timers. Each call
-    /// increments `silenceTimerGeneration`; the polling loop self-terminates
-    /// if the generation no longer matches (even before cooperative
-    /// cancellation is observed).
     private func startSilenceMonitoring() {
         silenceTimer?.cancel()
-        silenceTimerGeneration += 1
-        let currentGeneration = silenceTimerGeneration
 
         silenceTimer = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500))
 
-                guard let self = self,
-                      self.isCapturing,
-                      self.silenceTimerGeneration == currentGeneration else { break }
+                guard let self = self, self.isCapturing else { break }
 
                 await MainActor.run {
                     self.checkSilence()

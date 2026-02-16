@@ -630,11 +630,10 @@ extension PracticeStore {
     /// ## Ordering Invariants
     /// 1. `immediateStop()` first — prevent audio bleed
     /// 2. `cancelCurrentActivity()` + `cancelAllManagedTasks()` — stop async work
-    /// 3. `releaseSpeechCaptureService()` — deactivate mic hardware
-    /// 4. `sessionDidEnd()` — signal memory manager
-    /// 5. `sessionTTSQueueService.cancelAll()` — clear TTS cache, resume idle timer
-    /// 6. `setFlow(.home)` BEFORE `setSessionState(affirmations: [])` — prevent empty-array crash
-    /// 7. `setShowingSummary(false)` — reset NavigationStack path (invisible, cover gone)
+    /// 3. `sessionDidEnd()` — signal memory manager
+    /// 4. `sessionTTSQueueService.cancelAll()` — clear TTS cache, resume idle timer
+    /// 5. `setFlow(.home)` BEFORE `setSessionState(affirmations: [])` — prevent empty-array crash
+    /// 6. `setShowingSummary(false)` — reset NavigationStack path (invisible, cover gone)
     func handleSessionCoverDismissed() {
         AppLogger.debug("handleSessionCoverDismissed: full cleanup", category: .practice)
 

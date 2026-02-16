@@ -71,11 +71,11 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
     // MARK: - Initialization
 
     init() {
+        setupNotificationObservers()
         sessionLog.info("AudioSessionController initialized")
     }
 
     deinit {
-        // Inline cleanup — can't call @MainActor methods from deinit
         let nc = NotificationCenter.default
         if let observer = interruptionObserver { nc.removeObserver(observer) }
         if let observer = routeChangeObserver { nc.removeObserver(observer) }
@@ -87,14 +87,7 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
     // MARK: - Notification Setup
 
     /// Registers observers for all audio session system notifications.
-    ///
-    /// Called lazily from ``configure()`` — observers are only active during
-    /// a practice session. Removed in ``deactivateSession()`` to eliminate
-    /// off-session MainActor wakeups from system audio events.
     private func setupNotificationObservers() {
-        // Guard against duplicate registration
-        guard interruptionObserver == nil else { return }
-
         let nc = NotificationCenter.default
         let audioSession = AVAudioSession.sharedInstance()
 
@@ -165,9 +158,6 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
             )
             try session.setActive(true, options: .notifyOthersOnDeactivation)
 
-            // Register observers only when session is active (lazy registration)
-            setupNotificationObservers()
-
             isConfigured = true
             isSessionActive = true
             sessionLog.info("Audio session configured: .playAndRecord + .allowBluetoothA2DP")
@@ -180,15 +170,8 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
     }
 
     /// Deactivates the audio session.
-    ///
-    /// Also removes notification observers to eliminate off-session
-    /// MainActor wakeups from system audio events.
     func deactivateSession(notifyOthers: Bool = true) {
         guard isSessionActive else { return }
-
-        // Remove observers before deactivation — no reason to process
-        // system events once the session is being torn down.
-        removeNotificationObservers()
 
         do {
             let options: AVAudioSession.SetActiveOptions = notifyOthers
@@ -200,19 +183,6 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
         } catch {
             sessionLog.warning("Failed to deactivate session: \(error.localizedDescription)")
         }
-    }
-
-    /// Removes all notification observers.
-    ///
-    /// Called from ``deactivateSession()`` and `deinit` to stop processing
-    /// system audio events when no session is active.
-    private func removeNotificationObservers() {
-        let nc = NotificationCenter.default
-        if let observer = interruptionObserver { nc.removeObserver(observer); interruptionObserver = nil }
-        if let observer = routeChangeObserver { nc.removeObserver(observer); routeChangeObserver = nil }
-        if let observer = configurationChangeObserver { nc.removeObserver(observer); configurationChangeObserver = nil }
-        if let observer = mediaResetObserver { nc.removeObserver(observer); mediaResetObserver = nil }
-        if let observer = mediaLostObserver { nc.removeObserver(observer); mediaLostObserver = nil }
     }
 
     // MARK: - Engine Registration

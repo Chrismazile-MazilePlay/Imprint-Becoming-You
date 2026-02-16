@@ -7,7 +7,7 @@
 
 import Foundation
 
-// MARK: - Mock Speech Capture Service
+// MARK: - MockSpeechCaptureService
 
 /// Test double for `SpeechCaptureServiceProtocol`.
 ///
@@ -33,59 +33,53 @@ final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked S
 
     // MARK: - Call Tracking
 
-    /// Number of times `startCapture()` was called
+    /// Number of times `startCapture()` was called.
     private(set) var startCaptureCallCount: Int = 0
 
-    /// Number of times `stopCapture()` was called
+    /// Number of times `stopCapture()` was called.
     private(set) var stopCaptureCallCount: Int = 0
 
-    /// Number of times `cancelCapture()` was called
+    /// Number of times `cancelCapture()` was called.
     private(set) var cancelCaptureCallCount: Int = 0
 
-    /// Number of times `releaseEngine()` was called
+    /// Number of times `releaseEngine()` was called.
     private(set) var releaseEngineCallCount: Int = 0
 
     // MARK: - Stubs
 
-    /// Stub value for `hasMicrophonePermission`
+    /// Stub value for `hasMicrophonePermission`.
     var stubHasMicrophonePermission: Bool = true
 
-    /// Stub value for `hasSpeechRecognitionPermission`
+    /// Stub value for `hasSpeechRecognitionPermission`.
     var stubHasSpeechRecognitionPermission: Bool = true
 
-    /// Stub return value for `requestMicrophonePermission()`
+    /// Stub return value for `requestMicrophonePermission()`.
     var stubRequestMicPermissionResult: Bool = true
 
-    /// Stub return value for `requestSpeechRecognitionPermission()`
+    /// Stub return value for `requestSpeechRecognitionPermission()`.
     var stubRequestSpeechPermissionResult: Bool = true
 
-    /// Error to throw from `startCapture()` (nil = success)
+    /// Error to throw from `startCapture()` (nil = success).
     var stubStartCaptureError: Error?
 
-    /// Stub return value for `stopCapture()`
-    var stubStopCaptureResult: String = ""
-
-    /// Stub value for `isCapturing`
+    /// Stub value for `isCapturing`.
     var stubIsCapturing: Bool = false
 
-    /// Stub value for `currentTranscription`
+    /// Stub value for `currentTranscription`.
     var stubCurrentTranscription: String = ""
 
-    /// Merged session-level contextual strings (mirrors protocol requirement).
+    /// Contextual string hints (mirrors protocol requirement).
     var sessionContextualStrings: [String]?
 
     /// Whether a session-long recognition task is active (mirrors protocol requirement).
     var hasSessionRecognitionTask: Bool = false
 
-    /// Words to hint the speech recognizer (mirrors protocol requirement).
-    var contextualStrings: [String]?
-
     // MARK: - Stream
 
-    /// Continuation for emitting test updates
+    /// Continuation for emitting test updates.
     nonisolated(unsafe) private var streamContinuation: AsyncStream<SpeechCaptureUpdate>.Continuation?
 
-    /// Stream of capture updates for test subscribers
+    /// Stream of capture updates for test subscribers.
     nonisolated var captureStream: AsyncStream<SpeechCaptureUpdate> {
         AsyncStream { continuation in
             let mock = self
@@ -97,7 +91,7 @@ final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked S
 
     /// Emits an update to test subscribers.
     ///
-    /// - Parameter update: The update to emit
+    /// - Parameter update: The update to emit.
     func emitUpdate(_ update: SpeechCaptureUpdate) {
         streamContinuation?.yield(update)
     }
@@ -122,11 +116,9 @@ final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked S
         hasSessionRecognitionTask = true
     }
 
-    @discardableResult
-    func stopCapture() -> String {
+    func stopCapture() {
         stopCaptureCallCount += 1
         stubIsCapturing = false
-        return stubStopCaptureResult
     }
 
     func cancelCapture() {
@@ -158,10 +150,8 @@ final class MockSpeechCaptureService: SpeechCaptureServiceProtocol, @unchecked S
         stubRequestMicPermissionResult = true
         stubRequestSpeechPermissionResult = true
         stubStartCaptureError = nil
-        stubStopCaptureResult = ""
         stubIsCapturing = false
         stubCurrentTranscription = ""
-        contextualStrings = nil
         sessionContextualStrings = nil
         hasSessionRecognitionTask = false
         streamContinuation?.finish()

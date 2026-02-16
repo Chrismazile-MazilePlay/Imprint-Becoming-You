@@ -17,69 +17,23 @@ private let sessionLog = Logger(subsystem: "com.imprint.audio", category: "Audio
 
 /// Single source of truth for `AVAudioSession` configuration and system notifications.
 ///
-/// This controller centralizes **all** `setCategory()` calls, manages system
-/// notification observers (interruption, route change, media reset), and exposes
-/// permissions and route info. It fully replaces the legacy `AudioCoordinator`
-/// singleton.
+/// Centralizes all `setCategory()` calls, manages system notification observers
+/// (interruption, route change, configuration change, media reset/lost), and
+/// exposes permissions and route info.
 ///
-/// ## Responsibilities
-/// - Sole owner of `AVAudioSession.setCategory()` — no other component may call it
-/// - Engine lifecycle coordination around HAL reconfigurations
-/// - System notification handling (interruption, route change, media reset/lost)
-/// - Microphone and speech recognition permission management
-/// - Audio route information (headphones, Bluetooth)
+/// ## Configuration
+/// The app permanently uses `.playAndRecord` with `.allowBluetoothA2DP`.
+/// ``configure()`` is called once at session start and sets this category.
+/// Subsequent calls are no-ops.
 ///
 /// ## Engine Lifecycle
-/// - **Playback-only transitions** (`.playback` ↔ `.playback`):
-///   `pause()` / `start()` — preserves scheduled audio buffers
-/// - **Recording transitions** (→ `.playAndRecord` or ← `.playAndRecord`):
-///   `stop()` / `start()` — full teardown/rebuild so the input node reinitializes
-/// - **Background dispatch**: `setCategory()` blocks 50–200ms; dispatched off MainActor
-///
-/// ## Usage
-/// ```swift
-/// let controller = AudioSessionController()
-///
-/// // Initial setup (no engine management)
-/// try await controller.transition(
-///     to: .playback, mode: .spokenAudio,
-///     options: [.mixWithOthers], engineAction: .none
-/// )
-///
-/// // Transition to recording (engine stop/restart)
-/// try await controller.transition(
-///     to: .playAndRecord, mode: .default,
-///     options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers]
-/// )
-/// ```
+/// After system events (interruptions, media resets), the controller
+/// automatically restarts the registered engine and notifies consumers
+/// via ``onEngineRestarted``.
 @MainActor
 final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
 
-    // MARK: - Engine Action
-
-    /// Determines how the shared `AVAudioEngine` is managed during a
-    /// category transition.
-    enum EngineAction: Sendable {
-        /// Automatically choose the appropriate engine lifecycle strategy:
-        /// - **Playback-only transitions**: `pause()` / `start()` — preserves buffers
-        /// - **Recording transitions**: `stop()` / `start()` — full teardown/rebuild
-        case pauseAndResume
-
-        /// Do not touch the engine. Use for initial configuration before the
-        /// engine has started, or when the caller manages lifecycle externally.
-        case none
-    }
-
-    // MARK: - Tracked State
-
-    /// Current audio session category (nil = unknown / not yet configured).
-    private(set) var currentCategory: AVAudioSession.Category?
-
-    /// Current audio session mode.
-    private(set) var currentMode: AVAudioSession.Mode?
-
-    /// Current audio session category options.
-    private(set) var currentOptions: AVAudioSession.CategoryOptions?
+    // MARK: - State
 
     /// Whether the audio session is currently interrupted.
     private(set) var isInterrupted: Bool = false
@@ -87,37 +41,27 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
     /// Whether the audio session is currently active.
     private(set) var isSessionActive: Bool = false
 
-    /// Guard against self-triggered `.categoryChange` route notifications.
-    ///
-    /// `setCategory()` fires `.routeChangeNotification` with reason
-    /// `.categoryChange`. Without this flag, `handleRouteChange()` calls
-    /// `resetTracking()` mid-transition, clearing `currentCategory`. This
-    /// causes downstream `transition(.playback)` calls to misidentify the
-    /// transition as playback-only, skip the full engine stop/restart, and
-    /// leave the audio graph in an inconsistent state.
-    private var isTransitioning: Bool = false
+    /// Whether configure() has been called successfully.
+    private var isConfigured: Bool = false
 
     // MARK: - Engine Reference
 
     /// Weak reference to the shared `AVAudioEngine` managed by `AudioService`.
     private weak var sharedEngine: AVAudioEngine?
 
-    /// Callback invoked after the engine is restarted following a **full stop**
-    /// (recording category transition). Set by `AudioService` to re-schedule
-    /// background music, since `engine.stop()` discards all scheduled buffers.
-    var onEngineRestartedAfterFullStop: (() -> Void)?
+    // MARK: - Callbacks
 
-    // MARK: - Interruption Callbacks
+    /// Called after the engine is restarted following a system event.
+    var onEngineRestarted: (() -> Void)?
 
-    /// Callback invoked when an audio interruption begins.
+    /// Called when an audio interruption begins.
     var onInterruptionBegan: (() -> Void)?
 
-    /// Callback invoked when an audio interruption ends.
+    /// Called when an audio interruption ends.
     var onInterruptionEnded: ((Bool) -> Void)?
 
     // MARK: - Notification Observers
 
-    /// Storage for notification observers (nonisolated access for deinit).
     private nonisolated(unsafe) var interruptionObserver: NSObjectProtocol?
     private nonisolated(unsafe) var routeChangeObserver: NSObjectProtocol?
     private nonisolated(unsafe) var configurationChangeObserver: NSObjectProtocol?
@@ -128,7 +72,7 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
 
     init() {
         setupNotificationObservers()
-        sessionLog.info("✅ AudioSessionController initialized")
+        sessionLog.info("AudioSessionController initialized")
     }
 
     deinit {
@@ -147,76 +91,106 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
         let nc = NotificationCenter.default
         let audioSession = AVAudioSession.sharedInstance()
 
-        // Audio session interruption (phone call, alarm, Siri, etc.)
+        // 1. Audio session interruption (phone call, alarm, Siri)
         interruptionObserver = nc.addObserver(
             forName: AVAudioSession.interruptionNotification,
             object: audioSession,
             queue: .main
         ) { [weak self] notification in
-            Task { @MainActor in
-                self?.handleInterruption(notification)
-            }
+            Task { @MainActor in self?.handleInterruption(notification) }
         }
 
-        // Audio route change (headphones plugged/unplugged, Bluetooth connect/disconnect)
+        // 2. Audio route change (headphones, Bluetooth connect/disconnect)
         routeChangeObserver = nc.addObserver(
             forName: AVAudioSession.routeChangeNotification,
             object: audioSession,
             queue: .main
         ) { [weak self] notification in
-            Task { @MainActor in
-                self?.handleRouteChange(notification)
-            }
+            Task { @MainActor in self?.handleRouteChange(notification) }
         }
 
-        // Audio engine configuration change (sample rate, channel count changed by OS)
+        // 3. Audio engine configuration change (sample rate, channel count)
         configurationChangeObserver = nc.addObserver(
             forName: .AVAudioEngineConfigurationChange,
             object: nil,
             queue: .main
-        ) { [weak self] notification in
-            Task { @MainActor in
-                self?.handleConfigurationChange(notification)
-            }
+        ) { [weak self] _ in
+            Task { @MainActor in self?.handleConfigurationChange() }
         }
 
-        // Media services were reset (rare — all audio objects are orphaned)
+        // 4. Media services were reset (rare — all audio objects orphaned)
         mediaResetObserver = nc.addObserver(
             forName: AVAudioSession.mediaServicesWereResetNotification,
             object: audioSession,
             queue: .main
-        ) { [weak self] notification in
-            Task { @MainActor in
-                self?.handleMediaServicesReset(notification)
-            }
+        ) { [weak self] _ in
+            Task { @MainActor in self?.handleMediaServicesReset() }
         }
 
-        // Media services were lost (server unavailable — wait for reset)
+        // 5. Media services were lost (server unavailable — wait for reset)
         mediaLostObserver = nc.addObserver(
             forName: AVAudioSession.mediaServicesWereLostNotification,
             object: audioSession,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
-                self?.handleMediaServicesLost()
-            }
+            Task { @MainActor in self?.handleMediaServicesLost() }
+        }
+    }
+
+    // MARK: - Configuration
+
+    /// Configures the audio session for `.playAndRecord` with `.allowBluetoothA2DP`.
+    ///
+    /// Called once at the start of a practice session. Subsequent calls are no-ops.
+    func configure() async throws {
+        guard !isConfigured else {
+            sessionLog.debug("Audio session already configured — skipping")
+            return
         }
 
-        sessionLog.debug("📡 Notification observers registered")
+        let session = AVAudioSession.sharedInstance()
+
+        do {
+            try session.setCategory(
+                .playAndRecord,
+                mode: .default,
+                options: [.defaultToSpeaker, .allowBluetoothA2DP, .mixWithOthers]
+            )
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+
+            isConfigured = true
+            isSessionActive = true
+            sessionLog.info("Audio session configured: .playAndRecord + .allowBluetoothA2DP")
+        } catch {
+            sessionLog.error("Failed to configure audio session: \(error.localizedDescription)")
+            throw AppError.audioSessionConfigurationFailed(
+                reason: "Failed to configure audio session: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    /// Deactivates the audio session.
+    func deactivateSession(notifyOthers: Bool = true) {
+        guard isSessionActive else { return }
+
+        do {
+            let options: AVAudioSession.SetActiveOptions = notifyOthers
+                ? [.notifyOthersOnDeactivation] : []
+            try AVAudioSession.sharedInstance().setActive(false, options: options)
+            isSessionActive = false
+            isConfigured = false
+            sessionLog.info("Audio session deactivated")
+        } catch {
+            sessionLog.warning("Failed to deactivate session: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Engine Registration
 
-    /// Registers the shared `AVAudioEngine` for pause/restart coordination.
-    ///
-    /// Called by `AudioService` after creating its engine. The controller
-    /// holds a weak reference — the engine's lifetime is owned by
-    /// `AudioService`.
-    ///
-    /// - Parameter engine: The shared `AVAudioEngine` instance.
+    /// Registers the shared `AVAudioEngine` for restart coordination.
     func registerEngine(_ engine: AVAudioEngine) {
         sharedEngine = engine
-        sessionLog.debug("🔗 Shared engine registered")
+        sessionLog.debug("Shared engine registered")
     }
 
     // MARK: - Permissions
@@ -232,25 +206,21 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
     }
 
     /// Requests microphone permission from the user.
-    ///
-    /// - Returns: `true` if permission was granted
     func requestMicrophonePermission() async -> Bool {
-        sessionLog.info("🎙️ Requesting microphone permission")
+        sessionLog.info("Requesting microphone permission")
         let granted = await AVAudioApplication.requestRecordPermission()
-        sessionLog.info("🎙️ Microphone permission: \(granted ? "granted" : "denied")")
+        sessionLog.info("Microphone permission: \(granted ? "granted" : "denied")")
         return granted
     }
 
     /// Requests speech recognition permission from the user.
-    ///
-    /// - Returns: `true` if permission was granted
     func requestSpeechRecognitionPermission() async -> Bool {
-        sessionLog.info("🗣️ Requesting speech recognition permission")
+        sessionLog.info("Requesting speech recognition permission")
 
         return await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { status in
                 let granted = status == .authorized
-                sessionLog.info("🗣️ Speech recognition permission: \(granted ? "granted" : "denied")")
+                sessionLog.info("Speech recognition permission: \(granted ? "granted" : "denied")")
                 continuation.resume(returning: granted)
             }
         }
@@ -266,178 +236,6 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
         }
     }
 
-    // MARK: - Category Transition
-
-    /// Transitions the audio session to a new category/mode/options configuration.
-    ///
-    /// This is the **sole** method in the codebase that calls
-    /// `AVAudioSession.setCategory()`. All other components must route
-    /// session configuration through this method.
-    ///
-    /// ## Behavior
-    ///
-    /// 1. **Fast path**: If the requested configuration matches the current
-    ///    state, returns immediately (~0ms).
-    /// 2. **Engine coordination**: When `engineAction` is `.pauseAndResume`
-    ///    and the shared engine is running:
-    ///    - For transitions involving `.playAndRecord` (either entering or
-    ///      leaving), the engine is **stopped** to force a full audio graph
-    ///      teardown/rebuild.
-    ///    - For playback-only transitions, the engine is **paused** to
-    ///      preserve scheduled audio buffers (background music continues).
-    /// 3. **Background dispatch**: The actual `setCategory()` call runs on
-    ///    a `.userInitiated` background queue to avoid blocking MainActor.
-    ///
-    /// - Parameters:
-    ///   - category: The desired `AVAudioSession.Category`.
-    ///   - mode: The desired `AVAudioSession.Mode` (default: `.default`).
-    ///   - options: The desired `AVAudioSession.CategoryOptions` (default: `[]`).
-    ///   - engineAction: How to manage the shared engine during transition
-    ///     (default: `.pauseAndResume`).
-    /// - Throws: `AppError.audioSessionConfigurationFailed` if `setCategory()`
-    ///   or `setActive()` fails.
-    func transition(
-        to category: AVAudioSession.Category,
-        mode: AVAudioSession.Mode = .default,
-        options: AVAudioSession.CategoryOptions = [],
-        engineAction: EngineAction = .pauseAndResume
-    ) async throws {
-        // Fast path: skip if configuration is identical
-        if category == currentCategory && mode == currentMode && options == currentOptions {
-            sessionLog.debug("⚡ Session already \(category.rawValue)/\(mode.rawValue) — skipping")
-            return
-        }
-
-        sessionLog.info(
-            "🔄 Transitioning: \(self.currentCategory?.rawValue ?? "nil") → \(category.rawValue), mode: \(mode.rawValue)"
-        )
-
-        // Determine whether a full stop is needed. Transitions involving
-        // `.playAndRecord` (entering or leaving) require the engine to be
-        // stopped and restarted so the input node's HAL connection is
-        // properly initialized (or torn down).
-        let involvesRecording = category == .playAndRecord || currentCategory == .playAndRecord
-        let needsFullStop = involvesRecording
-
-        // Prevent self-triggered .categoryChange notifications from
-        // resetting tracked state while this transition is in flight.
-        isTransitioning = true
-        defer { isTransitioning = false }
-
-        // Phase 1: Manage engine before HAL reconfiguration
-        let engineWasRunning: Bool
-        if engineAction == .pauseAndResume, let engine = sharedEngine, engine.isRunning {
-            if needsFullStop {
-                engine.stop()
-                sessionLog.debug("⏹ Engine stopped for recording category transition")
-            } else {
-                engine.pause()
-                sessionLog.debug("⏸ Engine paused for category transition")
-            }
-            engineWasRunning = true
-        } else {
-            engineWasRunning = false
-        }
-
-        // Phase 2: Set category on background queue (blocks 50-200ms)
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let session = AVAudioSession.sharedInstance()
-                do {
-                    try session.setCategory(category, mode: mode, options: options)
-                    try session.setActive(true, options: .notifyOthersOnDeactivation)
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: AppError.audioSessionConfigurationFailed(
-                        reason: "Failed to set category \(category.rawValue): \(error.localizedDescription)"
-                    ))
-                }
-            }
-        }
-
-        // Phase 3: Update tracked state
-        currentCategory = category
-        currentMode = mode
-        currentOptions = options
-        isSessionActive = true
-
-        // Phase 4: Restart engine after HAL reconfiguration.
-        if engineWasRunning, let engine = sharedEngine {
-            // After a full stop, allow the HAL to stabilize before restarting.
-            // 100ms provides sufficient time on most devices for the microphone
-            // hardware path to initialize and report a valid sample rate.
-            if needsFullStop {
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-
-            do {
-                engine.prepare()
-                try engine.start()
-                sessionLog.debug("▶️ Engine restarted after category transition")
-            } catch {
-                // Retry once after a longer delay
-                sessionLog.warning("⚠️ Engine restart failed, retrying in 200ms: \(error.localizedDescription)")
-                try? await Task.sleep(for: .milliseconds(200))
-                do {
-                    engine.prepare()
-                    try engine.start()
-                    sessionLog.info("▶️ Engine restarted on retry")
-                } catch {
-                    sessionLog.error("❌ Engine restart failed after retry: \(error.localizedDescription)")
-                    throw AppError.audioEngineInitializationFailed(
-                        reason: "Engine failed to restart after category transition: \(error.localizedDescription)"
-                    )
-                }
-            }
-
-            // After a full stop/start, allow a brief settle time before consumers
-            // query the input node format.
-            if needsFullStop {
-                try? await Task.sleep(for: .milliseconds(50))
-            }
-
-            // After a full stop/start, scheduled audio buffers were discarded.
-            // Notify AudioService to re-schedule background music.
-            if needsFullStop {
-                onEngineRestartedAfterFullStop?()
-                sessionLog.debug("📢 Notified AudioService of full-stop restart")
-            }
-        }
-    }
-
-    // MARK: - Session Deactivation
-
-    /// Deactivates the audio session.
-    ///
-    /// - Parameter notifyOthers: Whether to notify other audio apps to resume.
-    func deactivateSession(notifyOthers: Bool = true) {
-        guard isSessionActive else { return }
-
-        do {
-            let options: AVAudioSession.SetActiveOptions = notifyOthers
-                ? [.notifyOthersOnDeactivation] : []
-            try AVAudioSession.sharedInstance().setActive(false, options: options)
-            isSessionActive = false
-            sessionLog.info("✅ Audio session deactivated")
-        } catch {
-            sessionLog.warning("⚠️ Failed to deactivate session: \(error.localizedDescription)")
-        }
-    }
-
-    // MARK: - State Reset
-
-    /// Resets tracked category/mode/options state.
-    ///
-    /// Call when iOS resets the audio session (interruption began, media
-    /// services reset). The next ``transition(to:mode:options:engineAction:)``
-    /// call will perform a full reconfiguration instead of short-circuiting.
-    func resetTracking() {
-        currentCategory = nil
-        currentMode = nil
-        currentOptions = nil
-        sessionLog.debug("🔄 Session tracking reset")
-    }
-
     // MARK: - Notification Handlers
 
     /// Handles audio session interruptions (phone call, alarm, Siri, etc.).
@@ -445,14 +243,12 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
         guard let userInfo = notification.userInfo,
               let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
               let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
-            sessionLog.warning("⚠️ Could not parse interruption notification")
+            sessionLog.warning("Could not parse interruption notification")
             return
         }
 
         switch type {
         case .began:
-            sessionLog.warning("⚠️ INTERRUPTION BEGAN")
-
             // Check interruption reason (iOS 14.5+)
             if let reasonValue = userInfo[AVAudioSessionInterruptionReasonKey] as? UInt,
                let reason = AVAudioSession.InterruptionReason(rawValue: reasonValue) {
@@ -471,16 +267,13 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
                 }
             }
 
+            sessionLog.warning("INTERRUPTION BEGAN")
             isInterrupted = true
             isSessionActive = false
-            resetTracking()
-
-            // Notify AudioService to pause music and playback
+            isConfigured = false
             onInterruptionBegan?()
 
         case .ended:
-            sessionLog.info("✅ INTERRUPTION ENDED")
-
             let shouldResume: Bool
             if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
                 let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
@@ -489,14 +282,21 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
                 shouldResume = false
             }
 
-            sessionLog.info("Should resume: \(shouldResume)")
+            sessionLog.info("INTERRUPTION ENDED (shouldResume: \(shouldResume))")
             isInterrupted = false
 
-            // Notify AudioService to resume if appropriate
+            // Reconfigure the session and restart the engine
+            if shouldResume {
+                Task {
+                    try? await configure()
+                    restartEngineIfNeeded()
+                }
+            }
+
             onInterruptionEnded?(shouldResume)
 
         @unknown default:
-            sessionLog.warning("⚠️ Unknown interruption type")
+            sessionLog.warning("Unknown interruption type")
         }
     }
 
@@ -508,29 +308,19 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
             return
         }
 
-        sessionLog.info("🔀 Route change: \(String(describing: reason))")
-
         switch reason {
         case .oldDeviceUnavailable:
             if let previousRoute = userInfo[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription,
                let output = previousRoute.outputs.first {
-                sessionLog.warning("⚠️ Device disconnected: \(output.portName)")
+                sessionLog.warning("Device disconnected: \(output.portName)")
             }
 
         case .newDeviceAvailable:
             let output = AVAudioSession.sharedInstance().currentRoute.outputs.first?.portName ?? "Unknown"
-            sessionLog.info("🎧 Device connected: \(output)")
+            sessionLog.info("Device connected: \(output)")
 
         case .categoryChange:
-            if isTransitioning {
-                // Our own setCategory() triggered this notification — ignore.
-                sessionLog.debug("📂 Ignoring self-triggered category change")
-            } else {
-                // iOS or another app changed the category externally — reset
-                // tracking so next transition() performs a full reconfiguration.
-                sessionLog.info("📂 Category changed externally")
-                resetTracking()
-            }
+            sessionLog.debug("Category change notification (external)")
 
         case .override, .routeConfigurationChange:
             sessionLog.debug("Route configuration changed")
@@ -541,37 +331,39 @@ final class AudioSessionController: AudioSessionControllerProtocol, Sendable {
     }
 
     /// Handles audio engine configuration changes (sample rate, channel count).
-    private func handleConfigurationChange(_ notification: Notification) {
-        sessionLog.warning("⚠️ AUDIO ENGINE CONFIGURATION CHANGED")
-
-        // If the shared engine was stopped by iOS, attempt to restart it
-        if let engine = sharedEngine, !engine.isRunning {
-            do {
-                try engine.start()
-                sessionLog.info("✅ Engine restarted after configuration change")
-                onEngineRestartedAfterFullStop?()
-            } catch {
-                sessionLog.error("❌ Failed to restart engine after config change: \(error.localizedDescription)")
-            }
-        }
+    private func handleConfigurationChange() {
+        sessionLog.warning("AUDIO ENGINE CONFIGURATION CHANGED")
+        restartEngineIfNeeded()
     }
 
     /// Handles media services reset (rare — all audio objects orphaned).
-    private func handleMediaServicesReset(_ notification: Notification) {
-        sessionLog.error("🔴 MEDIA SERVICES WERE RESET")
-
+    private func handleMediaServicesReset() {
+        sessionLog.error("MEDIA SERVICES WERE RESET")
         isSessionActive = false
         isInterrupted = false
-        resetTracking()
-
-        sessionLog.info("Audio system needs rebuild after media reset")
+        isConfigured = false
     }
 
     /// Handles media services lost (server unavailable).
     private func handleMediaServicesLost() {
-        sessionLog.error("🔴 MEDIA SERVICES LOST")
-
+        sessionLog.error("MEDIA SERVICES LOST")
         isSessionActive = false
-        resetTracking()
+        isConfigured = false
+    }
+
+    // MARK: - Engine Restart
+
+    /// Restarts the registered engine if it's not currently running.
+    private func restartEngineIfNeeded() {
+        guard let engine = sharedEngine, !engine.isRunning else { return }
+
+        do {
+            engine.prepare()
+            try engine.start()
+            sessionLog.info("Engine restarted after system event")
+            onEngineRestarted?()
+        } catch {
+            sessionLog.error("Failed to restart engine: \(error.localizedDescription)")
+        }
     }
 }

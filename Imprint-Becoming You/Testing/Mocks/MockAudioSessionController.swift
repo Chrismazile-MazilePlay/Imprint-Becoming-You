@@ -16,12 +16,10 @@ import AVFoundation
 @MainActor
 final class MockAudioSessionController: AudioSessionControllerProtocol {
 
-    // MARK: - Reactive State
+    // MARK: - State
 
     private(set) var isInterrupted: Bool = false
     private(set) var isSessionActive: Bool = false
-    private(set) var currentCategory: AVAudioSession.Category?
-    private(set) var currentMode: AVAudioSession.Mode?
 
     // MARK: - Permission Stubs
 
@@ -47,46 +45,28 @@ final class MockAudioSessionController: AudioSessionControllerProtocol {
 
     // MARK: - Callbacks
 
-    var onEngineRestartedAfterFullStop: (() -> Void)?
+    var onEngineRestarted: (() -> Void)?
     var onInterruptionBegan: (() -> Void)?
     var onInterruptionEnded: ((Bool) -> Void)?
 
     // MARK: - Call Tracking
 
-    private(set) var transitionCallCount: Int = 0
-    private(set) var lastTransitionCategory: AVAudioSession.Category?
-    private(set) var lastTransitionMode: AVAudioSession.Mode?
+    private(set) var configureCallCount: Int = 0
 
     // MARK: - Stubs
 
-    var stubTransitionError: Error?
+    var stubConfigureError: Error?
 
-    // MARK: - Session Transitions
+    // MARK: - Configuration
 
-    func transition(
-        to category: AVAudioSession.Category,
-        mode: AVAudioSession.Mode,
-        options: AVAudioSession.CategoryOptions,
-        engineAction: AudioSessionController.EngineAction
-    ) async throws {
-        transitionCallCount += 1
-        lastTransitionCategory = category
-        lastTransitionMode = mode
-
-        if let error = stubTransitionError { throw error }
-
-        currentCategory = category
-        currentMode = mode
+    func configure() async throws {
+        configureCallCount += 1
+        if let error = stubConfigureError { throw error }
         isSessionActive = true
     }
 
     func deactivateSession(notifyOthers: Bool) {
         isSessionActive = false
-    }
-
-    func resetTracking() {
-        currentCategory = nil
-        currentMode = nil
     }
 
     // MARK: - Engine

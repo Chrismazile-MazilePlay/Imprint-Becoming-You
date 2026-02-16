@@ -379,7 +379,12 @@ extension PracticeStore {
                     .components(separatedBy: .whitespaces)
                     .filter { !$0.isEmpty }
             }
-            captureService.sessionContextualStrings = Array(Set(allWords)).prefix(100).map { $0 }
+            // Sort by frequency (most common words first) so the recognizer gets
+            // the highest-value hints when iOS enforces its internal limit.
+            var frequency: [String: Int] = [:]
+            for word in allWords { frequency[word, default: 0] += 1 }
+            let sortedByFrequency = frequency.sorted { $0.value > $1.value }.map(\.key)
+            captureService.sessionContextualStrings = Array(sortedByFrequency.prefix(500))
         }
 
         // Use centralized task management for listening task
@@ -462,7 +467,7 @@ extension PracticeStore {
                 guard generation == self.flowGeneration else { break captureLoop }
                 
                 switch update {
-                case .transcription(let text, let isFinal, _):
+                case .transcription(let text, _, _):
                     lastTranscription = text
 
                     // --- Dual-pass word matching ---
@@ -533,7 +538,12 @@ extension PracticeStore {
                         break captureLoop
                     }
 
-                    if isFinal && !text.isEmpty { break captureLoop }
+                    // NOTE: Do NOT break on isFinal. In a session-long recognition
+                    // task, isFinal means the task is *expiring* (60s timeout), NOT
+                    // that the user finished speaking. Task expiration is handled by
+                    // SpeechCaptureService (error codes 216/1110) which transparently
+                    // recreates the task. Completion is driven by word matching above
+                    // and silence timeout below.
 
                 case .audioLevel(let level):
                     lastAudioLevel = Double(level)
@@ -637,7 +647,8 @@ extension PracticeStore {
         // Clean up listening task (only reached by the active flow)
         cancelListeningTask()
 
-        let finalText = captureService.stopCapture()
+        captureService.stopCapture()
+        let finalText = captureService.currentTranscription
         if !finalText.isEmpty { lastTranscription = finalText }
         
         let duration = Date().timeIntervalSince(startTime)

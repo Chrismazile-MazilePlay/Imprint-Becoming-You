@@ -7,7 +7,7 @@
 
 import Foundation
 
-// MARK: - Recognized Segment
+// MARK: - RecognizedSegment
 
 /// Sendable snapshot of an `SFTranscriptionSegment`.
 ///
@@ -21,44 +21,47 @@ struct RecognizedSegment: Sendable, Equatable {
     let timestamp: TimeInterval
     /// Duration of the spoken word.
     let duration: TimeInterval
-    /// Recognition confidence (0.0 – 1.0).
+    /// Recognition confidence (0.0–1.0).
     let confidence: Float
     /// Alternative word possibilities computed by the recognizer.
     let alternatives: [String]
 }
 
-// MARK: - Speech Capture Update
+// MARK: - SpeechCaptureUpdate
 
-/// Updates emitted by a speech capture service.
+/// Updates emitted by the speech capture service.
 ///
-/// Extracted from `SpeechCaptureService.CaptureUpdate` to enable
-/// protocol-based DI without importing the concrete implementation.
+/// The capture service is a **dumb pipe** — it streams whatever the
+/// recognizer produces without any segment awareness or word matching.
+/// Consumers (e.g., `PracticeStore`) handle all word matching logic.
 enum SpeechCaptureUpdate: Sendable {
     /// New transcription text (partial or final) with per-word segment data.
+    ///
+    /// `text` is the **full cumulative** transcription from the session-long
+    /// recognition task. `segments` contains per-word timing and confidence data.
+    /// On each partial result, the full text is re-emitted so consumers can
+    /// diff against their own state.
     case transcription(text: String, isFinal: Bool, segments: [RecognizedSegment])
 
-    /// Audio level update (0.0 - 1.0 normalized)
+    /// Audio level update (0.0–1.0 normalized).
     case audioLevel(Float)
 
-    /// Silence detected for specified duration
+    /// Silence detected for the specified duration.
     case silenceDetected(duration: TimeInterval)
 
-    /// Error occurred during capture
+    /// Error occurred during capture.
     case error(SpeechCaptureError)
 
-    /// Capture started successfully
+    /// Capture started successfully (mic ON).
     case started
 
-    /// Capture stopped
+    /// Capture stopped (mic OFF).
     case stopped
 }
 
-// MARK: - Speech Capture Error
+// MARK: - SpeechCaptureError
 
 /// Errors that can occur during speech capture.
-///
-/// Extracted from `SpeechCaptureService.CaptureError` to enable
-/// protocol-based DI without importing the concrete implementation.
 enum SpeechCaptureError: Error, Sendable {
     case microphonePermissionDenied
     case speechRecognitionPermissionDenied
@@ -70,47 +73,49 @@ enum SpeechCaptureError: Error, Sendable {
     case audioSessionUnavailable
 }
 
-// MARK: - Speech Capture Update Convenience
+// MARK: - SpeechCaptureUpdate Convenience
 
 extension SpeechCaptureUpdate {
 
-    /// Whether this is a transcription update
+    /// Whether this is a transcription update.
     var isTranscription: Bool {
         if case .transcription = self { return true }
         return false
     }
 
-    /// Extracts transcription text if this is a transcription update
+    /// Extracts transcription text if this is a transcription update.
     var transcriptionText: String? {
         if case .transcription(let text, _, _) = self { return text }
         return nil
     }
 
-    /// Whether this is a final transcription
+    /// Whether this is a final transcription.
     var isFinalTranscription: Bool {
         if case .transcription(_, let isFinal, _) = self { return isFinal }
         return false
     }
 }
 
-// MARK: - Speech Capture Service Protocol
+// MARK: - SpeechCaptureServiceProtocol
 
 /// Consumer-facing interface for speech capture and recognition.
 ///
-/// Extracts the capture surface area used by `PracticeStore` from the
-/// concrete `SpeechCaptureService`, enabling mock injection for tests.
-///
-/// ## Responsibilities
-/// - Microphone and speech recognition permission management
-/// - Audio capture start/stop/cancel lifecycle
-/// - Real-time transcription streaming via `captureStream`
+/// The capture service is a **dumb pipe**: it owns a standalone `AVAudioEngine`
+/// for mic capture, maintains a session-long `SFSpeechRecognitionTask`, and
+/// streams recognized text via ``captureStream``. It knows nothing about
+/// affirmation segments or word matching — that logic belongs in `PracticeStore`.
 ///
 /// ## Architecture
 /// ```
 /// SpeechCaptureServiceProtocol
-/// ├── SpeechCaptureService (Production)
+/// ├── SpeechCaptureService  (Production)
 /// └── MockSpeechCaptureService (Testing)
 /// ```
+///
+/// ## Mic Lifecycle
+/// - `startCapture()` installs an input tap → mic ON (iOS orange indicator)
+/// - `stopCapture()` removes the input tap → mic OFF (indicator disappears)
+/// - `releaseEngine()` tears down everything at session end
 ///
 /// ## Thread Safety
 /// All methods are `@MainActor` isolated. The `captureStream` property
@@ -123,11 +128,9 @@ protocol SpeechCaptureServiceProtocol: AnyObject {
     /// The shared audio service for session controller access.
     ///
     /// Must be set before calling ``startCapture()``. The capture service
-    /// uses the session controller for audio category transitions. Mic
-    /// capture uses a standalone `AVAudioEngine` — the shared engine is
-    /// NOT used for input taps.
-    ///
-    /// Injected by `PracticeStore` at creation time.
+    /// uses the session controller to verify the audio session is configured.
+    /// Mic capture uses a **standalone** `AVAudioEngine` — the shared engine
+    /// is NOT used for input taps.
     var audioService: (any AudioServiceProtocol)? { get set }
 
     // MARK: - Stream Access
@@ -135,18 +138,20 @@ protocol SpeechCaptureServiceProtocol: AnyObject {
     /// Stream of capture updates (transcription, audio levels, errors).
     ///
     /// Subscribe to receive real-time updates during active capture.
+    /// Transcription updates contain the **full cumulative text** from the
+    /// session-long recognition task. Consumers diff against their own state.
     nonisolated var captureStream: AsyncStream<SpeechCaptureUpdate> { get }
 
     // MARK: - Permissions
 
     /// Requests microphone permission from the user.
     ///
-    /// - Returns: `true` if permission was granted
+    /// - Returns: `true` if permission was granted.
     func requestMicrophonePermission() async -> Bool
 
     /// Requests speech recognition permission from the user.
     ///
-    /// - Returns: `true` if permission was granted
+    /// - Returns: `true` if permission was granted.
     func requestSpeechRecognitionPermission() async -> Bool
 
     /// Whether microphone permission is currently granted.
@@ -155,76 +160,59 @@ protocol SpeechCaptureServiceProtocol: AnyObject {
     /// Whether speech recognition permission is currently granted.
     var hasSpeechRecognitionPermission: Bool { get }
 
-    // MARK: - Session-Level Recognition
+    // MARK: - Session-Level Configuration
 
-    /// Merged affirmation words for the entire session.
+    /// Contextual string hints for the session-long recognition request.
     ///
-    /// Set once before calling ``startCapture()`` for the first segment.
+    /// Set once before calling ``startCapture()`` for the first time.
     /// All session affirmation words are collected into one hint set
-    /// (capped at 100) and applied to the single session-long recognition
-    /// request. This avoids recreating recognition tasks per affirmation.
+    /// (capped at 500) and applied to the recognition request. This
+    /// avoids recreating recognition tasks per affirmation.
     var sessionContextualStrings: [String]? { get set }
 
     /// Whether a session-long recognition task is currently active.
     ///
     /// When `true`, ``startCapture()`` reuses the existing task and only
-    /// begins a new segment (zero audio disruption). When `false`, the
+    /// installs the input tap (zero audio disruption). When `false`, the
     /// next ``startCapture()`` call creates the engine, tap, and task.
     var hasSessionRecognitionTask: Bool { get }
 
     // MARK: - Capture Control
 
-    /// Words to hint the speech recognizer for improved accuracy.
+    /// Starts audio capture and speech recognition.
     ///
-    /// **Deprecated in favor of ``sessionContextualStrings``.**
-    /// Kept for backward compatibility. If ``sessionContextualStrings``
-    /// is set, it takes priority. If neither is set, no hints are applied.
-    var contextualStrings: [String]? { get set }
-
-    /// Starts audio capture and speech recognition for one segment.
-    ///
-    /// On the first call per session, creates the recognition engine, tap,
+    /// On the first call per session, creates the standalone capture engine
     /// and a session-long recognition task. Subsequent calls reuse the
-    /// existing task and only begin a new segment — zero audio disruption.
+    /// existing task and only install the input tap (mic ON).
     ///
-    /// Emits updates on `captureStream` including transcription deltas
-    /// relative to this segment's start (not the full session accumulation).
-    ///
-    /// - Throws: `SpeechCaptureError` if permissions are missing or
-    ///   the audio pipeline fails to start
+    /// - Throws: `SpeechCaptureError` if permissions are missing,
+    ///   `audioService` is not set, or the audio pipeline fails to start.
     func startCapture() async throws
 
-    /// Stops the current segment and returns the segment's transcription.
+    /// Stops capture and removes the input tap (mic OFF).
     ///
-    /// Ends the active segment but keeps the session-long recognition task
-    /// alive. Buffers continue flowing to keep the task warm; transcription
-    /// events are suppressed until the next ``startCapture()`` call.
-    /// Call ``releaseEngine()`` at session end to fully tear down.
-    ///
-    /// - Returns: The segment's accumulated transcription text (delta)
-    @discardableResult
-    func stopCapture() -> String
+    /// The session-long recognition task stays alive. Call
+    /// ``releaseEngine()`` at session end to fully tear down.
+    func stopCapture()
 
-    /// Cancels the current segment without waiting for a final result.
+    /// Cancels capture without returning a result.
     ///
-    /// Ends the active segment and clears the transcription, but keeps
-    /// the session-long recognition task alive for the next segment.
+    /// Removes the input tap (mic OFF). The session-long recognition task
+    /// stays alive for the next ``startCapture()`` call.
     func cancelCapture()
 
-    /// Releases the persistent capture engine, deactivating mic hardware.
+    /// Releases the capture engine and recognition task.
     ///
-    /// Cancels the session-long recognition task, removes the input tap,
-    /// stops the engine, and resets all session state. Call at session end
-    /// or when the service is no longer needed. The engine and task are
-    /// automatically recreated on the next ``startCapture()`` call.
-    /// Safe to call multiple times — no-op if no engine exists.
+    /// Full teardown: cancels the recognition task, removes the input tap,
+    /// stops the engine, and resets all session state. Call at session end.
+    /// Safe to call multiple times.
     func releaseEngine()
 
     // MARK: - State
 
-    /// Whether a listening segment is currently active.
+    /// Whether a listening segment is currently active (mic is ON).
     var isCapturing: Bool { get }
 
-    /// The current segment's accumulated transcription text (delta).
+    /// The current cumulative transcription text from the session-long task.
     var currentTranscription: String { get }
 }

@@ -102,14 +102,10 @@ final class AudioInputManager {
             throw AppError.microphoneAccessDenied
         }
 
-        // Configure session for recording via session controller
+        // Configure session for recording via session controller.
+        // configure() sets .playAndRecord permanently. Subsequent calls are no-ops.
         do {
-            try await sessionController.transition(
-                to: .playAndRecord,
-                mode: .default,
-                options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers],
-                engineAction: .none
-            )
+            try await sessionController.configure()
         } catch {
             audioInputLog.error("❌ Failed to configure session: \(error.localizedDescription)")
             throw AppError.audioRecordingFailed(reason: "Session configuration failed: \(error.localizedDescription)")

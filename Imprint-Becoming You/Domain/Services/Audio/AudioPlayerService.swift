@@ -281,9 +281,10 @@ actor AudioPlayerService: AudioPlayerServiceProtocol {
         _immediateNodeRef.withLock { $0.isActive = true }
         isPlaying = true
 
-        // Session is permanently .playAndRecord (configured once at engine startup).
-        // This category supports both TTS playback and mic capture — no
-        // independent setCategory() call needed here.
+        // Session is permanently .playAndRecord with .allowBluetoothA2DP
+        // (configured once at engine startup). Bluetooth uses high-quality
+        // A2DP stereo codec for audio output. No independent setCategory()
+        // call needed here.
 
         #if DEBUG
         let durationSec = Double(pcmBuffer.frameLength) / pcmBuffer.format.sampleRate

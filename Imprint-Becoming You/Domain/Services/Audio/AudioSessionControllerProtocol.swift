@@ -11,42 +11,28 @@ import AVFoundation
 
 /// Consumer-facing interface for centralized audio session management.
 ///
-/// This protocol abstracts `AudioSessionController`, enabling mock injection
-/// for tests and previews. It is the **sole** mechanism through which any
-/// component may reconfigure the `AVAudioSession` — no direct `setCategory()`
-/// calls are permitted elsewhere in the codebase.
+/// The sole mechanism through which any component may configure the
+/// `AVAudioSession`. No direct `setCategory()` calls are permitted
+/// elsewhere in the codebase.
 ///
 /// ## Responsibilities
-/// - Audio session category transitions (coordinated with engine lifecycle)
+/// - One-time `.playAndRecord` configuration with `.allowBluetoothA2DP`
 /// - Microphone and speech recognition permission management
 /// - Audio route information
-/// - Interruption / media-reset reactive state
-///
-/// ## Architecture
-/// ```
-/// AudioSessionControllerProtocol
-/// ├── AudioSessionController (Production)
-/// └── MockAudioSessionController (Testing)
-/// ```
+/// - System event handling (interruptions, route changes, media resets)
 ///
 /// ## Thread Safety
 /// All members are `@MainActor` isolated, matching `AudioService`.
 @MainActor
 protocol AudioSessionControllerProtocol: AnyObject {
 
-    // MARK: - Reactive State
+    // MARK: - State
 
     /// Whether the audio session is currently interrupted (phone call, alarm, etc.).
     var isInterrupted: Bool { get }
 
     /// Whether the audio session is currently active.
     var isSessionActive: Bool { get }
-
-    /// Current audio session category (`nil` if not yet configured).
-    var currentCategory: AVAudioSession.Category? { get }
-
-    /// Current audio session mode (`nil` if not yet configured).
-    var currentMode: AVAudioSession.Mode? { get }
 
     // MARK: - Permissions
 
@@ -71,66 +57,53 @@ protocol AudioSessionControllerProtocol: AnyObject {
     /// Whether headphones (wired or Bluetooth) are connected.
     var headphonesConnected: Bool { get }
 
-    // MARK: - Session Transitions
+    // MARK: - Configuration
 
-    /// Transitions the audio session to a new category/mode/options configuration.
+    /// Configures the audio session for `.playAndRecord` with `.allowBluetoothA2DP`.
     ///
-    /// This is the **sole** method in the codebase that calls
-    /// `AVAudioSession.setCategory()`. All other components must route
-    /// session configuration through this method.
+    /// Called once at the start of a practice session. Sets the category,
+    /// activates the session, and begins listening for system notifications.
+    /// Subsequent calls are no-ops if already configured.
     ///
-    /// - Parameters:
-    ///   - category: The desired `AVAudioSession.Category`.
-    ///   - mode: The desired `AVAudioSession.Mode` (default: `.default`).
-    ///   - options: The desired `AVAudioSession.CategoryOptions` (default: `[]`).
-    ///   - engineAction: How to manage the shared engine during transition
-    ///     (default: `.pauseAndResume`).
     /// - Throws: `AppError.audioSessionConfigurationFailed` if `setCategory()`
     ///   or `setActive()` fails.
-    func transition(
-        to category: AVAudioSession.Category,
-        mode: AVAudioSession.Mode,
-        options: AVAudioSession.CategoryOptions,
-        engineAction: AudioSessionController.EngineAction
-    ) async throws
+    func configure() async throws
 
     /// Deactivates the audio session.
     ///
-    /// - Parameter notifyOthers: Whether to notify other audio apps that the
-    ///   session is being deactivated so they can resume playback.
-    func deactivateSession(notifyOthers: Bool)
-
-    /// Resets tracked category/mode/options state.
+    /// Called at the end of a practice session to release audio hardware
+    /// and allow other apps to resume playback.
     ///
-    /// Call when iOS resets the audio session (interruption began, media
-    /// services reset). The next ``transition(to:mode:options:engineAction:)``
-    /// call will perform a full reconfiguration instead of short-circuiting.
-    func resetTracking()
+    /// - Parameter notifyOthers: Whether to notify other audio apps that
+    ///   the session is being deactivated so they can resume playback.
+    func deactivateSession(notifyOthers: Bool)
 
     // MARK: - Engine Registration
 
-    /// Registers the shared `AVAudioEngine` for pause/restart coordination.
+    /// Registers the shared `AVAudioEngine` for restart coordination.
     ///
     /// Called by `AudioService` after creating its engine. The controller
     /// holds a weak reference — the engine's lifetime is owned by
-    /// `AudioService`.
+    /// `AudioService`. After system events (interruptions, media resets),
+    /// the controller restarts the engine automatically.
     ///
     /// - Parameter engine: The shared `AVAudioEngine` instance.
     func registerEngine(_ engine: AVAudioEngine)
 
-    /// Callback invoked after the engine is restarted following a **full stop**
-    /// (recording category transition). Set by `AudioService` to re-schedule
-    /// background music, since `engine.stop()` discards all scheduled buffers.
-    var onEngineRestartedAfterFullStop: (() -> Void)? { get set }
+    // MARK: - Callbacks
 
-    // MARK: - Interruption Callbacks
-
-    /// Callback invoked when an audio interruption begins (phone call, alarm, etc.).
+    /// Called after the engine is restarted following a system event.
     ///
-    /// Set by `AudioService` to pause background music and other playback.
+    /// Set by `AudioService` to re-schedule background music, since
+    /// `engine.stop()` discards all scheduled buffers.
+    var onEngineRestarted: (() -> Void)? { get set }
+
+    /// Called when an audio interruption begins (phone call, alarm, etc.).
+    ///
+    /// Set by `AudioService` to pause background music and playback.
     var onInterruptionBegan: (() -> Void)? { get set }
 
-    /// Callback invoked when an audio interruption ends.
+    /// Called when an audio interruption ends.
     ///
     /// - Parameter shouldResume: Whether iOS recommends resuming playback.
     /// Set by `AudioService` to resume background music if appropriate.

@@ -7,9 +7,9 @@
 
 import AVFoundation
 
-// MARK: - Mock Audio Service
+// MARK: - MockAudioService
 
-/// Mock implementation of audio service for previews and testing.
+/// Mock implementation of `AudioServiceProtocol` for previews and testing.
 ///
 /// Simulates audio engine operations without actual audio output.
 /// Uses `@MainActor` isolation consistent with the protocol.
@@ -21,21 +21,11 @@ final class MockAudioService: AudioServiceProtocol {
     var isRunning: Bool = false
     var playbackVolume: Float = 1.0
 
-    /// Mock audio player service for testing
+    /// Mock audio player service for testing.
     var audioPlayerService: any AudioPlayerServiceProtocol = MockAudioPlayerService()
 
-    /// Mock session controller for testing
+    /// Mock session controller for testing.
     let sessionController: any AudioSessionControllerProtocol = MockAudioSessionController()
-
-    /// Shared engine stub (creates a fresh engine per instance).
-    private let _sharedEngine = AVAudioEngine()
-    var sharedEngine: AVAudioEngine { _sharedEngine }
-
-    /// Mock ducking coordinator (no-ops because `BackgroundMusicService.isPlaying` is false).
-    let duckingCoordinator: AudioDuckingCoordinator = AudioDuckingCoordinator(
-        musicService: BackgroundMusicService(),
-        initialVolume: 0.5
-    )
 
     // MARK: - Background Music State
 
@@ -44,13 +34,13 @@ final class MockAudioService: AudioServiceProtocol {
 
     // MARK: - Configuration
 
-    /// Simulated playback delay
+    /// Simulated playback delay.
     var playbackDelay: Duration = .seconds(1)
 
-    /// Whether to simulate errors
+    /// Whether to simulate errors.
     var shouldSimulateError: Bool = false
 
-    // MARK: - AudioServiceProtocol - Engine Control
+    // MARK: - Engine Control
 
     func start() async throws {
         if shouldSimulateError {
@@ -65,7 +55,7 @@ final class MockAudioService: AudioServiceProtocol {
         isBackgroundMusicPlaying = false
     }
 
-    // MARK: - AudioServiceProtocol - Background Music
+    // MARK: - Background Music
 
     func playBackgroundMusic(category: MusicCategory) async {
         currentMusicCategory = category
@@ -91,7 +81,7 @@ final class MockAudioService: AudioServiceProtocol {
         // No-op for mock
     }
 
-    // MARK: - AudioServiceProtocol - Playback
+    // MARK: - Audio Playback
 
     func playAudioFile(named fileName: String) async throws {
         if shouldSimulateError {
@@ -119,7 +109,7 @@ final class MockAudioService: AudioServiceProtocol {
         // No-op for mock
     }
 
-    // MARK: - AudioServiceProtocol - Volume
+    // MARK: - Volume Control
 
     func setPlaybackVolume(_ volume: Float) async {
         playbackVolume = max(0, min(1, volume))

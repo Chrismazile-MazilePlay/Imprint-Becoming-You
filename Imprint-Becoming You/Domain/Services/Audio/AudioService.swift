@@ -14,32 +14,22 @@ private let audioServiceLog = Logger(subsystem: "com.imprint.audio", category: "
 
 // MARK: - AudioService
 
-/// Main audio service that coordinates all audio functionality.
-///
-/// This service is `@MainActor` isolated because:
-/// 1. Audio playback state affects UI
-/// 2. Background music controls are UI-driven
-/// 3. Session controller callbacks update UI state
+/// Thin facade that owns the playback `AVAudioEngine` and coordinates sub-services.
 ///
 /// ## Architecture
 /// ```
-/// AudioService
-/// ├── AudioSessionController (sole setCategory() owner)
-/// ├── BackgroundMusicService (looping music via AVAudioPlayerNode)
-/// ├── AudioPlayerService (TTS file playback via AVAudioPlayerNode)
-/// └── AVAudioEngine (single shared engine for all audio)
+/// AudioService (thin facade)
+/// ├── AudioSessionController (sole AVAudioSession owner)
+/// ├── BackgroundMusicService  (looping music via AVAudioPlayerNode)
+/// └── AudioPlayerService      (TTS playback via AVAudioPlayerNode)
 /// ```
 ///
-/// ## Unified Engine
-/// All audio — background music, TTS playback, and microphone capture —
-/// routes through a single `AVAudioEngine`. The engine is exposed via
-/// `sharedEngine` so `SpeechCaptureService` can install an input tap
-/// on the engine's `inputNode`.
-///
-/// ## Session Management
-/// Audio session configuration is centralized in `AudioSessionController`.
-/// No component may call `AVAudioSession.setCategory()` directly — all
-/// transitions go through `sessionController.transition()`.
+/// ## Responsibilities
+/// - Create and own the playback `AVAudioEngine`
+/// - Attach `BackgroundMusicService` and `AudioPlayerService` to the engine
+/// - Coordinate engine start/stop with `AudioSessionController`
+/// - Wire session controller callbacks (interruption, engine restart)
+/// - Delegate all background music and playback calls to sub-services
 ///
 /// ## Usage
 /// ```swift
@@ -53,42 +43,25 @@ final class AudioService: AudioServiceProtocol {
 
     // MARK: - Properties
 
-    /// The single shared audio engine for all audio operations.
+    /// The playback audio engine. All music and TTS routes through this engine.
     private let audioEngine: AVAudioEngine
 
-    /// Centralized audio session controller — sole owner of `setCategory()`.
+    /// Centralized audio session controller — sole owner of `AVAudioSession`.
     let sessionController: any AudioSessionControllerProtocol
 
-    /// Background music player (attached to shared engine).
+    /// Background music player (attached to the playback engine).
     private let backgroundMusicService: BackgroundMusicService
 
-    /// Audio file player (attached to shared engine).
+    /// Audio file player for TTS (attached to the playback engine).
     private let audioPlayer: AudioPlayerService
 
-    /// Whether the audio engine is running.
+    /// Whether the audio engine is currently running.
     private(set) var isRunning: Bool = false
 
     /// The engine-attached audio player for TTS playback.
-    ///
-    /// Exposed via `AudioServiceProtocol` so `DependencyContainer` can wire
-    /// the same instance into `SessionPlaybackCoordinator` and other consumers.
     var audioPlayerService: any AudioPlayerServiceProtocol {
         audioPlayer
     }
-
-    /// The shared `AVAudioEngine` instance.
-    ///
-    /// Exposed for `SpeechCaptureService` to install input taps for mic capture.
-    var sharedEngine: AVAudioEngine {
-        audioEngine
-    }
-
-    /// Coordinator for smooth music volume ducking during speech capture.
-    ///
-    /// Smoothly fades background music down before recognition task creation
-    /// and restores it afterward, masking the ~20-80ms audio disruption
-    /// caused by `SFSpeechRecognizer.recognitionTask(with:)`.
-    let duckingCoordinator: AudioDuckingCoordinator
 
     /// Main mixer volume.
     private var mainVolume: Float = 1.0
@@ -105,15 +78,10 @@ final class AudioService: AudioServiceProtocol {
     init(sessionController: (any AudioSessionControllerProtocol)? = nil) {
         self.audioEngine = AVAudioEngine()
         self.sessionController = sessionController ?? AudioSessionController()
-        let music = BackgroundMusicService()
-        self.backgroundMusicService = music
+        self.backgroundMusicService = BackgroundMusicService()
         self.audioPlayer = AudioPlayerService()
-        self.duckingCoordinator = AudioDuckingCoordinator(
-            musicService: music,
-            initialVolume: Constants.Audio.backgroundMusicVolume
-        )
 
-        audioServiceLog.info("✅ AudioService initialized")
+        audioServiceLog.info("AudioService initialized")
     }
 
     /// Creates an AudioService with injected dependencies (for testing).
@@ -126,92 +94,78 @@ final class AudioService: AudioServiceProtocol {
         self.sessionController = sessionController
         self.backgroundMusicService = backgroundMusicService
         self.audioPlayer = audioPlayer
-        self.duckingCoordinator = AudioDuckingCoordinator(
-            musicService: backgroundMusicService,
-            initialVolume: backgroundMusicService.volume
-        )
     }
 
     // MARK: - Engine Lifecycle
 
-    /// Starts the audio engine.
+    /// Configures the audio session, attaches sub-services, and starts the engine.
     ///
-    /// Configures the audio session for playback, attaches audio components
-    /// to the engine, starts the engine, and registers it with the session
-    /// controller for lifecycle coordination.
+    /// 1. Calls `sessionController.configure()` to set `.playAndRecord` permanently
+    /// 2. Attaches `BackgroundMusicService` and `AudioPlayerService` to the engine
+    /// 3. Starts the engine
+    /// 4. Registers the engine with the session controller for lifecycle coordination
+    /// 5. Wires interruption and engine-restart callbacks
     ///
-    /// - Throws: `AppError` if engine fails to start
+    /// - Throws: `AppError` if session configuration or engine startup fails.
     func start() async throws {
         guard !isRunning else {
             audioServiceLog.debug("Engine already running")
             return
         }
 
-        audioServiceLog.info("🚀 Starting audio engine...")
+        audioServiceLog.info("Starting audio engine...")
 
-        // Configure audio session via controller (no engine management — engine isn't started yet).
-        // Uses .playAndRecord permanently to eliminate HAL reconfiguration breaks.
-        // Mic hardware only activates when installTap() is called — zero battery impact.
-        // .default mode with .defaultToSpeaker routes to the main loudspeaker (not earpiece).
-        // This matches SpeechCaptureService's configuration, so all subsequent transition()
-        // calls fast-path skip (~0ms, no setCategory() call).
+        // 1. Configure audio session (permanent .playAndRecord)
         do {
-            try await sessionController.transition(
-                to: .playAndRecord,
-                mode: .default,
-                options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers],
-                engineAction: .none
-            )
+            try await sessionController.configure()
         } catch {
-            audioServiceLog.error("❌ Session configuration failed: \(error.localizedDescription)")
+            audioServiceLog.error("Session configuration failed: \(error.localizedDescription)")
             throw AppError.audioSessionConfigurationFailed(reason: error.localizedDescription)
         }
 
-        // Attach components to engine
+        // 2. Attach sub-services to engine
         backgroundMusicService.attachTo(engine: audioEngine)
         await audioPlayer.attachTo(engine: audioEngine)
 
-        // Start the engine
+        // 3. Start the engine
         do {
             try audioEngine.start()
             isRunning = true
-            audioServiceLog.info("✅ Audio engine started")
+            audioServiceLog.info("Audio engine started")
         } catch {
-            audioServiceLog.error("❌ Engine start failed: \(error.localizedDescription)")
+            audioServiceLog.error("Engine start failed: \(error.localizedDescription)")
             throw AppError.audioEngineInitializationFailed(reason: error.localizedDescription)
         }
 
-        // Register engine with session controller for lifecycle coordination
+        // 4. Register engine with session controller for restart coordination
         sessionController.registerEngine(audioEngine)
 
-        // Wire callbacks for engine full-stop restart (reschedule music)
-        sessionController.onEngineRestartedAfterFullStop = { [weak self] in
+        // 5. Wire callbacks
+        sessionController.onEngineRestarted = { [weak self] in
+            audioServiceLog.info("Engine restarted — rescheduling music")
             self?.backgroundMusicService.rescheduleCurrentTrack()
         }
 
-        // Wire interruption callbacks
         sessionController.onInterruptionBegan = { [weak self] in
-            audioServiceLog.info("⚠️ Handling interruption began")
+            audioServiceLog.info("Interruption began — pausing music")
             self?.backgroundMusicService.pause()
-            // TTS playback interruption is handled by CancellationError from
-            // AudioPlayerService's continuation when the engine is paused by iOS.
         }
 
         sessionController.onInterruptionEnded = { [weak self] shouldResume in
-            audioServiceLog.info("✅ Handling interruption ended (shouldResume: \(shouldResume))")
+            audioServiceLog.info("Interruption ended (shouldResume: \(shouldResume))")
             if shouldResume {
                 self?.backgroundMusicService.resume()
             }
         }
     }
 
-    /// Stops the audio engine.
+    /// Stops the audio engine and deactivates the audio session.
     func stop() async {
         guard isRunning else { return }
 
-        audioServiceLog.info("🛑 Stopping audio engine...")
+        audioServiceLog.info("Stopping audio engine...")
 
-        // Stop components
+        // Stop sub-services
         backgroundMusicService.stop()
         await audioPlayer.stop()
 
@@ -225,7 +179,7 @@ final class AudioService: AudioServiceProtocol {
         // Deactivate session
         sessionController.deactivateSession(notifyOthers: true)
 
-        audioServiceLog.info("✅ Audio engine stopped")
+        audioServiceLog.info("Audio engine stopped")
     }
 
     // MARK: - Background Music
@@ -243,16 +197,16 @@ final class AudioService: AudioServiceProtocol {
     /// Starts playing background music from the specified category.
     ///
     /// Ensures the audio engine is running before playback begins.
-    /// - Parameter category: The music category to play
+    /// - Parameter category: The music category to play.
     func playBackgroundMusic(category: MusicCategory) async {
-        audioServiceLog.info("🎵 Playing background music: \(category.rawValue)")
+        audioServiceLog.info("Playing background music: \(category.rawValue)")
 
         // Ensure engine is running before scheduling on the player node
         if !isRunning {
             do {
                 try await start()
             } catch {
-                audioServiceLog.error("❌ Failed to start engine for background music: \(error.localizedDescription)")
+                audioServiceLog.error("Failed to start engine for background music: \(error.localizedDescription)")
                 return
             }
         }
@@ -262,7 +216,7 @@ final class AudioService: AudioServiceProtocol {
 
     /// Stops background music playback.
     func stopBackgroundMusic() {
-        audioServiceLog.info("🔇 Stopping background music")
+        audioServiceLog.info("Stopping background music")
         backgroundMusicService.stop()
     }
 
@@ -278,23 +232,20 @@ final class AudioService: AudioServiceProtocol {
 
     /// Sets the background music volume.
     ///
-    /// Also updates the ducking coordinator's target so that ``AudioDuckingCoordinator/restoreUp()``
-    /// restores to the user's latest chosen level.
-    /// - Parameter volume: Volume level (0.0–1.0)
+    /// - Parameter volume: Volume level (0.0–1.0).
     func setBackgroundMusicVolume(_ volume: Float) {
         backgroundMusicService.setVolume(volume)
-        duckingCoordinator.setTargetVolume(volume)
     }
 
     // MARK: - Audio Playback
 
     /// Plays a cached audio file.
-    /// - Parameter fileName: Name of the cached file
-    /// - Throws: `AppError.audioPlaybackFailed` if playback fails
+    ///
+    /// - Parameter fileName: Name of the cached file.
+    /// - Throws: `AppError.audioPlaybackFailed` if playback fails.
     func playAudioFile(named fileName: String) async throws {
-        audioServiceLog.info("▶️ Playing file: \(fileName)")
+        audioServiceLog.info("Playing file: \(fileName)")
 
-        // Ensure engine is running
         if !isRunning {
             try await start()
         }
@@ -303,12 +254,12 @@ final class AudioService: AudioServiceProtocol {
     }
 
     /// Plays audio data directly.
-    /// - Parameter data: Audio data to play
-    /// - Throws: `AppError.audioPlaybackFailed` if playback fails
+    ///
+    /// - Parameter data: Audio data to play.
+    /// - Throws: `AppError.audioPlaybackFailed` if playback fails.
     func playAudioData(_ data: Data) async throws {
-        audioServiceLog.info("▶️ Playing audio data (\(data.count) bytes)")
+        audioServiceLog.info("Playing audio data (\(data.count) bytes)")
 
-        // Ensure engine is running
         if !isRunning {
             try await start()
         }
@@ -318,33 +269,35 @@ final class AudioService: AudioServiceProtocol {
 
     /// Stops audio playback.
     func stopPlayback() async {
-        audioServiceLog.info("⏹️ Stopping playback")
+        audioServiceLog.info("Stopping playback")
         await audioPlayer.stop()
     }
 
     /// Pauses audio playback.
     func pausePlayback() async {
-        audioServiceLog.info("⏸️ Pausing playback")
+        audioServiceLog.info("Pausing playback")
         await audioPlayer.pause()
     }
 
     /// Resumes paused playback.
     func resumePlayback() async {
-        audioServiceLog.info("▶️ Resuming playback")
+        audioServiceLog.info("Resuming playback")
         await audioPlayer.resume()
     }
 
     // MARK: - Volume Control
 
     /// Sets the main output volume.
-    /// - Parameter volume: Volume level (0.0 - 1.0)
+    ///
+    /// - Parameter volume: Volume level (0.0–1.0).
     func setMainVolume(_ volume: Float) {
         mainVolume = max(0, min(1, volume))
         audioEngine.mainMixerNode.outputVolume = mainVolume
     }
 
     /// Sets the playback volume.
-    /// - Parameter volume: Volume level (0.0 - 1.0)
+    ///
+    /// - Parameter volume: Volume level (0.0–1.0).
     func setPlaybackVolume(_ volume: Float) async {
         playbackVolume = max(0, min(1, volume))
         await audioPlayer.setVolume(playbackVolume)
@@ -359,7 +312,7 @@ final class AudioService: AudioServiceProtocol {
         }
     }
 
-    /// Current playback progress (0.0 - 1.0).
+    /// Current playback progress (0.0–1.0).
     var playbackProgress: Double {
         get async {
             await audioPlayer.progress
@@ -367,7 +320,7 @@ final class AudioService: AudioServiceProtocol {
     }
 }
 
-// MARK: - Preview/Mock Support
+// MARK: - Preview Support
 
 extension AudioService {
     /// Creates a no-op audio service for previews.

@@ -16,36 +16,39 @@ private let musicLog = Logger(subsystem: "com.imprint.audio", category: "Backgro
 
 /// Plays looping background music during practice sessions.
 ///
-/// Uses a single `AVAudioPlayerNode` attached to the shared `AVAudioEngine`.
-/// Tracks are loaded from the app bundle and loop seamlessly via
-/// reschedule-on-completion.
+/// Uses `AVAudioPlayer` for playback, which operates independently of
+/// `AVAudioEngine`. This decoupled architecture prevents audio glitches
+/// (static/pops) caused by engine reconfiguration events such as iOS
+/// screenshot shutter sounds, system alerts, or audio route changes.
 ///
-/// ## Audio Graph Position
-/// ```
-/// BackgroundMusicService
-/// └── musicPlayerNode (volume: 0.15) → engine.mainMixerNode
-/// ```
+/// ## Why AVAudioPlayer (not AVAudioPlayerNode)?
+/// `AVAudioPlayerNode` attaches to the `AVAudioEngine` graph. When iOS
+/// triggers a system sound (e.g., screenshot shutter), the engine's
+/// hardware I/O unit reconfigures, causing audible artifacts on any
+/// `AVAudioPlayerNode`. `AVAudioPlayer` has its own internal buffering
+/// and is not coupled to the engine graph, making it immune to these
+/// disruptions.
 ///
-/// ## Looping Mechanism
-/// All bundled tracks have 2-second fade-in/out edges baked in.
-/// On playback completion, the track is immediately rescheduled,
-/// creating a continuous loop. At 15% volume, the loop point is inaudible.
+/// ## Protocol Compatibility
+/// `attachTo(engine:)`, `detachFrom(engine:)`, and `rescheduleCurrentTrack()`
+/// are no-ops — they exist to satisfy `BackgroundMusicServiceProtocol` and
+/// are still called by `AudioService`, but background music no longer
+/// touches the engine.
+///
+/// ## Looping
+/// `AVAudioPlayer` supports native infinite looping via `numberOfLoops = -1`.
+/// All bundled tracks have 2-second fade-in/out edges baked in, so the
+/// loop point is seamless at the default volume.
 ///
 /// ## Thread Safety
-/// `@MainActor` isolated. All scheduling and state mutation happens on main.
+/// `@MainActor` isolated. All playback control and state mutation happens on main.
 @MainActor
 final class BackgroundMusicService: BackgroundMusicServiceProtocol {
 
     // MARK: - Properties
 
-    /// The dedicated player node for background music.
-    private let musicPlayerNode: AVAudioPlayerNode
-
-    /// Currently loaded audio file (released on `stop()`).
-    private var currentAudioFile: AVAudioFile?
-
-    /// Weak reference to the engine this service is attached to.
-    private weak var attachedEngine: AVAudioEngine?
+    /// The audio player for background music (independent of AVAudioEngine).
+    private var audioPlayer: AVAudioPlayer?
 
     /// Whether background music is currently playing.
     private(set) var isPlaying: Bool = false
@@ -56,58 +59,43 @@ final class BackgroundMusicService: BackgroundMusicServiceProtocol {
     /// Current volume level (0.0–1.0).
     private(set) var volume: Float
 
-    /// Whether the looping reschedule callback should continue.
-    private var shouldLoop: Bool = false
-
     // MARK: - Initialization
 
     /// Creates a new BackgroundMusicService.
     ///
     /// - Parameter volume: Initial volume level (defaults to `Constants.Audio.backgroundMusicVolume`).
     init(volume: Float = Constants.Audio.backgroundMusicVolume) {
-        self.musicPlayerNode = AVAudioPlayerNode()
         self.volume = volume
     }
 
-    // MARK: - Engine Attachment
+    // MARK: - Engine Attachment (No-Ops)
 
-    /// Attaches the music player node to the audio engine.
+    /// No-op. Background music uses `AVAudioPlayer` (not attached to engine).
     ///
-    /// Connects to the engine's `mainMixerNode` using the standard stereo format.
-    /// - Parameter engine: The shared `AVAudioEngine`.
+    /// Retained for `BackgroundMusicServiceProtocol` conformance. Called by
+    /// `AudioService.start()` but does nothing.
+    /// - Parameter engine: Ignored.
     func attachTo(engine: AVAudioEngine) {
-        engine.attach(musicPlayerNode)
-
-        let format = AVAudioFormat(
-            standardFormatWithSampleRate: Constants.Audio.sampleRate,
-            channels: 2
-        )!
-        engine.connect(musicPlayerNode, to: engine.mainMixerNode, format: format)
-
-        attachedEngine = engine
-        musicPlayerNode.volume = volume
-
-        musicLog.info("✅ BackgroundMusicService attached to engine")
+        musicLog.debug("attachTo(engine:) called — no-op (uses AVAudioPlayer)")
     }
 
-    /// Detaches the music player node from the audio engine.
+    /// Stops playback when the engine is being torn down.
     ///
-    /// Stops playback first, then removes the node from the graph.
-    /// - Parameter engine: The shared `AVAudioEngine`.
+    /// Although background music is not attached to the engine, stopping
+    /// playback here preserves the original contract: when `AudioService.stop()`
+    /// calls `detachFrom(engine:)`, music should stop.
+    /// - Parameter engine: Ignored.
     func detachFrom(engine: AVAudioEngine) {
         stop()
-        engine.detach(musicPlayerNode)
-        attachedEngine = nil
-
-        musicLog.info("BackgroundMusicService detached from engine")
+        musicLog.debug("detachFrom(engine:) called — stopped playback")
     }
 
     // MARK: - Playback
 
-    /// Starts playing a random track from the given category.
+    /// Starts playing a random track from the given category, looping continuously.
     ///
     /// If already playing, stops the current track first.
-    /// The track loops seamlessly via reschedule-on-completion.
+    /// Uses `AVAudioPlayer` with `numberOfLoops = -1` for seamless infinite looping.
     /// - Parameter category: The music category to play.
     func play(category: MusicCategory) {
         // Stop any current playback
@@ -126,37 +114,35 @@ final class BackgroundMusicService: BackgroundMusicServiceProtocol {
             return
         }
 
-        // Load audio file
-        let audioFile: AVAudioFile
+        // Create AVAudioPlayer
+        let player: AVAudioPlayer
         do {
-            audioFile = try AVAudioFile(forReading: url)
+            player = try AVAudioPlayer(contentsOf: url)
         } catch {
-            musicLog.error("❌ Failed to load audio file: \(error.localizedDescription)")
+            musicLog.error("❌ Failed to create audio player: \(error.localizedDescription)")
             return
         }
 
-        currentAudioFile = audioFile
-        currentCategory = category
-        shouldLoop = true
+        // Configure for infinite looping
+        player.numberOfLoops = -1
+        player.volume = volume
+        player.prepareToPlay()
 
-        // Reconnect with correct format from the audio file
-        if let engine = attachedEngine {
-            engine.disconnectNodeOutput(musicPlayerNode)
-            engine.connect(musicPlayerNode, to: engine.mainMixerNode, format: audioFile.processingFormat)
+        // Start playback
+        if player.play() {
+            audioPlayer = player
+            currentCategory = category
+            isPlaying = true
+            musicLog.info("🎵 Playing: \(category.rawValue)/\(fileName)")
+        } else {
+            musicLog.error("❌ AVAudioPlayer.play() returned false for: \(fileName)")
         }
-
-        // Apply volume and start
-        musicPlayerNode.volume = volume
-        scheduleAndPlay()
-
-        musicLog.info("🎵 Playing: \(category.rawValue)/\(fileName)")
     }
 
-    /// Stops playback and releases the current audio file.
+    /// Stops playback and releases the current audio player.
     func stop() {
-        shouldLoop = false
-        musicPlayerNode.stop()
-        currentAudioFile = nil
+        audioPlayer?.stop()
+        audioPlayer = nil
         currentCategory = nil
         isPlaying = false
     }
@@ -164,14 +150,14 @@ final class BackgroundMusicService: BackgroundMusicServiceProtocol {
     /// Pauses playback (retains position for resume).
     func pause() {
         guard isPlaying else { return }
-        musicPlayerNode.pause()
+        audioPlayer?.pause()
         isPlaying = false
     }
 
     /// Resumes paused playback.
     func resume() {
-        guard !isPlaying, currentAudioFile != nil else { return }
-        musicPlayerNode.play()
+        guard !isPlaying, audioPlayer != nil else { return }
+        audioPlayer?.play()
         isPlaying = true
     }
 
@@ -180,68 +166,17 @@ final class BackgroundMusicService: BackgroundMusicServiceProtocol {
     /// - Parameter newVolume: Volume level (0.0–1.0). Clamped to valid range.
     func setVolume(_ newVolume: Float) {
         volume = max(0, min(1, newVolume))
-        musicPlayerNode.volume = volume
+        audioPlayer?.volume = volume
     }
 
-    // MARK: - Reschedule
+    // MARK: - Reschedule (No-Op)
 
-    /// Reschedules the current track from the beginning.
+    /// No-op. `AVAudioPlayer` handles its own playback lifecycle.
     ///
-    /// Called after an engine full-stop/restart (e.g., recording category
-    /// transition) which discards all scheduled audio buffers. Re-reads the
-    /// current audio file URL and schedules it for looping playback.
-    ///
-    /// At 15% volume with baked-in fade edges, the brief silence during
-    /// engine restart is inaudible.
+    /// Retained for `BackgroundMusicServiceProtocol` conformance. Called by
+    /// `AudioService` via `onEngineRestarted`, but `AVAudioPlayer` is not
+    /// affected by engine restarts — it continues playing independently.
     func rescheduleCurrentTrack() {
-        guard shouldLoop, let audioFile = currentAudioFile else { return }
-
-        // Re-read the file to reset the read position
-        guard let freshFile = try? AVAudioFile(forReading: audioFile.url) else {
-            musicLog.error("❌ Failed to re-read audio file for reschedule")
-            return
-        }
-
-        currentAudioFile = freshFile
-
-        // Reconnect with correct format
-        if let engine = attachedEngine {
-            engine.disconnectNodeOutput(musicPlayerNode)
-            engine.connect(musicPlayerNode, to: engine.mainMixerNode, format: freshFile.processingFormat)
-        }
-
-        musicPlayerNode.volume = volume
-        scheduleAndPlay()
-
-        musicLog.info("🔄 Rescheduled current track after engine restart")
-    }
-
-    // MARK: - Private
-
-    /// Schedules the current audio file for playback with loop-on-completion.
-    ///
-    /// When the track finishes, the completion callback re-reads the file
-    /// from disk and reschedules it. This creates seamless looping since
-    /// all tracks have 2-second fade-in/out edges baked in.
-    private func scheduleAndPlay() {
-        guard let audioFile = currentAudioFile, shouldLoop else { return }
-
-        musicPlayerNode.scheduleFile(
-            audioFile,
-            at: nil,
-            completionCallbackType: .dataPlayedBack
-        ) { [weak self] _ in
-            Task { @MainActor in
-                guard let self = self, self.shouldLoop else { return }
-                // Re-read the file to reset the read position for the next loop
-                self.currentAudioFile = try? AVAudioFile(forReading: audioFile.url)
-                self.scheduleAndPlay()
-            }
-        }
-
-        if !isPlaying {
-            musicPlayerNode.play()
-            isPlaying = true
-        }
+        musicLog.debug("rescheduleCurrentTrack() called — no-op (AVAudioPlayer is engine-independent)")
     }
 }

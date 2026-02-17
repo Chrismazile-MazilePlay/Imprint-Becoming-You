@@ -13,12 +13,12 @@ import SwiftUI
 ///
 /// ## Layout
 /// ```
-/// ┌─────────────────────────────────────┐
-/// │  [✨ AI]       [🎤 Listening]   [👤]│  ← Top row only
-/// │                                     │
-/// │        (Content scrolls here)       │
-/// │                                     │
-/// └─────────────────────────────────────┘
+/// ┌──────────────────────────────────────────┐
+/// │  [✨ AI] [🎨 BG]  [🎤 Listening]    [👤]│  ← Top row only
+/// │                                          │
+/// │          (Content scrolls here)          │
+/// │                                          │
+/// └──────────────────────────────────────────┘
 /// ```
 ///
 /// Note: Save/Share buttons are in the scrolling content layer.
@@ -34,6 +34,7 @@ struct FloatingHUDLayer: View {
     
     let onProfileTap: () -> Void
     let onPromptsTap: () -> Void
+    let onBackgroundTap: () -> Void
     
     // MARK: - Safe Area State
 
@@ -131,7 +132,10 @@ struct FloatingHUDLayer: View {
         if isActiveMode {
             exitButton
         } else {
-            aiPromptsButton
+            HStack(spacing: AppTheme.Spacing.sm) {
+                aiPromptsButton
+                backgroundButton
+            }
         }
     }
     
@@ -197,7 +201,22 @@ struct FloatingHUDLayer: View {
         }
         .accessibilityLabel("AI Prompts")
     }
-    
+
+    private var backgroundButton: some View {
+        Button {
+            onBackgroundTap()
+            HapticFeedback.impact(.light)
+        } label: {
+            Image(systemName: "rectangle.on.rectangle")
+                .font(.system(size: 20, weight: .medium))
+                .foregroundStyle(AppColors.textSecondary)
+                .frame(width: 48, height: 48)
+                .background(AppColors.surfaceTertiary.opacity(0.8))
+                .clipShape(Circle())
+        }
+        .accessibilityLabel("Background")
+    }
+
     private var profileButton: some View {
         Button {
             onProfileTap()
@@ -237,7 +256,8 @@ struct FloatingHUDLayer: View {
         FloatingHUDLayer(
             store: .preview,
             onProfileTap: {},
-            onPromptsTap: {}
+            onPromptsTap: {},
+            onBackgroundTap: {}
         )
     }
 }
@@ -248,7 +268,8 @@ struct FloatingHUDLayer: View {
         FloatingHUDLayer(
             store: .previewReadAloud,
             onProfileTap: {},
-            onPromptsTap: {}
+            onPromptsTap: {},
+            onBackgroundTap: {}
         )
     }
 }
@@ -259,7 +280,8 @@ struct FloatingHUDLayer: View {
         FloatingHUDLayer(
             store: .previewListening,
             onProfileTap: {},
-            onPromptsTap: {}
+            onPromptsTap: {},
+            onBackgroundTap: {}
         )
     }
 }
@@ -270,7 +292,8 @@ struct FloatingHUDLayer: View {
         FloatingHUDLayer(
             store: .previewCelebrating,
             onProfileTap: {},
-            onPromptsTap: {}
+            onPromptsTap: {},
+            onBackgroundTap: {}
         )
     }
 }

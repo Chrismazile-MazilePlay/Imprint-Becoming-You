@@ -111,6 +111,9 @@ struct PracticePageView: View {
     /// progress-based interpolation already handles the visual transition.
     @State private var displayedBackgroundCategory: GoalCategory?
 
+    /// Controls presentation of the background selection sheet.
+    @State private var showingBackgroundSheet = false
+
     // MARK: - Computed Properties
 
     /// Builder that assembles the layered view composition.
@@ -194,7 +197,8 @@ struct PracticePageView: View {
                 // Top HUD (doesn't move with gesture)
                 builder.buildHUD(
                     onProfileTap: onNavigateToProfile,
-                    onPromptsTap: onNavigateToPrompts
+                    onPromptsTap: onNavigateToPrompts,
+                    onBackgroundTap: { showingBackgroundSheet = true }
                 )
                 .simultaneousGesture(
                     TapGesture()
@@ -215,6 +219,9 @@ struct PracticePageView: View {
                 )
             }
             .ignoresSafeArea(edges: .bottom)
+        }
+        .sheet(isPresented: $showingBackgroundSheet) {
+            BackgroundSheetView()
         }
         .onAppear {
             // Initialize background to current category

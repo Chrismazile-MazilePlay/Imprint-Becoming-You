@@ -128,15 +128,18 @@ struct PracticePageViewBuilder {
     /// - Parameters:
     ///   - onProfileTap: Callback when profile button is tapped
     ///   - onPromptsTap: Callback when prompts button is tapped
+    ///   - onBackgroundTap: Callback when background button is tapped
     /// - Returns: `FloatingHUDLayer` configured with the store
     func buildHUD(
         onProfileTap: @escaping () -> Void,
-        onPromptsTap: @escaping () -> Void
+        onPromptsTap: @escaping () -> Void,
+        onBackgroundTap: @escaping () -> Void
     ) -> FloatingHUDLayer {
         FloatingHUDLayer(
             store: store,
             onProfileTap: onProfileTap,
-            onPromptsTap: onPromptsTap
+            onPromptsTap: onPromptsTap,
+            onBackgroundTap: onBackgroundTap
         )
     }
 

@@ -96,6 +96,13 @@ struct TabbedPageView<Header: View, Pages: View>: View {
     /// Tab content views (must match label count).
     var pages: Pages
 
+    /// Optional callback reporting the active tab's vertical scroll offset.
+    ///
+    /// Fired whenever the active tab scrolls vertically or the active tab changes.
+    /// Parent views use this to drive scroll-dependent UI transitions such as
+    /// collapsing title bars.
+    var onActiveScrollOffsetChange: ((CGFloat) -> Void)?
+
     // MARK: - State
 
     /// Currently active tab, identified by `TabLabel.title`.
@@ -135,16 +142,19 @@ struct TabbedPageView<Header: View, Pages: View>: View {
     ///
     /// - Parameters:
     ///   - displaysSymbols: Show SF Symbols in the tab bar instead of text.
+    ///   - onActiveScrollOffsetChange: Optional callback reporting the active tab's Y scroll offset.
     ///   - header: A sticky header view pinned above the tab content.
     ///   - labels: Tab definitions built via `TabLabelBuilder`.
     ///   - pages: Tab content views built via `@ViewBuilder`.
     init(
         displaysSymbols: Bool = false,
+        onActiveScrollOffsetChange: ((CGFloat) -> Void)? = nil,
         @ViewBuilder header: @escaping () -> Header,
         @TabLabelBuilder labels: @escaping () -> [TabLabel],
         @ViewBuilder pages: @escaping () -> Pages
     ) {
         self.displaysSymbols = displaysSymbols
+        self.onActiveScrollOffsetChange = onActiveScrollOffsetChange
         self.header = header()
         self.labels = labels()
         self.pages = pages()
@@ -203,6 +213,12 @@ struct TabbedPageView<Header: View, Pages: View>: View {
                 guard activeTab == nil else { return }
                 activeTab = labels.first?.title
             }
+            .onChange(of: activeTab) { _, newTab in
+                // Report new active tab's scroll offset on tab switch
+                guard let newTab,
+                      let index = labels.firstIndex(where: { $0.title == newTab }) else { return }
+                onActiveScrollOffsetChange?(scrollOffsetsY[index])
+            }
         }
     }
 
@@ -249,6 +265,11 @@ struct TabbedPageView<Header: View, Pages: View>: View {
             $0.contentOffset.y + $0.contentInsets.top
         }, action: { _, newValue in
             scrollOffsetsY[index] = newValue
+
+            // Notify parent of active tab's scroll offset
+            if activeTab == label.title {
+                onActiveScrollOffsetChange?(newValue)
+            }
 
             if hasHeader && newValue < 0 {
                 resetScrollViews(label)
@@ -433,14 +454,17 @@ extension TabbedPageView where Header == EmptyView {
     ///
     /// - Parameters:
     ///   - displaysSymbols: Show SF Symbols in the tab bar instead of text.
+    ///   - onActiveScrollOffsetChange: Optional callback reporting the active tab's Y scroll offset.
     ///   - labels: Tab definitions built via `TabLabelBuilder`.
     ///   - pages: Tab content views built via `@ViewBuilder`.
     init(
         displaysSymbols: Bool = false,
+        onActiveScrollOffsetChange: ((CGFloat) -> Void)? = nil,
         @TabLabelBuilder labels: @escaping () -> [TabLabel],
         @ViewBuilder pages: @escaping () -> Pages
     ) {
         self.displaysSymbols = displaysSymbols
+        self.onActiveScrollOffsetChange = onActiveScrollOffsetChange
         self.header = nil
         self.labels = labels()
         self.pages = pages()

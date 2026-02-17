@@ -161,6 +161,9 @@ final class BackgroundMusicService: BackgroundMusicServiceProtocol {
     /// random track. Resets track history for the new category.
     /// - Parameter category: The music category to play.
     func play(category: MusicCategory) {
+        // If already playing this category, don't restart
+        guard category != currentCategory || !isPlaying else { return }
+
         // Stop any current playback
         stop()
 

@@ -30,6 +30,15 @@ protocol BackgroundMusicServiceProtocol: AnyObject {
     /// Current volume level (0.0–1.0).
     var volume: Float { get }
 
+    /// The current track index within the active category.
+    var currentTrackIndex: Int { get }
+
+    /// The total number of tracks in the current category (0 if stopped).
+    var currentTrackCount: Int { get }
+
+    /// The current playback mode (repeat single track or shuffle).
+    var playbackMode: MusicPlaybackMode { get }
+
     /// Attaches the music player node to the audio engine.
     ///
     /// Must be called before `play()`. Connects the internal
@@ -71,4 +80,25 @@ protocol BackgroundMusicServiceProtocol: AnyObject {
     ///
     /// Does nothing if no track is currently loaded.
     func rescheduleCurrentTrack()
+
+    /// Sets the playback mode.
+    ///
+    /// - ``MusicPlaybackMode/repeatTrack``: Current track loops infinitely.
+    /// - ``MusicPlaybackMode/shuffle``: Random different track when current ends.
+    ///
+    /// Takes effect immediately on the currently playing track.
+    /// - Parameter mode: The desired playback mode.
+    func setPlaybackMode(_ mode: MusicPlaybackMode)
+
+    /// Skips to the next track in the current category.
+    ///
+    /// - Repeat mode: Next sequential track (wraps around).
+    /// - Shuffle mode: Random different track (avoids immediate repeat).
+    func skipForward()
+
+    /// Skips to the previous track in the current category.
+    ///
+    /// - Repeat mode: Previous sequential track (wraps around).
+    /// - Shuffle mode: Returns to the previously played track (history-based).
+    func skipBackward()
 }

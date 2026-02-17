@@ -20,6 +20,9 @@ final class MockBackgroundMusicService: BackgroundMusicServiceProtocol {
     private(set) var isPlaying: Bool = false
     private(set) var currentCategory: MusicCategory?
     private(set) var volume: Float = Constants.Audio.backgroundMusicVolume
+    private(set) var currentTrackIndex: Int = 0
+    var currentTrackCount: Int { currentCategory?.trackCount ?? 0 }
+    private(set) var playbackMode: MusicPlaybackMode = .repeatTrack
 
     // MARK: - BackgroundMusicServiceProtocol
 
@@ -57,5 +60,19 @@ final class MockBackgroundMusicService: BackgroundMusicServiceProtocol {
 
     func rescheduleCurrentTrack() {
         // No-op for mock
+    }
+
+    func setPlaybackMode(_ mode: MusicPlaybackMode) {
+        playbackMode = mode
+    }
+
+    func skipForward() {
+        guard let category = currentCategory else { return }
+        currentTrackIndex = (currentTrackIndex + 1) % category.trackCount
+    }
+
+    func skipBackward() {
+        guard let category = currentCategory else { return }
+        currentTrackIndex = (currentTrackIndex - 1 + category.trackCount) % category.trackCount
     }
 }

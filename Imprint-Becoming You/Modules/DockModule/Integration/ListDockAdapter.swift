@@ -94,6 +94,9 @@ final class ListDockAdapter: DockAdapterProtocol {
     /// The current background music volume (0.0–1.0).
     var musicVolume: Float = 0.15
 
+    /// The current music playback mode.
+    var musicPlaybackMode: DockMusicPlaybackMode = .repeatTrack
+
     /// Whether the shuffle option appears in the config menu.
     ///
     /// Set to `true` for Favorites, Saved Sessions, and Results views.
@@ -196,6 +199,15 @@ final class ListDockAdapter: DockAdapterProtocol {
     /// the local `musicVolume` property.
     var onMusicVolumeChangeHandler: ((Float) -> Void)?
 
+    /// Called when the user taps the skip-forward button.
+    var onSkipMusicForwardHandler: (() -> Void)?
+
+    /// Called when the user taps the skip-backward button.
+    var onSkipMusicBackwardHandler: (() -> Void)?
+
+    /// Called when the user toggles between repeat and shuffle mode.
+    var onSelectMusicPlaybackModeHandler: ((DockMusicPlaybackMode) -> Void)?
+
     // MARK: - Initialization
 
     /// Creates a list dock adapter.
@@ -253,7 +265,7 @@ final class ListDockAdapter: DockAdapterProtocol {
 
     func selectMusic(_ category: DockMusicCategory) {
         musicCategory = category
-        expandedSelector = nil
+        // Menu stays open — non-dismissing pattern (like ConfigSelectorExpanded)
 
         // Route to PracticeStore if handler is set, so background music
         // playback is controlled centrally and persists across contexts.
@@ -263,6 +275,20 @@ final class ListDockAdapter: DockAdapterProtocol {
     func setMusicVolume(_ volume: Float) {
         musicVolume = volume
         onMusicVolumeChangeHandler?(volume)
+    }
+
+    func skipMusicForward() {
+        onSkipMusicForwardHandler?()
+    }
+
+    func skipMusicBackward() {
+        onSkipMusicBackwardHandler?()
+    }
+
+    func selectMusicPlaybackMode(_ mode: DockMusicPlaybackMode) {
+        guard mode != musicPlaybackMode else { return }
+        musicPlaybackMode = mode
+        onSelectMusicPlaybackModeHandler?(mode)
     }
 
     // MARK: - Navigation Actions (No-op)

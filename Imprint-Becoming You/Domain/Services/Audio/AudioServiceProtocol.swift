@@ -99,6 +99,26 @@ protocol AudioServiceProtocol: AnyObject {
     /// - Parameter volume: Volume level (0.0–1.0).
     func setBackgroundMusicVolume(_ volume: Float)
 
+    /// The current background music playback mode.
+    var musicPlaybackMode: MusicPlaybackMode { get }
+
+    /// The current track index within the active music category.
+    var currentMusicTrackIndex: Int { get }
+
+    /// The total number of tracks in the current music category (0 if stopped).
+    var currentMusicTrackCount: Int { get }
+
+    /// Skips to the next background music track.
+    func skipBackgroundMusicForward()
+
+    /// Skips to the previous background music track.
+    func skipBackgroundMusicBackward()
+
+    /// Sets the background music playback mode.
+    ///
+    /// - Parameter mode: The desired playback mode.
+    func setBackgroundMusicPlaybackMode(_ mode: MusicPlaybackMode)
+
     // MARK: - Audio Playback
 
     /// Plays an audio file from the cache.

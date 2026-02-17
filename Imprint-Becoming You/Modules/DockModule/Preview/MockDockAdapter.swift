@@ -91,6 +91,9 @@ public final class MockDockAdapter: DockAdapterProtocol {
     /// The current background music volume (0.0–1.0).
     public var musicVolume: Float = 0.15
 
+    /// The current music playback mode.
+    public var musicPlaybackMode: DockMusicPlaybackMode = .repeatTrack
+
     /// Whether the shuffle option appears in the config menu.
     public var showsShuffleOption: Bool = false
 
@@ -157,7 +160,7 @@ public final class MockDockAdapter: DockAdapterProtocol {
     /// Handles background music category selection.
     public func selectMusic(_ category: DockMusicCategory) {
         musicCategory = category
-        expandedSelector = nil
+        // Menu stays open — non-dismissing pattern
         #if DEBUG
         print("[MockDockAdapter] Selected music: \(category.displayName)")
         #endif
@@ -168,6 +171,29 @@ public final class MockDockAdapter: DockAdapterProtocol {
         musicVolume = volume
         #if DEBUG
         print("[MockDockAdapter] Music volume: \(String(format: "%.2f", volume))")
+        #endif
+    }
+
+    /// Handles skip forward.
+    public func skipMusicForward() {
+        #if DEBUG
+        print("[MockDockAdapter] Skip forward")
+        #endif
+    }
+
+    /// Handles skip backward.
+    public func skipMusicBackward() {
+        #if DEBUG
+        print("[MockDockAdapter] Skip backward")
+        #endif
+    }
+
+    /// Selects the specified playback mode.
+    public func selectMusicPlaybackMode(_ mode: DockMusicPlaybackMode) {
+        guard mode != musicPlaybackMode else { return }
+        musicPlaybackMode = mode
+        #if DEBUG
+        print("[MockDockAdapter] Playback mode: \(musicPlaybackMode)")
         #endif
     }
 

@@ -104,6 +104,9 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
     /// Default is `0.15`. The dock's volume slider reads and writes this value.
     var musicVolume: Float { get }
 
+    /// The current music playback mode (repeat single track or shuffle).
+    var musicPlaybackMode: DockMusicPlaybackMode { get }
+
     /// Called when the user adjusts the music volume slider.
     ///
     /// The adapter should forward the value to the audio service for
@@ -223,11 +226,25 @@ public protocol DockAdapterProtocol: AnyObject, Observable {
 
     /// Called when the user selects a background music category from the selector.
     ///
-    /// The adapter should update its internal state and close the selector.
+    /// The adapter should update its internal state. The menu remains open
+    /// (non-dismissing pattern) so users can adjust volume and transport controls.
     ///
     /// - Parameter category: The newly selected music category
     func selectMusic(_ category: DockMusicCategory)
-    
+
+    /// Called when the user taps the skip-forward button in the music controls.
+    func skipMusicForward()
+
+    /// Called when the user taps the skip-backward button in the music controls.
+    func skipMusicBackward()
+
+    /// Called when the user taps the repeat or shuffle button to select that mode.
+    ///
+    /// If the requested mode is already active, the implementation should no-op.
+    ///
+    /// - Parameter mode: The playback mode to activate
+    func selectMusicPlaybackMode(_ mode: DockMusicPlaybackMode)
+
     // MARK: - Navigation Actions
     
     /// Called when the user taps the previous navigation button.
@@ -361,6 +378,18 @@ public extension DockAdapterProtocol {
 
     /// Default music volume setter — no-op.
     func setMusicVolume(_ volume: Float) { }
+
+    /// Default music playback mode — repeat.
+    var musicPlaybackMode: DockMusicPlaybackMode { .repeatTrack }
+
+    /// Default skip forward — no-op.
+    func skipMusicForward() { }
+
+    /// Default skip backward — no-op.
+    func skipMusicBackward() { }
+
+    /// Default select playback mode — no-op.
+    func selectMusicPlaybackMode(_ mode: DockMusicPlaybackMode) { }
 
     /// Default shuffle option visibility — hidden.
     var showsShuffleOption: Bool { false }

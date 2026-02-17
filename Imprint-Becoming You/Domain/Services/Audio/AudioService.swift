@@ -237,6 +237,38 @@ final class AudioService: AudioServiceProtocol {
         backgroundMusicService.setVolume(volume)
     }
 
+    /// The current background music playback mode.
+    var musicPlaybackMode: MusicPlaybackMode {
+        backgroundMusicService.playbackMode
+    }
+
+    /// The current track index within the active music category.
+    var currentMusicTrackIndex: Int {
+        backgroundMusicService.currentTrackIndex
+    }
+
+    /// The total number of tracks in the current music category.
+    var currentMusicTrackCount: Int {
+        backgroundMusicService.currentTrackCount
+    }
+
+    /// Skips to the next background music track.
+    func skipBackgroundMusicForward() {
+        backgroundMusicService.skipForward()
+    }
+
+    /// Skips to the previous background music track.
+    func skipBackgroundMusicBackward() {
+        backgroundMusicService.skipBackward()
+    }
+
+    /// Sets the background music playback mode.
+    ///
+    /// - Parameter mode: The desired playback mode.
+    func setBackgroundMusicPlaybackMode(_ mode: MusicPlaybackMode) {
+        backgroundMusicService.setPlaybackMode(mode)
+    }
+
     // MARK: - Audio Playback
 
     /// Plays a cached audio file.

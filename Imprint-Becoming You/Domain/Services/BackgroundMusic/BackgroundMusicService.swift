@@ -12,6 +12,30 @@ import os.log
 
 private let musicLog = Logger(subsystem: "com.imprint.audio", category: "BackgroundMusic")
 
+// MARK: - BackgroundMusicPlayerDelegate
+
+/// Trampoline delegate for detecting track completion.
+///
+/// `BackgroundMusicService` is `@MainActor` and cannot directly conform to
+/// `AVAudioPlayerDelegate` (which requires `NSObjectProtocol`). This lightweight
+/// `NSObject` subclass forwards `audioPlayerDidFinishPlaying` back to the
+/// service on `@MainActor`.
+private final class BackgroundMusicPlayerDelegate: NSObject, AVAudioPlayerDelegate {
+
+    /// Callback invoked when the track finishes playing.
+    let onFinish: @MainActor @Sendable () -> Void
+
+    init(onFinish: @MainActor @Sendable @escaping () -> Void) {
+        self.onFinish = onFinish
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in
+            self.onFinish()
+        }
+    }
+}
+
 // MARK: - BackgroundMusicService
 
 /// Plays looping background music during practice sessions.
@@ -35,10 +59,16 @@ private let musicLog = Logger(subsystem: "com.imprint.audio", category: "Backgro
 /// are still called by `AudioService`, but background music no longer
 /// touches the engine.
 ///
-/// ## Looping
-/// `AVAudioPlayer` supports native infinite looping via `numberOfLoops = -1`.
-/// All bundled tracks have 2-second fade-in/out edges baked in, so the
-/// loop point is seamless at the default volume.
+/// ## Playback Modes
+/// - **Repeat** (default): Single track loops infinitely via `numberOfLoops = -1`.
+/// - **Shuffle**: Track plays once (`numberOfLoops = 0`), then
+///   `BackgroundMusicPlayerDelegate` triggers auto-advance to a random
+///   different track.
+///
+/// ## Track Navigation
+/// Skip forward/backward respects the current playback mode:
+/// - Repeat: Sequential order (wraps around).
+/// - Shuffle: Random selection (forward) or history-based (backward).
 ///
 /// ## Thread Safety
 /// `@MainActor` isolated. All playback control and state mutation happens on main.
@@ -50,6 +80,9 @@ final class BackgroundMusicService: BackgroundMusicServiceProtocol {
     /// The audio player for background music (independent of AVAudioEngine).
     private var audioPlayer: AVAudioPlayer?
 
+    /// Delegate trampoline for track-finished detection (shuffle auto-advance).
+    private var playerDelegate: BackgroundMusicPlayerDelegate?
+
     /// Whether background music is currently playing.
     private(set) var isPlaying: Bool = false
 
@@ -59,6 +92,31 @@ final class BackgroundMusicService: BackgroundMusicServiceProtocol {
     /// Current volume level (0.0–1.0).
     private(set) var volume: Float
 
+    /// The current track index within the active category.
+    private(set) var currentTrackIndex: Int = 0
+
+    /// The total number of tracks in the current category (0 if stopped).
+    var currentTrackCount: Int { currentCategory?.trackCount ?? 0 }
+
+    /// The current playback mode.
+    private(set) var playbackMode: MusicPlaybackMode = .repeatTrack
+
+    // MARK: - Shuffle History
+
+    /// History of played track indices for shuffle-back navigation.
+    ///
+    /// Each entry is the track index that was played. The most recent
+    /// entry is at the end. Used by `skipBackward()` in shuffle mode
+    /// to return to previously played tracks.
+    private var trackHistory: [Int] = []
+
+    /// Current position within `trackHistory`.
+    ///
+    /// Points to the currently playing track's position in history.
+    /// `skipBackward()` decrements this; `skipForward()` increments
+    /// (if not at the end, replays from history rather than picking new).
+    private var historyPosition: Int = -1
+
     // MARK: - Initialization
 
     /// Creates a new BackgroundMusicService.
@@ -66,6 +124,11 @@ final class BackgroundMusicService: BackgroundMusicServiceProtocol {
     /// - Parameter volume: Initial volume level (defaults to `Constants.Audio.backgroundMusicVolume`).
     init(volume: Float = Constants.Audio.backgroundMusicVolume) {
         self.volume = volume
+
+        // Create the delegate once — it will be wired to players as needed
+        self.playerDelegate = BackgroundMusicPlayerDelegate { [weak self] in
+            self?.handleTrackFinished()
+        }
     }
 
     // MARK: - Engine Attachment (No-Ops)
@@ -92,58 +155,37 @@ final class BackgroundMusicService: BackgroundMusicServiceProtocol {
 
     // MARK: - Playback
 
-    /// Starts playing a random track from the given category, looping continuously.
+    /// Starts playing a track from the given category.
     ///
-    /// If already playing, stops the current track first.
-    /// Uses `AVAudioPlayer` with `numberOfLoops = -1` for seamless infinite looping.
+    /// In repeat mode, plays track at index 0. In shuffle mode, plays a
+    /// random track. Resets track history for the new category.
     /// - Parameter category: The music category to play.
     func play(category: MusicCategory) {
         // Stop any current playback
         stop()
 
-        // Pick a random track from the category
-        let fileName = category.randomTrackFileName()
-        let fileNameWithoutExtension = fileName.replacingOccurrences(of: ".mp3", with: "")
+        // Reset history for new category
+        trackHistory = []
+        historyPosition = -1
 
-        guard let url = Bundle.main.url(
-            forResource: fileNameWithoutExtension,
-            withExtension: "mp3",
-            subdirectory: category.subdirectory
-        ) else {
-            musicLog.error("❌ Track not found: \(category.subdirectory)/\(fileName)")
-            return
-        }
-
-        // Create AVAudioPlayer
-        let player: AVAudioPlayer
-        do {
-            player = try AVAudioPlayer(contentsOf: url)
-        } catch {
-            musicLog.error("❌ Failed to create audio player: \(error.localizedDescription)")
-            return
-        }
-
-        // Configure for infinite looping
-        player.numberOfLoops = -1
-        player.volume = volume
-        player.prepareToPlay()
-
-        // Start playback
-        if player.play() {
-            audioPlayer = player
-            currentCategory = category
-            isPlaying = true
-            musicLog.info("🎵 Playing: \(category.rawValue)/\(fileName)")
+        // Pick starting track based on mode
+        let startIndex: Int
+        if playbackMode == .shuffle {
+            startIndex = Int.random(in: 0..<category.trackCount)
         } else {
-            musicLog.error("❌ AVAudioPlayer.play() returned false for: \(fileName)")
+            startIndex = 0
         }
+
+        playTrack(at: startIndex, in: category)
     }
 
     /// Stops playback and releases the current audio player.
     func stop() {
         audioPlayer?.stop()
+        audioPlayer?.delegate = nil
         audioPlayer = nil
         currentCategory = nil
+        currentTrackIndex = 0
         isPlaying = false
     }
 
@@ -178,5 +220,202 @@ final class BackgroundMusicService: BackgroundMusicServiceProtocol {
     /// affected by engine restarts — it continues playing independently.
     func rescheduleCurrentTrack() {
         musicLog.debug("rescheduleCurrentTrack() called — no-op (AVAudioPlayer is engine-independent)")
+    }
+
+    // MARK: - Playback Mode
+
+    /// Sets the playback mode, updating the current player immediately.
+    ///
+    /// - Switching to `.repeatTrack`: Sets `numberOfLoops = -1` and removes delegate.
+    /// - Switching to `.shuffle`: Sets `numberOfLoops = 0` and wires delegate
+    ///   for auto-advance when the track finishes.
+    /// - Parameter mode: The desired playback mode.
+    func setPlaybackMode(_ mode: MusicPlaybackMode) {
+        guard playbackMode != mode else { return }
+        playbackMode = mode
+
+        // Update the current player if one is active
+        guard let player = audioPlayer else { return }
+
+        switch mode {
+        case .repeatTrack:
+            player.numberOfLoops = -1
+            player.delegate = nil
+            musicLog.debug("Playback mode → repeat (numberOfLoops = -1)")
+
+        case .shuffle:
+            player.numberOfLoops = 0
+            player.delegate = playerDelegate
+            musicLog.debug("Playback mode → shuffle (numberOfLoops = 0, delegate wired)")
+        }
+    }
+
+    // MARK: - Track Navigation
+
+    /// Skips to the next track in the current category.
+    ///
+    /// - Repeat mode: Advances sequentially (wraps around via modular arithmetic).
+    /// - Shuffle mode: Picks a random different track (avoids immediate repeat).
+    ///   If navigating forward through existing history, replays that entry instead.
+    func skipForward() {
+        guard let category = currentCategory else { return }
+
+        let nextIndex: Int
+
+        switch playbackMode {
+        case .repeatTrack:
+            nextIndex = currentTrackIndex + 1 // playTrack wraps via trackFileName(at:)
+
+        case .shuffle:
+            // Check if we can move forward in existing history
+            if historyPosition < trackHistory.count - 1 {
+                historyPosition += 1
+                nextIndex = trackHistory[historyPosition]
+                playTrack(at: nextIndex, in: category, appendToHistory: false)
+                return
+            }
+            // Pick a random different track
+            nextIndex = randomDifferentIndex(excluding: currentTrackIndex, count: category.trackCount)
+        }
+
+        playTrack(at: nextIndex, in: category)
+    }
+
+    /// Skips to the previous track in the current category.
+    ///
+    /// - Repeat mode: Goes to previous sequential track (wraps around).
+    /// - Shuffle mode: Returns to the previously played track from history.
+    func skipBackward() {
+        guard let category = currentCategory else { return }
+
+        let prevIndex: Int
+
+        switch playbackMode {
+        case .repeatTrack:
+            prevIndex = currentTrackIndex - 1 // playTrack wraps via trackFileName(at:)
+
+        case .shuffle:
+            // Go back in history if possible
+            guard historyPosition > 0 else {
+                // At the beginning of history — replay current track from start
+                audioPlayer?.currentTime = 0
+                audioPlayer?.play()
+                isPlaying = true
+                return
+            }
+            historyPosition -= 1
+            prevIndex = trackHistory[historyPosition]
+            playTrack(at: prevIndex, in: category, appendToHistory: false)
+            return
+        }
+
+        playTrack(at: prevIndex, in: category)
+    }
+
+    // MARK: - Private Helpers
+
+    /// Core track loading method.
+    ///
+    /// Loads a track from the bundle, configures `numberOfLoops` based on
+    /// the current playback mode, sets volume, and starts playback.
+    ///
+    /// - Parameters:
+    ///   - index: The track index (will be wrapped to valid range).
+    ///   - category: The music category containing the track.
+    ///   - appendToHistory: Whether to append this track to shuffle history.
+    ///     Set to `false` when replaying from existing history entries.
+    private func playTrack(at index: Int, in category: MusicCategory, appendToHistory: Bool = true) {
+        // Stop current playback without clearing category/state
+        audioPlayer?.stop()
+        audioPlayer?.delegate = nil
+        audioPlayer = nil
+
+        // Resolve the track filename (wraps index to valid range)
+        let wrappedIndex = ((index % category.trackCount) + category.trackCount) % category.trackCount
+        let fileName = category.trackFileName(at: wrappedIndex)
+        let fileNameWithoutExtension = fileName.replacingOccurrences(of: ".mp3", with: "")
+
+        guard let url = Bundle.main.url(
+            forResource: fileNameWithoutExtension,
+            withExtension: "mp3",
+            subdirectory: category.subdirectory
+        ) else {
+            musicLog.error("❌ Track not found: \(category.subdirectory)/\(fileName)")
+            return
+        }
+
+        // Create AVAudioPlayer
+        let player: AVAudioPlayer
+        do {
+            player = try AVAudioPlayer(contentsOf: url)
+        } catch {
+            musicLog.error("❌ Failed to create audio player: \(error.localizedDescription)")
+            return
+        }
+
+        // Configure based on playback mode
+        switch playbackMode {
+        case .repeatTrack:
+            player.numberOfLoops = -1
+            player.delegate = nil
+
+        case .shuffle:
+            player.numberOfLoops = 0
+            player.delegate = playerDelegate
+        }
+
+        player.volume = volume
+        player.prepareToPlay()
+
+        // Start playback
+        if player.play() {
+            audioPlayer = player
+            currentCategory = category
+            currentTrackIndex = wrappedIndex
+            isPlaying = true
+
+            // Update shuffle history
+            if appendToHistory {
+                // Trim any forward history beyond current position
+                if historyPosition < trackHistory.count - 1 {
+                    trackHistory = Array(trackHistory.prefix(historyPosition + 1))
+                }
+                trackHistory.append(wrappedIndex)
+                historyPosition = trackHistory.count - 1
+            }
+
+            musicLog.info("🎵 Playing: \(category.rawValue)/\(fileName) [index=\(wrappedIndex), mode=\(self.playbackMode.rawValue)]")
+        } else {
+            musicLog.error("❌ AVAudioPlayer.play() returned false for: \(fileName)")
+        }
+    }
+
+    /// Picks a random track index different from the excluded one.
+    ///
+    /// For single-track categories (count == 1), returns the only index (0).
+    /// - Parameters:
+    ///   - excluding: The index to avoid repeating.
+    ///   - count: Total number of tracks in the category.
+    /// - Returns: A random index ≠ `excluding`, or `excluding` if only 1 track.
+    private func randomDifferentIndex(excluding: Int, count: Int) -> Int {
+        guard count > 1 else { return 0 }
+        var next: Int
+        repeat {
+            next = Int.random(in: 0..<count)
+        } while next == excluding
+        return next
+    }
+
+    /// Handles track completion in shuffle mode.
+    ///
+    /// Called by `BackgroundMusicPlayerDelegate` when the current track
+    /// finishes playing (only fires when `numberOfLoops = 0`).
+    /// Picks a random different track and auto-advances.
+    private func handleTrackFinished() {
+        guard playbackMode == .shuffle, let category = currentCategory else { return }
+
+        let nextIndex = randomDifferentIndex(excluding: currentTrackIndex, count: category.trackCount)
+        musicLog.debug("Shuffle auto-advance: \(self.currentTrackIndex) → \(nextIndex)")
+        playTrack(at: nextIndex, in: category)
     }
 }

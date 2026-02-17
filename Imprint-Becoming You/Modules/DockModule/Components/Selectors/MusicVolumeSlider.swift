@@ -60,6 +60,12 @@ public struct MusicVolumeSlider: View {
     /// Called continuously as the user drags the slider.
     public let onVolumeChange: (Float) -> Void
 
+    /// Whether to show the standalone background and border.
+    ///
+    /// Set to `false` when the slider is embedded inside a parent view
+    /// that provides its own background (e.g., `MusicSelectorExpanded`).
+    public let showsBackground: Bool
+
     // MARK: - Local State
 
     /// Whether the user is currently dragging.
@@ -69,9 +75,11 @@ public struct MusicVolumeSlider: View {
 
     public init(
         volume: Float,
+        showsBackground: Bool = true,
         onVolumeChange: @escaping (Float) -> Void
     ) {
         self.volume = volume
+        self.showsBackground = showsBackground
         self.onVolumeChange = onVolumeChange
     }
 
@@ -154,14 +162,18 @@ public struct MusicVolumeSlider: View {
         }
         .padding(.horizontal, tokens.spacingMD)
         .padding(.vertical, tokens.spacingSM + 2)
-        .background(
-            RoundedRectangle(cornerRadius: tokens.cornerRadiusLarge)
-                .fill(tokens.backgroundSecondary.opacity(0.95))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: tokens.cornerRadiusLarge)
-                .stroke(tokens.textTertiary.opacity(0.1), lineWidth: 1)
-        )
+        .background {
+            if showsBackground {
+                RoundedRectangle(cornerRadius: tokens.cornerRadiusLarge)
+                    .fill(tokens.backgroundSecondary.opacity(0.95))
+            }
+        }
+        .overlay {
+            if showsBackground {
+                RoundedRectangle(cornerRadius: tokens.cornerRadiusLarge)
+                    .stroke(tokens.textTertiary.opacity(0.1), lineWidth: 1)
+            }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Music volume")
         .accessibilityValue("\(Int(volume * 100)) percent")

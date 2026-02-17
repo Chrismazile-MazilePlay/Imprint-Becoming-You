@@ -127,6 +127,23 @@ enum MusicCategory: String, CaseIterable, Codable, Identifiable, Sendable {
         }
     }
 
+    /// Number of tracks in this category.
+    var trackCount: Int { trackFileNames.count }
+
+    /// Returns the track filename at the given index, wrapping safely.
+    ///
+    /// Handles both positive overflow and negative indices via modular
+    /// arithmetic, enabling sequential skip-forward and skip-backward
+    /// without bounds checking at the call site.
+    ///
+    /// - Parameter index: Any integer index (wraps to valid range).
+    /// - Returns: The track filename at the wrapped index.
+    func trackFileName(at index: Int) -> String {
+        let count = trackCount
+        let wrappedIndex = ((index % count) + count) % count
+        return trackFileNames[wrappedIndex]
+    }
+
     /// Returns a random track filename from this category.
     func randomTrackFileName() -> String {
         trackFileNames.randomElement() ?? trackFileNames[0]

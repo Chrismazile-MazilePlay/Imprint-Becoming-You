@@ -230,11 +230,29 @@ final class PracticeDockAdapter: DockAdapterProtocol {
     func selectMusic(_ category: DockMusicCategory) {
         let musicCategory = mapDockMusicToCategory(category)
         store.send(.selectBackgroundMusic(musicCategory))
-        expandedSelector = nil
+        // Menu stays open — non-dismissing pattern (like ConfigSelectorExpanded)
     }
 
     func setMusicVolume(_ volume: Float) {
         store.send(.setBackgroundMusicVolume(volume))
+    }
+
+    var musicPlaybackMode: DockMusicPlaybackMode = .repeatTrack
+
+    func skipMusicForward() {
+        store.dependencies.audioService.skipBackgroundMusicForward()
+    }
+
+    func skipMusicBackward() {
+        store.dependencies.audioService.skipBackgroundMusicBackward()
+    }
+
+    func selectMusicPlaybackMode(_ mode: DockMusicPlaybackMode) {
+        guard mode != musicPlaybackMode else { return }
+        musicPlaybackMode = mode
+
+        let domainMode: MusicPlaybackMode = (mode == .repeatTrack) ? .repeatTrack : .shuffle
+        store.dependencies.audioService.setBackgroundMusicPlaybackMode(domainMode)
     }
 
     // MARK: - Navigation Actions
@@ -377,7 +395,7 @@ private extension PracticeDockAdapter {
         guard dockCategory != .off else { return nil }
         return MusicCategory(rawValue: dockCategory.rawValue)
     }
-    
+
     /// Maps PracticeFlow to DockCenterContentState.
     func mapFlowToCenterContent(_ flow: PracticeFlow) -> DockCenterContentState {
         switch flow {

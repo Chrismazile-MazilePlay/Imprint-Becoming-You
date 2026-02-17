@@ -127,29 +127,33 @@ public struct AdaptiveDockContainer<Content: View>: View {
     
     @ViewBuilder
     private var expandedMenus: some View {
-        // Music selector + volume slider — left-aligned (matches left music button)
-        // Both panels present/dismiss together as a single unit.
+        // Music selector with integrated volume + transport controls
+        // Left-aligned (matches left music button position)
         if adapter.expandedSelector == .music {
-            VStack(spacing: tokens.spacingSM) {
-                HStack {
-                    MusicSelectorExpanded(
-                        selectedCategory: adapter.musicCategory
-                    ) { category in
+            HStack {
+                MusicSelectorExpanded(
+                    selectedCategory: adapter.musicCategory,
+                    playbackMode: adapter.musicPlaybackMode,
+                    volume: adapter.musicVolume,
+                    onSelect: { category in
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                             adapter.selectMusic(category)
                         }
-                    }
-                    Spacer(minLength: 0)
-                }
-
-                // Volume slider — only shown when music is playing
-                if adapter.musicCategory != .off {
-                    MusicVolumeSlider(
-                        volume: adapter.musicVolume
-                    ) { newVolume in
+                    },
+                    onVolumeChange: { newVolume in
                         adapter.setMusicVolume(newVolume)
+                    },
+                    onSkipBackward: {
+                        adapter.skipMusicBackward()
+                    },
+                    onSkipForward: {
+                        adapter.skipMusicForward()
+                    },
+                    onSelectPlaybackMode: { mode in
+                        adapter.selectMusicPlaybackMode(mode)
                     }
-                }
+                )
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, tokens.spacingMD)
             .padding(.bottom, tokens.spacingSM)

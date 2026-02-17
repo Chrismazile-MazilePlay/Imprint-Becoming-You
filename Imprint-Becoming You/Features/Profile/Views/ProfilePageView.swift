@@ -18,7 +18,6 @@ enum ProfileDestination: Hashable {
     case savedSessions
     case voiceSettings
     case waveformStyle
-    case backgroundStyle
     case goals
     case account
     case premium
@@ -223,9 +222,6 @@ struct ProfilePageView: View {
             
         case .waveformStyle:
             WaveformSelectionView(selectedType: waveformTypeBinding)
-
-        case .backgroundStyle:
-            BackgroundSelectionView()
 
         case .goals:
             GoalsSettingsView(store: store)
@@ -449,18 +445,6 @@ struct ProfilePageView: View {
                 }
                 .accessibilityLabel("Waveform Style, \(appState.userProfile?.waveformType.displayName ?? "Layered Waves")")
                 .accessibilityHint("Change your waveform visualization style")
-
-                // Background
-                SettingsRow(
-                    icon: "paintpalette.fill",
-                    iconColor: AppColors.accentSecondary,
-                    title: "Background",
-                    subtitle: appState.userProfile?.backgroundStyle.displayName ?? "Morphing Gradient"
-                ) {
-                    navigateTo(.backgroundStyle)
-                }
-                .accessibilityLabel("Background, \(appState.userProfile?.backgroundStyle.displayName ?? "Morphing Gradient")")
-                .accessibilityHint("Change your practice session background")
 
                 // Goals
                 SettingsRow(
